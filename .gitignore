@@ -1,3 +1,40 @@
-node_modules
+# --- Node/ツール系 ---
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+*.log
+logs/
+
+# lockfile は基本コミット推奨（消したいならこの行を削除）
+# （= ここでは ignore しない）
+
+# --- VS Code 開発用 ---
 .vscode-test/
+
+# .vscode は基本コミット推奨。もし一部だけ除外したいなら:
+# .vscode/*
+# !.vscode/launch.json
+# !.vscode/extensions.json
+
+# --- ビルド/生成物（将来 TS 化した場合など）---
+out/
+dist/
+coverage/
+.nyc_output/
+.eslintcache
+
+# --- OS依存 ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- VSIX パッケージ ---
 *.vsix
+
+# --- Code Runner 一時ファイル（VS Code 拡張）---
+tempCodeRunnerFile.*
+scripts/tempCodeRunnerFile.*
+
+# --- 画像/メディア ---
+# icon.png は配布に必要なので ignore しない

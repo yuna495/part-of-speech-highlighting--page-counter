@@ -1,35 +1,111 @@
-# part-of-speech-highlighting---page-counter README
+# 日本語 品詞カラー表示＋ページカウンタ
 
-This is the README for your extension "part-of-speech-highlighting---page-counter". After writing up a brief description, we recommend including the following sections.
+**日本語テキスト向け**の VS Code 拡張です。  
 
-## Features
+- **品詞カラー表示**：`kuromoji` による形態素解析で、品詞ごとに**文字色**を付けます  
+- **ページカウンタ**：原稿用紙風（行×列）で折り返し、**禁則処理**（行頭禁則）に対応  
+- **選択文字数**：選択があるときは**選択範囲の文字数**、無いときは**文書全体の文字数**を表示
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+> 既定では `.txt`（`plaintext`）のみ対象。必要に応じて設定で拡張できます。
 
-For example if there is an image subfolder under your extension project workspace:
+---
 
-\!\[feature X\]\(images/feature-x.png\)
+## 目次
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- [デモ](#デモ)
+- [機能](#機能)
+- [使い方](#使い方)
+- [コマンド](#コマンド)
+- [設定](#設定)
+- [カウント規則](#カウント規則)
+- [推奨ワークフロー](#推奨ワークフロー)
+- [既知の制約](#既知の制約)
+- [トラブルシュート](#トラブルシュート)
+- [変更履歴](#変更履歴)
+- [ライセンス](#ライセンス)
 
-## Requirements
+---
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+## デモ
+>
+> （スクリーンショットをここに貼ってください）
+>
+> - 品詞ごとに文字色が変わる
+> - ステータスバー左側に `現在/全体｜行｜字（行×列）`
 
-## Extension Settings
+---
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## 機能
 
-For example:
+- **品詞カラー表示（文字色）**  
+  - `名詞/動詞/形容詞/副詞/助詞/助動詞/連体詞/接続詞/感動詞/接頭詞/記号/その他` をキーに色を割当て  
+  - 設定値に `inherit` / `default` / `auto` / 空文字（`""`）/ `#46d2e8` を指定すると**エディタ標準色**を使用
+- **ページカウンタ（原稿用紙スタイル）**  
+  - `rowsPerPage × colsPerRow`（例：40×40）で折り返し  
+  - **禁則処理（行頭禁則）**：次文字が禁則文字（`」）』》】。､` など）の場合、前行へぶら下げ
+  - **表示**：`現在ページ/総ページ｜最終文字の「最後のページの行番号」｜文字数（行×列）`
+- **選択文字数**  
+  - 選択があるときはステータスバーの「字」が**選択範囲の文字数**に切り替わる  
+  - 改行（LF）は**文字数に含めない**
 
-This extension contributes the following settings:
+---
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+## 使い方
 
-## Known Issues
+1. 拡張をインストール
+2. `.txt` を開く（既定設定では `plaintext` のみ有効）
+3. ステータスバー左側に `現在/全体｜行｜字（行×列）` が表示されます  
+   - 文字を選択すると「字」は選択文字数になります
+4. 品詞カラーや行×列は設定から変更できます
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+---
+
+## コマンド
+
+- **POS/Page: 品詞ハイライト 有効/無効** — ハイライトの切替
+- **POS/Page: 解析を再適用** — 解析のやり直し
+- **POS/Page: ページカウンタ 有効/無効** — ステータスバー表示の切替
+- **POS/Page: 行×列を設定** — 1ページの行数／1行の文字数を対話的に変更
+
+---
+
+## 設定
+
+> `設定（JSON）` でキーを追加／変更してください。以下は主な項目です。
+
+| キー | 既定値 | 説明 |
+|---|---:|---|
+| `posPage.applyToTxtOnly` | `true` | `.txt`（`plaintext`）のみ対象 |
+| `posPage.debounceMs` | `200` | 入力中の再解析ディレイ（ms） |
+| `posPage.enabledPos` | `true` | 品詞カラー表示の有効化 |
+| `posPage.colors` | *下記例* | 品詞→文字色のマップ。`inherit` 等で**標準色** |
+| `posPage.maxDocLength` | `200000` | 大きすぎる文書の安全弁 |
+| `posPage.enabledPage` | `true` | ステータスバー表示の有効化 |
+| `posPage.page.rowsPerPage` | `20` | 1ページの行数 |
+| `posPage.page.colsPerRow` | `20` | 1行の文字数 |
+| `posPage.kinsoku.enabled` | `true` | 行頭禁則を有効にする |
+| `posPage.kinsoku.bannedStart` | `["」","）","』","》","】","。","、"]` | 行頭に来ない文字のリスト |
+
+### 品詞カラー例（濃色）
+
+setting.jsonにて指定してください。
+
+```jsonc
+"posPage.colors": {
+  "名詞": "inherit",
+  "動詞": "#11ff84",
+  "形容詞": "#fd9bcc",
+  "副詞": "#ffd900",
+  "助詞": "inherit",
+  "助動詞": "inherit",
+  "連体詞": "inherit",
+  "接続詞": "#ff14e0",
+  "感動詞": "inherit",
+  "接頭詞": "inherit",
+  "記号": "inherit",
+  "その他": "inherit"
+}
+```
 
 ## Release Notes
 
@@ -37,29 +113,6 @@ Users appreciate release notes as you update your extension.
 
 ### 1.0.0
 
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+Initial release of "日本語 品詞カラー表示＋ページカウンタ"
 
 ---
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**

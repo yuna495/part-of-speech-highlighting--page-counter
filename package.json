@@ -1,33 +1,148 @@
 {
   "name": "part-of-speech-highlighting---page-counter",
-  "displayName": "Part of speech highlighting & page counter",
-  "description": "Part of speech highlighting & page counter",
-  "version": "0.0.1",
+  "displayName": "日本語 品詞カラー表示＋ページカウンタ",
+  "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
+  "version": "1.0.0",
+  "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "keywords": [
+    "Japanese",
+    "kuromoji",
+    "POS",
+    "morphological analysis",
+    "page counter",
+    "kinsoku",
+    "genko-yoshi"
+  ],
   "main": "./extension.js",
+  "icon": "icon.png",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onLanguage:plaintext",
+    "onLanguage:novel"
+  ],
   "contributes": {
-    "commands": [{
-      "command": "part-of-speech-highlighting---page-counter.helloWorld",
-      "title": "Hello World"
-    }]
+    "commands": [
+      {
+        "command": "posPage.togglePos",
+        "title": "POS/Page: 品詞ハイライト 有効/無効"
+      },
+      {
+        "command": "posPage.refreshPos",
+        "title": "POS/Page: 解析を再適用"
+      },
+      {
+        "command": "posPage.togglePageCounter",
+        "title": "POS/Page: ページカウンタ 有効/無効"
+      },
+      {
+        "command": "posPage.setPageSize",
+        "title": "POS/Page: 行×列を設定"
+      }
+    ],
+    "configuration": {
+      "title": "POS & Page (Japanese)",
+      "properties": {
+        "posPage.applyToTxtOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": ".txt（languageId: plaintext）のみ対象にする"
+        },
+        "posPage.debounceMs": {
+          "type": "number",
+          "default": 200,
+          "description": "タイプ時の再解析ディレイ(ms)"
+        },
+        "posPage.enabledPos": {
+          "type": "boolean",
+          "default": true,
+          "description": "品詞ハイライトを有効化"
+        },
+        "posPage.colors": {
+          "type": "object",
+          "default": {
+            "名詞": "inherit",
+            "動詞": "#11ff84",
+            "形容詞": "#fd9bcc",
+            "副詞": "#ffd900",
+            "助詞": "inherit",
+            "助動詞": "inherit",
+            "連体詞": "inherit",
+            "接続詞": "#ff14e0",
+            "感動詞": "inherit",
+            "接頭詞": "inherit",
+            "記号": "inherit",
+            "その他": "inherit"
+          },
+          "description": "品詞ごとの文字色（CSSカラー/HEX）。",
+          "markdownDescription": "品詞ごとの**文字色**。`\"inherit\"`/`\"default\"`/`\"auto\"`/空文字（または `#46d2e8`）を指定すると**エディタ標準色**になります。"
+        },
+        "posPage.maxDocLength": {
+          "type": "number",
+          "default": 200000,
+          "description": "解析上限（文字数）。超過時はスキップ/部分適用"
+        },
+        "posPage.enabledPage": {
+          "type": "boolean",
+          "default": true,
+          "description": "ページカウンタ（ステータスバー）を有効化"
+        },
+        "posPage.page.rowsPerPage": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "1ページの行数"
+        },
+        "posPage.page.colsPerRow": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "1行の文字数"
+        },
+        "posPage.kinsoku.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "禁則処理（行頭禁則）を有効化"
+        },
+        "posPage.kinsoku.bannedStart": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "」",
+            "）",
+            "』",
+            "》",
+            "】",
+            "。",
+            "、"
+          ],
+          "description": "行頭に来ないよう前行へ送る文字（行頭禁則）"
+        }
+      }
+    }
   },
-  "scripts": {
-    "lint": "eslint .",
-    "pretest": "npm run lint",
-    "test": "vscode-test"
+  "dependencies": {
+    "kuromoji": "^0.1.2"
   },
   "devDependencies": {
-    "@types/vscode": "^1.103.0",
-    "@types/mocha": "^10.0.9",
-    "@types/node": "20.x",
-    "eslint": "^9.13.0",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1"
-  }
+    "@types/node": "20.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-user/your-repo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-user/your-repo/issues"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/your-user/your-repo#readme"
 }
