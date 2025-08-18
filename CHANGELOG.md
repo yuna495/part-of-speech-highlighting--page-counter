@@ -1,9 +1,15 @@
 # Change Log
 
-All notable changes to the "part-of-speech-highlighting---page-counter" extension will be documented in this file.
+All notable changes to this extension are documented here.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+## \[Unreleased\]
 
-## [Unreleased]
+- 入力中のカーソル行前後のみ装飾を残し、他は削除する仕組みを追加
+- 全角スペース（　）の背景色表示機能を追加（設定で変更可能）
 
-- Initial release
+## \[1.0.0\]
+
+- 初期リリース
+  - 品詞カラー表示（kuromoji）
+  - ページカウンタ（行×列・禁則処理対応）
+  - ステータスバーで選択文字数表示

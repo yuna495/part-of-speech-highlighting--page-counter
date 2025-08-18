@@ -9,14 +9,87 @@ const kuromoji = require("kuromoji"); // CJS
 let tokenizer = null;
 let debouncer = null;
 let decorationsByPos = new Map();
-let lastBuckets = null; // 直近のkuromoji装飾レンジを保持（pos -> Range[]）
 
 let enabledPos = true;
 let enabledPage = true;
 let statusBarItem = null;
 let savingGate = false; // 保存中の一時サスペンド抑止フラグ
+let suppressUntil = 0; // 保存直後のサスペンド抑止（時刻）
+let inputSuspended = false; // 入力中は kuromoji 装飾を全面停止（保存まで）
+let cachedMetrics = null; // ステータスバー用メトリクスのキャッシュ（入力中はこれを使う）
+let statusBarFrozen = false; // 入力中はステータスバーを更新しない（表示凍結）
+
+// “保存時のみ”デコレーション（記号/括弧/接続詞/助詞）用
+let tmDecorations = new Map(); // key: カテゴリ("記号","括弧","接続詞","助詞") -> DecorationType
+let fwSpaceDecoration = null; // 全角スペース用
+
+function disposeAllTmDecorations() {
+  for (const d of tmDecorations.values()) {
+    try {
+      d.dispose();
+    } catch {}
+  }
+  tmDecorations.clear();
+}
+
+function ensureFullWidthSpaceDecoration(color) {
+  if (fwSpaceDecoration) {
+    try {
+      fwSpaceDecoration.dispose();
+    } catch {}
+    fwSpaceDecoration = null;
+  }
+  fwSpaceDecoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: color,
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  });
+}
+
+function disposeFullWidthSpaceDecoration() {
+  if (fwSpaceDecoration) {
+    try {
+      fwSpaceDecoration.dispose();
+    } catch {}
+    fwSpaceDecoration = null;
+  }
+}
 
 // ===== config helper =====
+
+function recomputeAndCacheMetrics(editor) {
+  if (!editor) return;
+  const c = cfg();
+  if (!isTargetDoc(editor.document, c) || !enabledPage || !c.enabledPage) {
+    cachedMetrics = null;
+    return;
+  }
+  cachedMetrics = computePageMetrics(editor.document, c, editor.selection);
+}
+// 入力開始後、保存までのあいだは kuromoji 装飾を全面停止（TextMateはそのまま）
+function suspendAllKuromojiOnce(editor) {
+  if (!editor || inputSuspended) return;
+  const c = cfg();
+
+  const cursorLine = editor.selection?.active?.line ?? 0;
+  const windowSize = Math.max(0, cfg().suspendWindowLines ?? 5); // ★設定でコントロール
+  const startLine = Math.max(0, cursorLine - windowSize);
+  const endLine = Math.min(
+    editor.document.lineCount - 1,
+    cursorLine + windowSize
+  );
+
+  // 全デコを dispose
+  disposeAllDecorations();
+  if (c.tmEnabled && c.tmSuspendDuringTyping) disposeAllTmDecorations();
+  if (c.fullWidthSpaceEnabled && c.tmSuspendDuringTyping)
+    disposeFullWidthSpaceDecoration();
+
+  // ★ カーソル周辺だけ再着色（kuromoji + 括弧/記号）
+  reapplyWindowDecorations(editor, startLine, endLine);
+
+  inputSuspended = true;
+  statusBarFrozen = true;
+}
 
 // 指定色を「デフォルト（エディタ標準色）」として扱うかどうか
 function isInheritColor(val) {
@@ -29,6 +102,86 @@ function isInheritColor(val) {
     v === "auto" ||
     v === "#46d2e8" // ← あなたの指定を“デフォルト扱い”にする
   );
+}
+
+// settings の colors から「実際に着色する（= 解析する）」品詞のみを抽出
+function enabledPosSetFromColors(colors) {
+  const set = new Set();
+  for (const [pos, color] of Object.entries(colors || {})) {
+    if (!isInheritColor(color)) set.add(pos);
+  }
+  return set;
+}
+
+// カーソル周辺（startLine..endLine）のみ再着色
+function reapplyWindowDecorations(editor, startLine, endLine) {
+  if (!editor) return;
+  const c = cfg();
+  // kuromoji トークナイザが未初期化なら諦める（起動時の全文解析後なら初期化済み）
+  if (!tokenizer) return;
+
+  // DecorationType を再生成（色設定に基づく有効品詞のみ）
+  ensureDecorationTypes(c.colors);
+  const doc = editor.document;
+  const startPos = new vscode.Position(startLine, 0);
+  const endPos = new vscode.Position(endLine, doc.lineAt(endLine).text.length);
+  const startOffset = doc.offsetAt(startPos);
+  const endOffset = doc.offsetAt(endPos);
+  const full = doc.getText();
+  const slice = full.slice(startOffset, endOffset);
+
+  // TextMate 管轄の除外レンジ（括弧＋括弧内、記号）を先に構築
+  const tmExcluded = buildTextMateExclusionRanges(doc);
+  const enabledSet = enabledPosSetFromColors(c.colors);
+
+  // スライスをトークン化し、フルテキスト上の位置にマップ
+  const tokens = tokenizer.tokenize(slice) || [];
+  let scan = startOffset;
+  const buckets = new Map(); // pos -> Range[]
+  for (const tk of tokens) {
+    const s = tk.surface_form || "";
+    if (!s) continue;
+    const idx = full.indexOf(s, scan);
+    if (idx < 0) continue;
+    const sPos = doc.positionAt(idx);
+    const ePos = doc.positionAt(idx + s.length);
+    scan = idx + s.length;
+    const pos = tk.pos || "その他";
+    if (!enabledSet.has(pos)) continue; // 無効品詞はスキップ
+    const rng = new vscode.Range(sPos, ePos);
+    if (intersectsAny(rng, tmExcluded)) continue; // 括弧/記号は除外
+    if (rng.start.line < startLine || rng.end.line > endLine) continue; // 念のため窓外を除外
+    if (!buckets.has(pos)) buckets.set(pos, []);
+    buckets.get(pos).push(rng);
+  }
+
+  // 反映：有効品詞だけウィンドウ内レンジをセット（全文はすでに dispose 済み）
+  for (const [pos, deco] of decorationsByPos.entries()) {
+    if (!enabledSet.has(pos)) {
+      editor.setDecorations(deco, []);
+      continue;
+    }
+    editor.setDecorations(deco, buckets.get(pos) || []);
+  }
+
+  // 括弧/記号（保存時デコ）もウィンドウ内だけ復帰
+  if (c.tmEnabled) {
+    ensureTmDecorationTypes(c.tmColors);
+    const cats = buildTmCategoryRanges(doc); // 全文から拾って
+    for (const [key, deco] of tmDecorations.entries()) {
+      const all = cats.get(key) || [];
+      const filtered = all.filter(
+        (r) => r.start.line >= startLine && r.end.line <= endLine
+      );
+      editor.setDecorations(deco, filtered);
+    }
+  }
+  // 全角スペースもウィンドウ内だけ復帰
+  if (c.fullWidthSpaceEnabled) {
+    ensureFullWidthSpaceDecoration(c.fullWidthSpaceColor);
+    const spaceRanges = getFullWidthSpaceRangesWindow(doc, startLine, endLine);
+    editor.setDecorations(fwSpaceDecoration, spaceRanges);
+  }
 }
 
 function cfg() {
@@ -54,10 +207,21 @@ function cfg() {
       "。",
       "、",
     ]),
+    tmEnabled: c.get("tm.enabled", true),
+    tmApplyOnSaveOnly: c.get("tm.applyOnSaveOnly", true),
+    tmColors: c.get("tm.colors", {
+      記号: "#fd9bcc",
+      括弧: "#fd9bcc",
+    }),
+    tmSuspendDuringTyping: c.get("tm.suspendDuringTyping", true),
+    suspendWindowLines: c.get("suspendWindowLines", 100),
+    fullWidthSpaceEnabled: c.get("fullWidthSpace.enabled", true),
+    fullWidthSpaceColor: c.get("fullWidthSpace.color", "#ff000055"),
   };
 }
 
 // ===== tokenizer =====
+
 async function ensureTokenizer(context) {
   if (tokenizer) return;
   const dictPath = path.join(context.extensionPath, "dict"); // プロジェクト直下の dict/
@@ -105,11 +269,16 @@ function decorationFor(color) {
 
 function ensureDecorationTypes(colors) {
   disposeAllDecorations();
+  const enabledSet = enabledPosSetFromColors(colors);
   for (const [pos, color] of Object.entries(colors)) {
+    // kuromoji 側では「記号」をレンジ生成しないためデコは作らない
+    if (pos === "記号") continue;
+    if (!enabledSet.has(pos)) continue; // inherit 等は作らない
     decorationsByPos.set(pos, decorationFor(color));
   }
-  if (!decorationsByPos.has("その他")) {
-    decorationsByPos.set("その他", decorationFor("#f5f5f5"));
+  // 「その他」を使いたい場合のみ生成（色が有効指定のとき）
+  if (colors["その他"] && !isInheritColor(colors["その他"])) {
+    decorationsByPos.set("その他", decorationFor(colors["その他"]));
   }
 }
 
@@ -138,6 +307,8 @@ function buildTextMateExclusionRanges(doc) {
     ["｛", "｝"],
     ["〈", "〉"],
     ["《", "》"],
+    ["【", "】"],
+    ["〔", "〕"],
   ];
   for (const [open, close] of pairs) {
     let idx = 0;
@@ -156,30 +327,41 @@ function buildTextMateExclusionRanges(doc) {
     }
   }
 
-  // 3) 接続詞（tmLanguageの境界条件を簡略化）
-  const conjWords =
-    "(そして|すると|そこで|したがって|それゆえに|ゆえに|しかし|けれど|だが|けれども|それなのに|それでも|にもかかわらず|ならびに|また|その上|しかも|おまけに|加えて|あるいは|もしくは|または|なぜなら|というのは|つまり|すなわち|さて|ところで|では|それでは|而して|然し|然して|然れど|然れども|並びに|故に|曰く|又|又は|即ち|或いは|従って|にも関わらず)";
-  const reConj = new RegExp(
-    `(?<![ぁ-んァ-ヶ一-龯A-Za-z0-9])${conjWords}(?![ぁ-んァ-ヶ一-龯A-Za-z0-9])`,
-    "g"
-  );
-  for (let m; (m = reConj.exec(text)); ) {
-    pushRange(m.index, m.index + m[0].length);
-  }
-
-  // 4) 助詞
-  const partWords =
-    "(が|を|に|で|と|へ|から|より|の|は|も|こそ|さえ|しか|だけ|ばかり|など|でも|くらい|ほど)";
-  const rePart = new RegExp(
-    `(?<=[ぁ-んァ-ヶ一-龯])${partWords}(?=(?:[ぁ-んァ-ヶ一-龯A-Za-z0-9]|[、。・：；？！…‥—―ー〜～]|\\s|$))`,
-    "g"
-  );
-  for (let m; (m = rePart.exec(text)); ) {
-    pushRange(m.index, m.index + m[0].length);
-  }
-
   // 交差判定で使いやすいように、開始位置でソート
   ranges.sort((a, b) => a.start.compareTo(b.start));
+  return ranges;
+}
+
+// --- 全角スペースの範囲検出（ドキュメント全体） ---
+function getFullWidthSpaceRangesDoc(doc) {
+  const text = doc.getText();
+  const ranges = [];
+  const regex = /　/g;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    const s = doc.positionAt(m.index);
+    const e = doc.positionAt(m.index + 1);
+    ranges.push(new vscode.Range(s, e));
+  }
+  return ranges;
+}
+
+// --- 全角スペースの範囲検出（行ウィンドウ内だけ） ---
+function getFullWidthSpaceRangesWindow(doc, startLine, endLine) {
+  const startPos = new vscode.Position(startLine, 0);
+  const endPos = new vscode.Position(endLine, doc.lineAt(endLine).text.length);
+  const startOffset = doc.offsetAt(startPos);
+  const endOffset = doc.offsetAt(endPos);
+  const slice = doc.getText(new vscode.Range(startPos, endPos));
+  const ranges = [];
+  const regex = /　/g;
+  let m;
+  while ((m = regex.exec(slice)) !== null) {
+    const absIdx = startOffset + m.index;
+    const s = doc.positionAt(absIdx);
+    const e = doc.positionAt(absIdx + 1);
+    ranges.push(new vscode.Range(s, e));
+  }
   return ranges;
 }
 
@@ -200,7 +382,7 @@ function tokenizeDocument(doc) {
   return tokenizer.tokenize(text) || [];
 }
 
-function buildRangesByPos(doc, tokens, excludedRanges) {
+function buildRangesByPos(doc, tokens, excludedRanges, enabledSet) {
   const full = doc.getText();
   let offset = 0;
   const map = new Map(); // pos -> ranges[]
@@ -217,6 +399,8 @@ function buildRangesByPos(doc, tokens, excludedRanges) {
     offset = idx + s.length;
 
     const pos = tk.pos || "その他";
+    // 設定で "default"/"inherit" などになっている品詞は解析スキップ
+    if (enabledSet && !enabledSet.has(pos)) continue;
     const rng = new vscode.Range(start, end);
     // TextMate 管轄（記号・括弧・接続詞・助詞）に重なるレンジは除外
     if (!intersectsAny(rng, excludedRanges)) {
@@ -225,6 +409,83 @@ function buildRangesByPos(doc, tokens, excludedRanges) {
     }
   }
   return map;
+}
+
+// ===== “保存時のみ”の簡易TextMateデコ：カテゴリ別レンジを構築 =====
+function buildTmCategoryRanges(doc) {
+  const text = doc.getText();
+  const map = new Map(); // key -> ranges[]
+  const push = (key, sIdx, eIdx) => {
+    const s = doc.positionAt(sIdx);
+    const e = doc.positionAt(eIdx);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(new vscode.Range(s, e));
+  };
+  // 記号
+  const reSymbols = /[、。・：；？！…‥—―ー〜～]/g;
+  for (let m; (m = reSymbols.exec(text)); )
+    push("記号", m.index, m.index + m[0].length);
+  // 括弧（中身含む）
+  const pairs = [
+    ["「", "」"],
+    ["『", "』"],
+    ["（", "）"],
+    ["［", "］"],
+    ["｛", "｝"],
+    ["〈", "〉"],
+    ["《", "》"],
+    ["【", "】"],
+    ["〔", "〕"],
+  ];
+  for (const [open, close] of pairs) {
+    let idx = 0;
+    while (idx < text.length) {
+      const s = text.indexOf(open, idx);
+      if (s < 0) break;
+      const e = text.indexOf(close, s + open.length);
+      if (e < 0) {
+        push("括弧", s, s + open.length);
+        idx = s + open.length;
+      } else {
+        push("括弧", s, e + close.length);
+        idx = e + close.length;
+      }
+    }
+  }
+  return map;
+}
+
+function ensureTmDecorationTypes(tmColors) {
+  // 既存を破棄
+  for (const d of tmDecorations.values()) d.dispose();
+  tmDecorations.clear();
+  const mk = (color) => {
+    const opts = { rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed };
+    if (!isInheritColor(color)) opts.color = color;
+    return vscode.window.createTextEditorDecorationType(opts);
+  };
+  // ★ 記号は括弧と同色に（記号側がinherit/未設定なら括弧色を使用）
+  const bracketColor = tmColors["括弧"];
+  const symbolColor = isInheritColor(tmColors["記号"])
+    ? bracketColor
+    : tmColors["記号"];
+  tmDecorations.set("括弧", mk(bracketColor));
+  tmDecorations.set("記号", mk(symbolColor));
+}
+
+function applyTmDecorations(editor) {
+  const c = cfg();
+  if (!editor || !c.tmEnabled) return;
+  if (c.tmApplyOnSaveOnly !== true) return; // 将来拡張用（今はsaveのみ）
+  ensureTmDecorationTypes(c.tmColors);
+  const cats = buildTmCategoryRanges(editor.document);
+  // まず全消去（カテゴリごと）
+  for (const deco of tmDecorations.values()) editor.setDecorations(deco, []);
+  // 反映
+  for (const [key, ranges] of cats.entries()) {
+    const deco = tmDecorations.get(key);
+    if (deco) editor.setDecorations(deco, ranges);
+  }
 }
 
 // ===== apply highlights =====
@@ -254,10 +515,15 @@ async function analyzeAndDecorate(editor, context) {
   ensureDecorationTypes(c.colors);
   // TextMate 管轄の除外レンジを事前計算
   const tmExcluded = buildTextMateExclusionRanges(editor.document);
+  const enabledSet = enabledPosSetFromColors(c.colors);
 
   const tokens = tokenizeDocument(editor.document);
-  const buckets = buildRangesByPos(editor.document, tokens, tmExcluded);
-  lastBuckets = buckets; // 保存
+  const buckets = buildRangesByPos(
+    editor.document,
+    tokens,
+    tmExcluded,
+    enabledSet
+  );
 
   // いったんクリア
   for (const deco of decorationsByPos.values()) editor.setDecorations(deco, []);
@@ -266,90 +532,14 @@ async function analyzeAndDecorate(editor, context) {
     const deco = decorationsByPos.get(pos) || decorationsByPos.get("その他");
     editor.setDecorations(deco, ranges);
   }
-}
-
-// ▼ 保存時に使う：カーソル行以降のみ kuromoji を再適用する
-async function analyzeAndDecoratePartial(editor, context, startLine) {
-  const c = cfg();
-  if (
-    !editor ||
-    !isTargetDoc(editor.document, c) ||
-    !enabledPos ||
-    !c.enabledPos
-  ) {
-    return;
-  }
-  await ensureTokenizer(context);
-  if (!tokenizer) return;
-
-  // ★ TextMate 管轄の除外レンジ（全文で一度だけ取得）
-  const doc = editor.document;
-  const tmExcluded = buildTextMateExclusionRanges(doc);
-
-  // ★ カーソル行の先頭オフセットを基準に、直前の改行までさかのぼって安全に切り出す
-  const full = doc.getText();
-  const lineStartPos = new vscode.Position(startLine, 0);
-  const startOffset = doc.offsetAt(lineStartPos);
-  let safeStartOffset = startOffset;
-  while (safeStartOffset > 0 && full[safeStartOffset - 1] !== "\n") {
-    safeStartOffset--;
-  }
-  const slice = full.slice(safeStartOffset); // 後方のみ
-
-  // ★ 後方テキストだけをトークン化
-  const tokens = tokenizer.tokenize(slice) || [];
-
-  // ★ 後方のみの新規レンジを構築（行>= startLine のみ採用）
-  let offset = safeStartOffset;
-  const newBuckets = new Map(); // pos -> ranges(>= startLine)
-  for (const tk of tokens) {
-    const s = tk.surface_form || "";
-    if (!s) continue;
-    const idx = full.indexOf(s, offset);
-    if (idx < 0) continue;
-    const start = doc.positionAt(idx);
-    const end = doc.positionAt(idx + s.length);
-    offset = idx + s.length;
-    if (start.line < startLine) continue; // ← 前方は無視
-    const rng = new vscode.Range(start, end);
-    if (intersectsAny(rng, tmExcluded)) continue; // TextMate 管轄を除外
-    const pos = tk.pos || "その他";
-    if (!newBuckets.has(pos)) newBuckets.set(pos, []);
-    newBuckets.get(pos).push(rng);
-  }
-
-  // ★ 「前方keep＋後方add」で union を作り反映（DecorationType は再生成しない）
-  const merged = new Map();
-  const allPos = new Set([
-    ...Array.from(newBuckets.keys()),
-    ...(lastBuckets ? Array.from(lastBuckets.keys()) : []),
-  ]);
-  for (const pos of allPos) {
-    const prev = (lastBuckets && lastBuckets.get(pos)) || [];
-    const keep = prev.filter((r) => r.start.line < startLine); // 前方そのまま
-    const add = newBuckets.get(pos) || []; // 後方のみ新規
-    merged.set(pos, keep.concat(add));
-  }
-
-  for (const pos of allPos) {
-    let deco = decorationsByPos.get(pos);
-    if (!deco) {
-      // 必要なものだけ都度生成（全消ししない）
-      deco = decorationFor((c.colors || {})[pos]);
-      decorationsByPos.set(pos, deco);
-    }
-    editor.setDecorations(deco, merged.get(pos) || []);
-  }
-  lastBuckets = merged;
-}
-
-// カーソル行以降の kuromoji 装飾のみを一時的に外す
-function suspendFromLine(editor, line) {
-  if (!lastBuckets || decorationsByPos.size === 0) return;
-  for (const [pos, ranges] of lastBuckets.entries()) {
-    const deco = decorationsByPos.get(pos) || decorationsByPos.get("その他");
-    const kept = ranges.filter((r) => r.start.line < line); // 「その行**未満**」は残す
-    editor.setDecorations(deco, kept);
+  // 起動時／手動再解析時：TM相当デコも適用（入力中は動かない）
+  applyTmDecorations(editor);
+  // 全角スペース（全文）
+  const c2 = cfg();
+  if (c2.fullWidthSpaceEnabled) {
+    ensureFullWidthSpaceDecoration(c2.fullWidthSpaceColor);
+    const spaceRanges = getFullWidthSpaceRangesDoc(editor.document);
+    editor.setDecorations(fwSpaceDecoration, spaceRanges);
   }
 }
 
@@ -447,7 +637,15 @@ function updateStatusBar(editor) {
     return;
   }
 
-  const m = computePageMetrics(editor.document, c, editor.selection);
+  // ★ 入力中は表示凍結。cachedMetrics が無いときは「表示を更新しない」
+  if (statusBarFrozen) return;
+
+  // 入力中でなければ再計算、またはキャッシュがなければ一度だけ計算
+  let m = cachedMetrics;
+  if (!inputSuspended || !m) {
+    m = computePageMetrics(editor.document, c, editor.selection);
+    cachedMetrics = m;
+  }
 
   // ★追加：選択があれば選択文字数、なければ全体文字数
   const selections =
@@ -455,7 +653,8 @@ function updateStatusBar(editor) {
       ? editor.selections
       : [editor.selection];
   const selectedChars = countSelectedChars(editor.document, selections);
-  const displayChars = selectedChars > 0 ? selectedChars : m.totalChars;
+  // 入力中は totalChars もキャッシュ値を使用（全文走査を避ける）
+  const displayChars = selectedChars > 0 ? selectedChars : m?.totalChars ?? 0;
 
   statusBarItem.text = `${m.currentPage}/${m.totalPages}｜${m.lastLineInLastPage}行｜${displayChars}字（${c.rowsPerPage}×${c.colsPerRow}）`;
 
@@ -496,12 +695,14 @@ function countSelectedChars(doc, selections) {
 // ===== scheduling =====
 function scheduleUpdate(editor, context) {
   const c = cfg();
+  // 入力中の凍結フェーズでは、そもそも何もしない
+  if (inputSuspended && statusBarFrozen) return;
   if (debouncer) clearTimeout(debouncer);
   debouncer = setTimeout(async () => {
-    // 入力中は重い再解析を回避。カーソル行以降だけkuromoji装飾を外す。
-    // ただし保存直後の処理中は割り込まない（savingGate）。
-    if (!savingGate && editor && editor.selection) {
-      suspendFromLine(editor, editor.selection.active.line);
+    // 入力中は kuromoji 装飾を全面停止（最初の一回だけ全デコをクリア）
+    // TextMate の着色は残る／ステータスバーのみ更新
+    if (!savingGate && Date.now() >= suppressUntil && editor) {
+      suspendAllKuromojiOnce(editor);
     }
     updateStatusBar(editor);
   }, c.debounceMs);
@@ -597,31 +798,66 @@ function activate(context) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       const ed = vscode.window.activeTextEditor;
       if (!ed || e.document !== ed.document) return;
-      scheduleUpdate(ed, context);
+      // 入力中の凍結フェーズならスキップ
+      if (!(inputSuspended && statusBarFrozen)) {
+        scheduleUpdate(ed, context);
+      }
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
         // 保存時は「カーソル行以降のみ」kuromoji 再着色
+        // まず、入力由来の保留デバウンスを無効化
+        if (debouncer) {
+          clearTimeout(debouncer);
+          debouncer = null;
+        }
         savingGate = true;
-        const line = ed.selection?.active?.line ?? 0;
-        analyzeAndDecoratePartial(ed, context, line).finally(() => {
+        // ★ 保存時は全文を kuromoji で再解析・再着色
+        analyzeAndDecorate(ed, context).finally(() => {
           savingGate = false;
+          // 保存直後は一定時間、サスペンドを抑止（フォーマッタ等の追随イベント対策）
+          const c = cfg();
+          suppressUntil = Date.now() + Math.max(2 * c.debounceMs, 300);
+
+          // 入力全面停止を解除（= 次の入力でまた一度だけ全クリア）
+          inputSuspended = false;
+          // 保存時はメトリクスを正式再計算（以降の入力中はこのキャッシュを表示）
+          statusBarFrozen = false; // ← 凍結解除：保存後は最新に更新
+          recomputeAndCacheMetrics(ed);
+          // ★ 保存（＝確定）時のみ、TM相当デコを適用
+          applyTmDecorations(ed);
           updateStatusBar(ed);
         });
       }
     }),
     vscode.window.onDidChangeActiveTextEditor((ed) => {
-      if (ed) scheduleUpdate(ed, context);
+      if (ed) {
+        // エディタ切替時に最新メトリクスをキャッシュ
+        recomputeAndCacheMetrics(ed);
+        scheduleUpdate(ed, context);
+        // 切替時にも一度適用（入力開始後は止まる）
+        applyTmDecorations(ed);
+      }
     }),
     vscode.window.onDidChangeTextEditorSelection((e) => {
-      if (e.textEditor === vscode.window.activeTextEditor)
-        updateStatusBar(e.textEditor);
+      if (e.textEditor === vscode.window.activeTextEditor) {
+        // 入力中の凍結フェーズでは何もしない（キー毎に2回呼ばれる負荷を抑止）
+        if (!statusBarFrozen) {
+          updateStatusBar(e.textEditor); // ステータスバーのみ
+        }
+      }
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("posPage")) {
         const ed = vscode.window.activeTextEditor;
-        if (ed) scheduleUpdate(ed, context);
+        if (ed) {
+          // 行×列や禁則の変更時はキャッシュを更新
+          recomputeAndCacheMetrics(ed);
+          scheduleUpdate(ed, context);
+          // 色設定や有効/無効が変わった場合に備え適用
+          applyTmDecorations(ed);
+        }
       }
     })
   );
@@ -629,7 +865,10 @@ function activate(context) {
   // 初回
   if (vscode.window.activeTextEditor) {
     analyzeAndDecorate(vscode.window.activeTextEditor, context);
+    // 起動直後にメトリクスを確定→以降の入力中はキャッシュ表示
+    recomputeAndCacheMetrics(vscode.window.activeTextEditor);
     updateStatusBar(vscode.window.activeTextEditor);
+    inputSuspended = false;
   }
 }
 function deactivate() {
