@@ -1,0 +1,84 @@
+{
+  "scopeName": "text.ja.pos.injection",
+  "injectionSelector": "L:text.plain",
+  "patterns": [
+    { "include": "#symbols" },
+    { "include": "#brackets" },
+    { "include": "#conjunctions" },
+    { "include": "#particles" }
+  ],
+  "repository": {
+    "symbols": {
+      "name": "punctuation.jp.symbol",
+      "match": "[、。・：；？！…‥—―ー〜～]"
+    },
+    "brackets": {
+      "patterns": [
+        { "include": "#pair-kagi" },
+        { "include": "#pair-kakko" },
+        { "include": "#pair-nami" },
+        { "include": "#pair-kado" },
+        { "include": "#pair-sumi" },
+        { "include": "#pair-yama" },
+        { "include": "#pair-kikko" }
+      ]
+    },
+    "pair-kagi": {
+      "name": "meta.group.jp",
+      "begin": "「",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "」",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-kakko": {
+      "name": "meta.group.jp",
+      "begin": "『",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "』",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-nami": {
+      "name": "meta.group.jp",
+      "begin": "（",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "）",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-kado": {
+      "name": "meta.group.jp",
+      "begin": "［",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "］",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-sumi": {
+      "name": "meta.group.jp",
+      "begin": "｛",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "｝",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-yama": {
+      "name": "meta.group.jp",
+      "begin": "〈",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "〉",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "pair-kikko": {
+      "name": "meta.group.jp",
+      "begin": "《",
+      "beginCaptures": { "0": { "name": "punctuation.section.jp" } },
+      "end": "》",
+      "endCaptures": { "0": { "name": "punctuation.section.jp" } }
+    },
+    "conjunctions": {
+      "name": "keyword.jp.conjunction",
+      "match": "(?<![ぁ-んァ-ヶ一-龯A-Za-z0-9])(そして|すると|そこで|したがって|それゆえに|ゆえに|しかし|けれど|だが|けれども|それなのに|それでも|にもかかわらず|ならびに|また|その上|しかも|おまけに|加えて|あるいは|もしくは|または|なぜなら|というのは|つまり|すなわち|さて|ところで|では|それでは|而して|然し|然して|然れど|然れども|並びに|故に|曰く|又|又は|即ち|或いは|従って|にも関わらず)(?![ぁ-んァ-ヶ一-龯A-Za-z0-9])"
+    },
+    "particles": {
+      "name": "keyword.jp.particle",
+      "match": "(?<=[ぁ-んァ-ヶ一-龯])(が|を|に|で|と|へ|から|より|の|は|も|こそ|さえ|しか|だけ|ばかり|など|でも|くらい|ほど)(?=(?:[ぁ-んァ-ヶ一-龯A-Za-z0-9]|[、。・：；？！…‥—―ー〜～]|\\s|$))"
+    }
+  }
+}

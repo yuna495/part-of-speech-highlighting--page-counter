@@ -29,6 +29,14 @@
     "onLanguage:novel"
   ],
   "contributes": {
+    "grammars": [
+      {
+        "language": "plaintext",
+        "scopeName": "text.ja.pos.injection",
+        "path": "./pos-japanese-injection.tmLanguage.json",
+        "injectionSelector": "L:text.plain"
+      }
+    ],
     "commands": [
       {
         "command": "posPage.togglePos",

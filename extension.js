@@ -9,10 +9,12 @@ const kuromoji = require("kuromoji"); // CJS
 let tokenizer = null;
 let debouncer = null;
 let decorationsByPos = new Map();
+let lastBuckets = null; // 直近のkuromoji装飾レンジを保持（pos -> Range[]）
 
 let enabledPos = true;
 let enabledPage = true;
 let statusBarItem = null;
+let savingGate = false; // 保存中の一時サスペンド抑止フラグ
 
 // ===== config helper =====
 
@@ -111,6 +113,86 @@ function ensureDecorationTypes(colors) {
   }
 }
 
+// ===== TextMate と同等ルールで「除外レンジ」を構築 =====
+function buildTextMateExclusionRanges(doc) {
+  const text = doc.getText();
+  const ranges = [];
+  const pushRange = (sIdx, eIdx) => {
+    const s = doc.positionAt(sIdx);
+    const e = doc.positionAt(eIdx);
+    ranges.push(new vscode.Range(s, e));
+  };
+
+  // 1) 記号
+  const reSymbols = /[、。・：；？！…‥—―ー〜～]/g;
+  for (let m; (m = reSymbols.exec(text)); ) {
+    pushRange(m.index, m.index + m[0].length);
+  }
+
+  // 2) 括弧ペア（中身ごと同色＝除外）
+  const pairs = [
+    ["「", "」"],
+    ["『", "』"],
+    ["（", "）"],
+    ["［", "］"],
+    ["｛", "｝"],
+    ["〈", "〉"],
+    ["《", "》"],
+  ];
+  for (const [open, close] of pairs) {
+    let idx = 0;
+    while (idx < text.length) {
+      const s = text.indexOf(open, idx);
+      if (s < 0) break;
+      const e = text.indexOf(close, s + open.length);
+      if (e < 0) {
+        // 閉じ不足は開きのみ除外（視覚ズレ防止の簡易策）
+        pushRange(s, s + open.length);
+        idx = s + open.length;
+      } else {
+        pushRange(s, e + close.length);
+        idx = e + close.length;
+      }
+    }
+  }
+
+  // 3) 接続詞（tmLanguageの境界条件を簡略化）
+  const conjWords =
+    "(そして|すると|そこで|したがって|それゆえに|ゆえに|しかし|けれど|だが|けれども|それなのに|それでも|にもかかわらず|ならびに|また|その上|しかも|おまけに|加えて|あるいは|もしくは|または|なぜなら|というのは|つまり|すなわち|さて|ところで|では|それでは|而して|然し|然して|然れど|然れども|並びに|故に|曰く|又|又は|即ち|或いは|従って|にも関わらず)";
+  const reConj = new RegExp(
+    `(?<![ぁ-んァ-ヶ一-龯A-Za-z0-9])${conjWords}(?![ぁ-んァ-ヶ一-龯A-Za-z0-9])`,
+    "g"
+  );
+  for (let m; (m = reConj.exec(text)); ) {
+    pushRange(m.index, m.index + m[0].length);
+  }
+
+  // 4) 助詞
+  const partWords =
+    "(が|を|に|で|と|へ|から|より|の|は|も|こそ|さえ|しか|だけ|ばかり|など|でも|くらい|ほど)";
+  const rePart = new RegExp(
+    `(?<=[ぁ-んァ-ヶ一-龯])${partWords}(?=(?:[ぁ-んァ-ヶ一-龯A-Za-z0-9]|[、。・：；？！…‥—―ー〜～]|\\s|$))`,
+    "g"
+  );
+  for (let m; (m = rePart.exec(text)); ) {
+    pushRange(m.index, m.index + m[0].length);
+  }
+
+  // 交差判定で使いやすいように、開始位置でソート
+  ranges.sort((a, b) => a.start.compareTo(b.start));
+  return ranges;
+}
+
+function intersectsAny(range, excludedRanges) {
+  // excludedRanges は start 昇順。二分探索最適化も可だが、まずはシンプルに。
+  for (const ex of excludedRanges) {
+    if (range.end.isBeforeOrEqual(ex.start)) continue;
+    if (ex.end.isBeforeOrEqual(range.start)) continue;
+    return true;
+  }
+  return false;
+}
+
 // ===== tokenize & build ranges =====
 function tokenizeDocument(doc) {
   if (!tokenizer) return [];
@@ -118,7 +200,7 @@ function tokenizeDocument(doc) {
   return tokenizer.tokenize(text) || [];
 }
 
-function buildRangesByPos(doc, tokens) {
+function buildRangesByPos(doc, tokens, excludedRanges) {
   const full = doc.getText();
   let offset = 0;
   const map = new Map(); // pos -> ranges[]
@@ -135,8 +217,12 @@ function buildRangesByPos(doc, tokens) {
     offset = idx + s.length;
 
     const pos = tk.pos || "その他";
-    if (!map.has(pos)) map.set(pos, []);
-    map.get(pos).push(new vscode.Range(start, end));
+    const rng = new vscode.Range(start, end);
+    // TextMate 管轄（記号・括弧・接続詞・助詞）に重なるレンジは除外
+    if (!intersectsAny(rng, excludedRanges)) {
+      if (!map.has(pos)) map.set(pos, []);
+      map.get(pos).push(rng);
+    }
   }
   return map;
 }
@@ -166,9 +252,12 @@ async function analyzeAndDecorate(editor, context) {
   if (!tokenizer) return;
 
   ensureDecorationTypes(c.colors);
+  // TextMate 管轄の除外レンジを事前計算
+  const tmExcluded = buildTextMateExclusionRanges(editor.document);
 
   const tokens = tokenizeDocument(editor.document);
-  const buckets = buildRangesByPos(editor.document, tokens);
+  const buckets = buildRangesByPos(editor.document, tokens, tmExcluded);
+  lastBuckets = buckets; // 保存
 
   // いったんクリア
   for (const deco of decorationsByPos.values()) editor.setDecorations(deco, []);
@@ -176,6 +265,91 @@ async function analyzeAndDecorate(editor, context) {
   for (const [pos, ranges] of buckets.entries()) {
     const deco = decorationsByPos.get(pos) || decorationsByPos.get("その他");
     editor.setDecorations(deco, ranges);
+  }
+}
+
+// ▼ 保存時に使う：カーソル行以降のみ kuromoji を再適用する
+async function analyzeAndDecoratePartial(editor, context, startLine) {
+  const c = cfg();
+  if (
+    !editor ||
+    !isTargetDoc(editor.document, c) ||
+    !enabledPos ||
+    !c.enabledPos
+  ) {
+    return;
+  }
+  await ensureTokenizer(context);
+  if (!tokenizer) return;
+
+  // ★ TextMate 管轄の除外レンジ（全文で一度だけ取得）
+  const doc = editor.document;
+  const tmExcluded = buildTextMateExclusionRanges(doc);
+
+  // ★ カーソル行の先頭オフセットを基準に、直前の改行までさかのぼって安全に切り出す
+  const full = doc.getText();
+  const lineStartPos = new vscode.Position(startLine, 0);
+  const startOffset = doc.offsetAt(lineStartPos);
+  let safeStartOffset = startOffset;
+  while (safeStartOffset > 0 && full[safeStartOffset - 1] !== "\n") {
+    safeStartOffset--;
+  }
+  const slice = full.slice(safeStartOffset); // 後方のみ
+
+  // ★ 後方テキストだけをトークン化
+  const tokens = tokenizer.tokenize(slice) || [];
+
+  // ★ 後方のみの新規レンジを構築（行>= startLine のみ採用）
+  let offset = safeStartOffset;
+  const newBuckets = new Map(); // pos -> ranges(>= startLine)
+  for (const tk of tokens) {
+    const s = tk.surface_form || "";
+    if (!s) continue;
+    const idx = full.indexOf(s, offset);
+    if (idx < 0) continue;
+    const start = doc.positionAt(idx);
+    const end = doc.positionAt(idx + s.length);
+    offset = idx + s.length;
+    if (start.line < startLine) continue; // ← 前方は無視
+    const rng = new vscode.Range(start, end);
+    if (intersectsAny(rng, tmExcluded)) continue; // TextMate 管轄を除外
+    const pos = tk.pos || "その他";
+    if (!newBuckets.has(pos)) newBuckets.set(pos, []);
+    newBuckets.get(pos).push(rng);
+  }
+
+  // ★ 「前方keep＋後方add」で union を作り反映（DecorationType は再生成しない）
+  const merged = new Map();
+  const allPos = new Set([
+    ...Array.from(newBuckets.keys()),
+    ...(lastBuckets ? Array.from(lastBuckets.keys()) : []),
+  ]);
+  for (const pos of allPos) {
+    const prev = (lastBuckets && lastBuckets.get(pos)) || [];
+    const keep = prev.filter((r) => r.start.line < startLine); // 前方そのまま
+    const add = newBuckets.get(pos) || []; // 後方のみ新規
+    merged.set(pos, keep.concat(add));
+  }
+
+  for (const pos of allPos) {
+    let deco = decorationsByPos.get(pos);
+    if (!deco) {
+      // 必要なものだけ都度生成（全消ししない）
+      deco = decorationFor((c.colors || {})[pos]);
+      decorationsByPos.set(pos, deco);
+    }
+    editor.setDecorations(deco, merged.get(pos) || []);
+  }
+  lastBuckets = merged;
+}
+
+// カーソル行以降の kuromoji 装飾のみを一時的に外す
+function suspendFromLine(editor, line) {
+  if (!lastBuckets || decorationsByPos.size === 0) return;
+  for (const [pos, ranges] of lastBuckets.entries()) {
+    const deco = decorationsByPos.get(pos) || decorationsByPos.get("その他");
+    const kept = ranges.filter((r) => r.start.line < line); // 「その行**未満**」は残す
+    editor.setDecorations(deco, kept);
   }
 }
 
@@ -324,7 +498,11 @@ function scheduleUpdate(editor, context) {
   const c = cfg();
   if (debouncer) clearTimeout(debouncer);
   debouncer = setTimeout(async () => {
-    await analyzeAndDecorate(editor, context);
+    // 入力中は重い再解析を回避。カーソル行以降だけkuromoji装飾を外す。
+    // ただし保存直後の処理中は割り込まない（savingGate）。
+    if (!savingGate && editor && editor.selection) {
+      suspendFromLine(editor, editor.selection.active.line);
+    }
     updateStatusBar(editor);
   }, c.debounceMs);
 }
@@ -421,6 +599,18 @@ function activate(context) {
       if (!ed || e.document !== ed.document) return;
       scheduleUpdate(ed, context);
     }),
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      const ed = vscode.window.activeTextEditor;
+      if (ed && ed.document === doc) {
+        // 保存時は「カーソル行以降のみ」kuromoji 再着色
+        savingGate = true;
+        const line = ed.selection?.active?.line ?? 0;
+        analyzeAndDecoratePartial(ed, context, line).finally(() => {
+          savingGate = false;
+          updateStatusBar(ed);
+        });
+      }
+    }),
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (ed) scheduleUpdate(ed, context);
     }),
@@ -437,10 +627,11 @@ function activate(context) {
   );
 
   // 初回
-  if (vscode.window.activeTextEditor)
-    scheduleUpdate(vscode.window.activeTextEditor, context);
+  if (vscode.window.activeTextEditor) {
+    analyzeAndDecorate(vscode.window.activeTextEditor, context);
+    updateStatusBar(vscode.window.activeTextEditor);
+  }
 }
-
 function deactivate() {
   disposeAllDecorations();
   if (statusBarItem) statusBarItem.dispose();
