@@ -5,7 +5,7 @@ pnpm-debug.log*
 yarn-error.log*
 *.log
 logs/
-demo/
+
 # lockfile は基本コミット推奨（消したいならこの行を削除）
 # （= ここでは ignore しない）
 

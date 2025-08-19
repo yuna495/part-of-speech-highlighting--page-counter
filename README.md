@@ -12,7 +12,9 @@
 
 ## デモ
 
-![demo](./demo/demo.png)
+![Demo Screenshot](./demo/demo.png)
+
+例：小説テキストに品詞ごとの色付け・括弧と記号の強調・ページ数と文字数カウントを表示
 
 ---
 
