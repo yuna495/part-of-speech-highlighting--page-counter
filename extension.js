@@ -1,48 +1,38 @@
-// extension.js
-// ===== imports =====
+// ===========================================
+//  日本語 品詞ハイライト（Semantic）＋ページカウンタ
+//  - kuromoji: 形態素解析（行単位）→ Semantic Tokens で着色
+//  - ページカウンタ: 原稿用紙風（行×列 + 禁則）をステータスバー表示
+//  - パフォーマンス: 入力中は UI だけ軽く更新、重い再計算はアイドル時/保存時
+// ===========================================
+
+// ===== 1) imports =====
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
 
-// ===== state =====
-let tokenizer = null;
-let debouncer = null;
-let enabledPos = true;
-let enabledPage = true;
-let statusBarItem = null;
+// ===== 2) state =====
+let tokenizer = null; // kuromoji tokenizer
+let debouncer = null; // 軽い UI 更新用デバウンサ
+let idleRecomputeTimer = null; // 重い再計算の遅延実行用
+let enabledPos = true; // 品詞ハイライトのON/OFF（コマンドで切替）
+let enabledPage = true; // ページカウンタON/OFF（コマンドで切替）
+let statusBarItem = null; // ステータスバー部品
+let m = null; // ページカウンタ用メトリクスのキャッシュ
 
-let m = null;
-let idleRecomputeTimer = null; // 入力が止まってから重い再計算を実行するためのタイマ
-
-// ===== config helper =====
-
-function recomputeAndCacheMetrics(editor) {
-  if (!editor) {
-    m = null;
-    return;
-  }
-  const c = cfg();
-  if (!isTargetDoc(editor.document, c) || !enabledPage || !c.enabledPage) {
-    m = null;
-    return;
-  }
-  // ドキュメントとカーソル位置から最新メトリクスを計算してキャッシュ
-  m = computePageMetrics(editor.document, c, editor.selection);
-}
-
+// ===== 3) config helper =====
 function cfg() {
   const c = vscode.workspace.getConfiguration("posPage");
   return {
     semanticEnabled: c.get("semantic.enabled", true),
     applyToTxtOnly: c.get("applyToTxtOnly", true),
-    debounceMs: c.get("debounceMs", 500),
+    debounceMs: c.get("debounceMs", 500), // 軽いUI更新
+    recomputeIdleMs: c.get("recomputeIdleMs", 1200), // 重い再計算
     enabledPos: c.get("enabledPos", true),
-    maxDocLength: c.get("maxDocLength", 200000),
     enabledPage: c.get("enabledPage", true),
+    maxDocLength: c.get("maxDocLength", 200000),
     rowsPerPage: c.get("page.rowsPerPage", 40),
     colsPerRow: c.get("page.colsPerRow", 40),
-    recomputeIdleMs: c.get("recomputeIdleMs", 1000),
     kinsokuEnabled: c.get("kinsoku.enabled", true),
     kinsokuBanned: c.get("kinsoku.bannedStart", [
       "」",
@@ -57,15 +47,23 @@ function cfg() {
   };
 }
 
-// ===== tokenizer =====
+// 対象ドキュメントか判定（既定では plaintext + .txt）
+function isTargetDoc(doc, c) {
+  if (!doc) return false;
+  if (!c.applyToTxtOnly) return true;
+  const isPlain = doc.languageId === "plaintext";
+  const isTxt = doc.uri.fsPath.toLowerCase().endsWith(".txt");
+  return isPlain && isTxt;
+}
 
+// ===== 4) tokenizer loader =====
 async function ensureTokenizer(context) {
   if (tokenizer) return;
-  const dictPath = path.join(context.extensionPath, "dict"); // プロジェクト直下の dict/
+  const dictPath = path.join(context.extensionPath, "dict"); // 拡張直下の dict/
   console.log("[pos-page] dict path:", dictPath);
   if (!fs.existsSync(dictPath)) {
     vscode.window.showErrorMessage(
-      "kuromoji の辞書が見つかりません。拡張直下の 'dict/' を確認してください。"
+      "kuromoji の辞書が見つかりません。拡張直下の 'dict/' を配置してください。"
     );
     return;
   }
@@ -77,63 +75,49 @@ async function ensureTokenizer(context) {
   });
 }
 
-// ===== guards =====
-function isTargetDoc(doc, c) {
-  if (!doc) return false;
-  if (!c.applyToTxtOnly) return true;
-  const isPlain = doc.languageId === "plaintext";
-  const isTxt = doc.uri.fsPath.toLowerCase().endsWith(".txt");
-  return isPlain && isTxt;
-}
+// ===== 5) page counter core =====
 
-// ===== page counter =====
+// テキスト全体を原稿用紙風に折り返したときの行数を返す（行頭禁則対応）
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
-  // CRLF → LF 正規化
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const banned = new Set(kinsokuEnabled ? bannedChars : []);
   let rows = 0;
 
   for (const line of lines) {
-    // 文字数は code point 基準（サロゲート対策）
     const arr = Array.from(line);
     const n = arr.length;
-
-    // 空行も1行としてカウント（原稿用紙の行空け）
     if (n === 0) {
       rows += 1;
       continue;
-    }
+    } // 空行も1行
 
     let pos = 0;
     while (pos < n) {
-      // まず cols だけ取る
       let take = Math.min(cols, n - pos);
-
       if (kinsokuEnabled) {
-        // 次文字が禁則文字なら、前行に“ぶら下げ”（= この行に食わせる）
         let ni = pos + take;
         while (ni < n && banned.has(arr[ni])) {
           take++;
           ni++;
         }
       }
-
       rows += 1;
-      pos += take; // tateぶん＋禁則ぶんだけ進める
+      pos += take;
     }
   }
-
   return rows;
 }
 
+// 現在の文書に対するメトリクス（総行/総ページ/現在ページ等）を計算
 function computePageMetrics(doc, c, selection) {
   const text = doc.getText();
 
-  // 文字数は改行を除いたコードポイント数（必要なければ text.length に戻してOK）
+  // 文字数: 改行(LF)を除くコードポイント数
   const totalChars = Array.from(text.replace(/\r\n/g, "\n")).filter(
     (ch) => ch !== "\n"
   ).length;
 
+  // 総行数（原稿用紙の折返し + 禁則）
   const totalWrappedRows = wrappedRowsForText(
     text,
     c.colsPerRow,
@@ -142,7 +126,7 @@ function computePageMetrics(doc, c, selection) {
   );
   const totalPages = Math.max(1, Math.ceil(totalWrappedRows / c.rowsPerPage));
 
-  // 現在ページ算出用：先頭〜カーソル位置のテキスト
+  // 現在ページ：先頭〜カーソルまでの行数から算出
   const prefixText = editorPrefixText(doc, selection);
   const currRows = wrappedRowsForText(
     prefixText,
@@ -154,7 +138,8 @@ function computePageMetrics(doc, c, selection) {
     1,
     Math.min(totalPages, Math.ceil(currRows / c.rowsPerPage))
   );
-  // ★追加：最終ページの何行目に最終文字があるか
+
+  // 最終ページの最終文字が何行目か
   const rem = totalWrappedRows % c.rowsPerPage;
   const lastLineInLastPage = rem === 0 ? c.rowsPerPage : rem;
 
@@ -167,49 +152,7 @@ function computePageMetrics(doc, c, selection) {
   };
 }
 
-function updateStatusBar(editor) {
-  const c = cfg();
-  if (!statusBarItem) return;
-
-  if (
-    !editor ||
-    !isTargetDoc(editor.document, c) ||
-    !enabledPage ||
-    !c.enabledPage
-  ) {
-    statusBarItem.hide();
-    return;
-  }
-
-  // 選択があれば選択文字数、無ければ全体文字数（mが未計算でも壊れないようにデフォルトを用意）
-  const selections =
-    editor.selections && editor.selections.length
-      ? editor.selections
-      : [editor.selection];
-  const selectedChars = countSelectedChars(editor.document, selections);
-
-  const mm = m ?? {
-    totalChars: 0,
-    totalWrappedRows: 0,
-    totalPages: 1,
-    currentPage: 1,
-    lastLineInLastPage: 1,
-  };
-  const displayChars = selectedChars > 0 ? selectedChars : mm.totalChars;
-
-  statusBarItem.text =
-    `${mm.currentPage}/${mm.totalPages}（${c.rowsPerPage}×${c.colsPerRow}）` +
-    `${mm.lastLineInLastPage}行｜${displayChars}字`;
-
-  statusBarItem.tooltip =
-    selectedChars > 0
-      ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）"
-      : "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=全体の文字数（改行除外）";
-
-  statusBarItem.command = "posPage.setPageSize";
-  statusBarItem.show();
-}
-
+// 選択先頭までのテキストを取得（現在ページ算出用）
 function editorPrefixText(doc, selection) {
   if (!selection) return "";
   const start = new vscode.Position(0, 0);
@@ -217,7 +160,7 @@ function editorPrefixText(doc, selection) {
   return doc.getText(range);
 }
 
-// 改行(LF)を除いてコードポイント数を数える
+// 改行(LF)を除いたコードポイント数
 function countCharsNoLF(text) {
   return Array.from(text.replace(/\r\n/g, "\n")).filter((ch) => ch !== "\n")
     .length;
@@ -235,38 +178,92 @@ function countSelectedChars(doc, selections) {
   return sum;
 }
 
-// ===== scheduling =====
-function scheduleUpdate(editor, context) {
+// メトリクスを計算→キャッシュ
+function recomputeAndCacheMetrics(editor) {
+  if (!editor) {
+    m = null;
+    return;
+  }
+  const c = cfg();
+  if (!isTargetDoc(editor.document, c) || !enabledPage || !c.enabledPage) {
+    m = null;
+    return;
+  }
+  m = computePageMetrics(editor.document, c, editor.selection);
+}
+
+// ステータスバー表示
+function updateStatusBar(editor) {
+  const c = cfg();
+  if (!statusBarItem) return;
+
+  if (
+    !editor ||
+    !isTargetDoc(editor.document, c) ||
+    !enabledPage ||
+    !c.enabledPage
+  ) {
+    statusBarItem.hide();
+    return;
+  }
+
+  const selections = editor.selections?.length
+    ? editor.selections
+    : [editor.selection];
+  const selectedChars = countSelectedChars(editor.document, selections);
+
+  const mm = m ?? {
+    totalChars: 0,
+    totalWrappedRows: 0,
+    totalPages: 1,
+    currentPage: 1,
+    lastLineInLastPage: 1,
+  };
+  const displayChars = selectedChars > 0 ? selectedChars : mm.totalChars;
+
+  statusBarItem.text =
+    `${mm.currentPage}/${mm.totalPages}（${c.rowsPerPage}×${c.colsPerRow}）` +
+    `${mm.lastLineInLastPage}行｜${displayChars}字`;
+  statusBarItem.tooltip =
+    selectedChars > 0
+      ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）"
+      : "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=全体の文字数（改行除外）";
+  statusBarItem.command = "posPage.setPageSize";
+  statusBarItem.show();
+}
+
+// ===== 6) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
+function scheduleUpdate(editor) {
   const c = cfg();
 
-  // まずは軽い UI 更新（キャッシュ m を使う）
+  // 軽いUI更新（キャッシュmを反映）
   if (debouncer) clearTimeout(debouncer);
   debouncer = setTimeout(() => {
-    updateStatusBar(editor); // ここでは recompute しない
+    updateStatusBar(editor);
   }, c.debounceMs);
 
-  // 重い再計算は「入力が止まってから」実行（キャッシュ m を更新）
+  // 重い再計算はアイドル時にまとめて実行
   if (idleRecomputeTimer) clearTimeout(idleRecomputeTimer);
   idleRecomputeTimer = setTimeout(() => {
     recomputeAndCacheMetrics(editor);
-    updateStatusBar(editor); // 確定値を反映
+    updateStatusBar(editor);
   }, c.recomputeIdleMs);
 }
 
-// ===== commands =====
-async function cmdTogglePos(context) {
+// ===== 7) commands =====
+async function cmdTogglePos() {
   enabledPos = !enabledPos;
-  const ed = vscode.window.activeTextEditor;
-  if (!ed) return;
-  if (enabledPos) {
-    vscode.window.showInformationMessage("品詞ハイライト: 有効化");
-  } else {
-    vscode.window.showInformationMessage("品詞ハイライト: 無効化");
-  }
+  vscode.window.showInformationMessage(
+    `品詞ハイライト: ${enabledPos ? "有効化" : "無効化"}`
+  );
 }
-async function cmdRefreshPos(context) {
+async function cmdRefreshPos() {
+  // 手動で「いまの状態」を確定したいとき用：ページ計算を即再計算し、ステータスバーを即反映
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
+  recomputeAndCacheMetrics(ed);
+  updateStatusBar(ed);
+  vscode.window.showInformationMessage("POS/Page: 解析を再適用しました");
 }
 async function cmdTogglePage() {
   enabledPage = !enabledPage;
@@ -302,13 +299,17 @@ async function cmdSetPageSize() {
     vscode.ConfigurationTarget.Global
   );
 
-  updateStatusBar(vscode.window.activeTextEditor);
+  const ed = vscode.window.activeTextEditor;
+  if (ed) {
+    recomputeAndCacheMetrics(ed);
+    updateStatusBar(ed);
+  }
   vscode.window.showInformationMessage(
     `行×列を ${rows}×${cols} に変更しました`
   );
 }
 
-// ===== activate/deactivate =====
+// ===== 8) activate/deactivate =====
 function activate(context) {
   console.log("[pos-page] activate called");
   vscode.window.showInformationMessage("POS/Page: activate");
@@ -321,11 +322,9 @@ function activate(context) {
 
   // commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("posPage.togglePos", () =>
-      cmdTogglePos(context)
-    ),
+    vscode.commands.registerCommand("posPage.togglePos", () => cmdTogglePos()),
     vscode.commands.registerCommand("posPage.refreshPos", () =>
-      cmdRefreshPos(context)
+      cmdRefreshPos()
     ),
     vscode.commands.registerCommand("posPage.togglePageCounter", () =>
       cmdTogglePage()
@@ -337,12 +336,13 @@ function activate(context) {
 
   // events
   context.subscriptions.push(
+    // 入力：軽い更新＋アイドル時に重い再計算
     vscode.workspace.onDidChangeTextDocument((e) => {
       const ed = vscode.window.activeTextEditor;
       if (!ed || e.document !== ed.document) return;
-      // 入力ごとに（デバウンス付きで）再計算＋更新
-      scheduleUpdate(ed, context);
+      scheduleUpdate(ed);
     }),
+    // 保存：即時に確定計算
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
@@ -350,39 +350,36 @@ function activate(context) {
           clearTimeout(debouncer);
           debouncer = null;
         }
-        // 保存直後は即時に最新化
         recomputeAndCacheMetrics(ed);
         updateStatusBar(ed);
       }
     }),
+    // エディタ切替：即時に確定計算＋軽い更新
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (ed) {
-        // エディタ切替時に最新メトリクスをキャッシュ
         recomputeAndCacheMetrics(ed);
-        scheduleUpdate(ed, context);
-        // 切替時にも一度適用（入力開始後は止まる）
+        scheduleUpdate(ed);
       }
     }),
+    // 選択変更：選択文字数を即時反映（軽い）
     vscode.window.onDidChangeTextEditorSelection((e) => {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
-      // 選択によってページ/文字数が変わるので即時反映
       recomputeAndCacheMetrics(e.textEditor);
       updateStatusBar(e.textEditor);
     }),
-
+    // 設定変更：確定計算＋軽い更新
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("posPage")) {
         const ed = vscode.window.activeTextEditor;
         if (ed) {
-          // 行×列や禁則の変更時はキャッシュを更新
           recomputeAndCacheMetrics(ed);
-          scheduleUpdate(ed, context);
-          // 色設定や有効/無効が変わった場合に備え適用
+          scheduleUpdate(ed);
         }
       }
     })
   );
-  // --- Semantic Tokens Provider の登録 ---
+
+  // Semantic Tokens Provider の登録
   const selector = [
     { language: "plaintext", scheme: "file" },
     { language: "plaintext", scheme: "untitled" },
@@ -403,9 +400,8 @@ function activate(context) {
     )
   );
 
-  // 初回
+  // 初回：確定計算→UI反映
   if (vscode.window.activeTextEditor) {
-    // 起動直後にメトリクスを確定→以降の入力中はキャッシュ表示
     recomputeAndCacheMetrics(vscode.window.activeTextEditor);
     updateStatusBar(vscode.window.activeTextEditor);
   }
@@ -413,10 +409,9 @@ function activate(context) {
 function deactivate() {
   if (statusBarItem) statusBarItem.dispose();
 }
-
 module.exports = { activate, deactivate };
 
-// ===== Semantic Tokens for Japanese POS =====
+// ===== 9) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
 const tokenTypesArr = [
   "noun",
   "verb",
@@ -438,7 +433,7 @@ const semanticLegend = new vscode.SemanticTokensLegend(
   Array.from(tokenModsArr)
 );
 
-// kuromoji 品詞 → semantic token type / modifiers
+// kuromoji → token type / modifiers
 function mapKuromojiToSemantic(tk) {
   const pos = tk.pos || "";
   const pos1 = tk.pos_detail_1 || "";
@@ -453,24 +448,22 @@ function mapKuromojiToSemantic(tk) {
   else if (pos === "接続詞") type = "conjunction";
   else if (pos === "感動詞") type = "interjection";
   else if (pos === "記号") type = "symbol";
+
   let mods = 0;
   if (pos1 === "固有名詞") mods |= 1 << tokenModsArr.indexOf("proper");
   if (pos1 === "接頭") mods |= 1 << tokenModsArr.indexOf("prefix");
   if (pos1 === "接尾") mods |= 1 << tokenModsArr.indexOf("suffix");
-  return {
-    typeIdx: Math.max(0, tokenTypesArr.indexOf(type)),
-    mods,
-  };
+  return { typeIdx: Math.max(0, tokenTypesArr.indexOf(type)), mods };
 }
 
-// 行テキスト内でトークンの位置を素朴に走査（曖昧一致ずれはスキップ）
+// 行内で kuromoji トークンの開始位置を素朴に探索（ズレたらスキップ）
 function* enumerateTokenOffsets(lineText, tokens) {
   let cur = 0;
   for (const tk of tokens) {
     const s = tk.surface_form || "";
     if (!s) continue;
     const i = lineText.indexOf(s, cur);
-    if (i === -1) continue; // ずれたら飛ばす
+    if (i === -1) continue;
     yield { start: i, end: i + s.length, tk };
     cur = i + s.length;
   }
@@ -497,10 +490,9 @@ class JapaneseSemanticProvider {
 
     for (let line = startLine; line <= endLine; line++) {
       if (cancelToken?.isCancellationRequested) break;
-
       const text = document.lineAt(line).text;
 
-      // --- 全角スペースを semantic で配る（背景色は不可なので下線などで表現） ---
+      // 全角スペース → fwspace（※背景はSemantic不可、既定は赤＋下線）
       {
         const re = /　/g;
         let m;
@@ -509,9 +501,8 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // --- EM DASH（—）/ HORIZONTAL BAR（―）を bracket と同じ扱いでハイライト ---
+      // ダッシュ（—/―） → bracket と同じ色で強調
       {
-        // 必要なら "―"（U+2015）も含める
         const reDash = /[—―]/g;
         let m;
         while ((m = reDash.exec(text)) !== null) {
@@ -525,7 +516,7 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // --- 括弧（＋中身）を semantic で配る ---
+      // 括弧＋その中身 → bracket
       {
         const pairs = [
           ["「", "」"],
@@ -545,7 +536,6 @@ class JapaneseSemanticProvider {
             if (s < 0) break;
             const e = text.indexOf(close, s + open.length);
             if (e < 0) {
-              // 開きのみ
               builder.push(
                 line,
                 s,
@@ -555,7 +545,6 @@ class JapaneseSemanticProvider {
               );
               idx = s + open.length;
             } else {
-              // 中身ごと
               const len = e + close.length - s;
               builder.push(line, s, len, tokenTypesArr.indexOf("bracket"), 0);
               idx = e + close.length;
@@ -564,18 +553,16 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // --- 品詞（kuromoji） ---
+      // 品詞 → kuromoji で行単位トークン化
       if (text.trim()) {
         const tokens = tokenizer.tokenize(text);
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const { typeIdx, mods } = mapKuromojiToSemantic(seg.tk);
-          const startChar = seg.start;
           const length = seg.end - seg.start;
-          builder.push(line, startChar, length, typeIdx, mods);
+          builder.push(line, seg.start, length, typeIdx, mods);
         }
       }
     }
-
     return builder.build();
   }
 
@@ -588,7 +575,6 @@ class JapaneseSemanticProvider {
     );
     return this._buildTokens(document, fullRange, token);
   }
-
   async provideDocumentRangeSemanticTokens(document, range, token) {
     return this._buildTokens(document, range, token);
   }

@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "日本語 品詞カラー表示＋ページカウンタ",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -148,6 +148,16 @@
           "default": true,
           "description": "Semantic Tokens で品詞ハイライトを行う。false で品詞ハイライトを無効化"
         },
+        "posPage.enabledPos": {
+          "type": "boolean",
+          "default": true,
+          "description": "品詞ハイライトを有効化"
+        },
+        "posPage.enabledPage": {
+          "type": "boolean",
+          "default": true,
+          "description": "ページカウンタ（ステータスバー）を有効化"
+        },
         "posPage.applyToTxtOnly": {
           "type": "boolean",
           "default": true,
@@ -156,28 +166,18 @@
         "posPage.debounceMs": {
           "type": "number",
           "default": 500,
-          "description": "タイプ時の再解析ディレイ(ms)"
+          "description": "タイプ時のステータスバー軽量更新の待ち時間(ms)"
         },
-        "posPage.enabledPos": {
-          "type": "boolean",
-          "default": true,
-          "description": "品詞ハイライトを有効化"
+        "posPage.recomputeIdleMs": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 100,
+          "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
         },
         "posPage.maxDocLength": {
           "type": "number",
           "default": 200000,
           "description": "解析上限（文字数）。超過時はスキップ/部分適用"
-        },
-        "posPage.enabledPage": {
-          "type": "boolean",
-          "default": true,
-          "description": "ページカウンタ（ステータスバー）を有効化"
-        },
-        "posPage.recomputeIdleMs": {
-          "type": "number",
-          "default": 1000,
-          "minimum": 100,
-          "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
         },
         "posPage.page.rowsPerPage": {
           "type": "number",
@@ -204,6 +204,7 @@
           "default": [
             "」",
             "）",
+            "『",
             "』",
             "》",
             "】",
@@ -219,10 +220,10 @@
       "editor.semanticTokenColorCustomizations": {
         "rules": {
           "verb": "#11ff84",
-          "adjective": "#ffd900",
+          "adjective": "#ffe955",
           "adverb": "#f94446",
-          "particle": "#f6f7f8",
-          "prenoun": "#d48c00",
+          "particle": "#f7f7f7",
+          "prenoun": "#e0a000",
           "conjunction": "#ff14e0",
           "symbol": "#fd9bcc",
           "bracket": "#fd9bcc",
@@ -242,11 +243,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-user/your-repo.git"
+    "url": "https://github.com/yuna495/part-of-speech-highlighting--page-counter.git"
   },
   "bugs": {
-    "url": "https://github.com/your-user/your-repo/issues"
+    "url": "https://github.com/yuna495/part-of-speech-highlighting--page-counter/issues"
   },
   "license": "MIT",
-  "homepage": "https://github.com/your-user/your-repo#readme"
+  "homepage": "https://github.com/yuna495/part-of-speech-highlighting--page-counter#readme"
 }
