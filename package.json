@@ -29,6 +29,99 @@
     "onLanguage:novel"
   ],
   "contributes": {
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "noun": [
+            "variable"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "verb": [
+            "keyword"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "adjective": [
+            "type"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "adverb": [
+            "macro"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "particle": [
+            "parameter"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "auxiliary": [
+            "operator"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "prenoun": [
+            "property"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "conjunction": [
+            "label"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "interjection": [
+            "event"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "symbol": [
+            "operator"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "other": [
+            "comment"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "bracket": [
+            "string"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "fwspace": [
+            "whitespace"
+          ]
+        }
+      }
+    ],
     "commands": [
       {
         "command": "posPage.togglePos",
@@ -50,36 +143,10 @@
     "configuration": {
       "title": "POS & Page (Japanese)",
       "properties": {
-        "posPage.tm.enabled": {
+        "posPage.semantic.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "記号/括弧/接続詞/助詞の“保存時のみ”デコレーション（TextMate の代替）を有効化"
-        },
-        "posPage.tm.applyOnSaveOnly": {
-          "type": "boolean",
-          "default": true,
-          "description": "保存・起動・設定変更時のみ適用（入力中は適用しない）"
-        },
-        "posPage.tm.suspendDuringTyping": {
-          "type": "boolean",
-          "default": true,
-          "description": "入力開始時に括弧・記号の保存時デコレーションも一括で外す（保存時に自動復帰）"
-        },
-        "posPage.suspendWindowLines": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "description": "入力開始時に装飾を残す範囲を“カーソル行±N行”に限定。0で全文オフ"
-        },
-        "posPage.tm.colors": {
-          "type": "object",
-          "default": {
-            "記号": "inherit",
-            "括弧": "inherit",
-            "接続詞": "#ff14e0",
-            "助詞": "inherit"
-          },
-          "description": "“保存時デコレーション”で用いる色（CSSカラー/HEX）。inherit で標準色"
+          "description": "Semantic Tokens で品詞ハイライトを行う。false で品詞ハイライトを無効化"
         },
         "posPage.applyToTxtOnly": {
           "type": "boolean",
@@ -88,41 +155,13 @@
         },
         "posPage.debounceMs": {
           "type": "number",
-          "default": 300,
+          "default": 500,
           "description": "タイプ時の再解析ディレイ(ms)"
         },
         "posPage.enabledPos": {
           "type": "boolean",
           "default": true,
           "description": "品詞ハイライトを有効化"
-        },
-        "posPage.colors": {
-          "type": "object",
-          "default": {
-            "名詞": "inherit",
-            "動詞": "#11ff84",
-            "形容詞": "#ffd900",
-            "副詞": "#d93926",
-            "助詞": "#f6f7f8",
-            "助動詞": "inherit",
-            "連体詞": "inherit",
-            "接続詞": "#ff14e0",
-            "感動詞": "inherit",
-            "接頭詞": "inherit",
-            "その他": "inherit"
-          },
-          "description": "品詞ごとの文字色（CSSカラー/HEX）。",
-          "markdownDescription": "品詞ごとの**文字色**。`\"inherit\"`/`\"default\"`/`\"auto\"`/空文字（または `#46d2e8`）を指定すると**エディタ標準色**になります。"
-        },
-        "posPage.fullWidthSpace.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "全角スペースを背景色 (rgba(255,0,0,0.1)) で表示する"
-        },
-        "posPage.fullWidthSpace.color": {
-          "type": "string",
-          "default": "#ff000055",
-          "description": "全角スペースの背景色（default:#ff000055）"
         },
         "posPage.maxDocLength": {
           "type": "number",
@@ -133,6 +172,12 @@
           "type": "boolean",
           "default": true,
           "description": "ページカウンタ（ステータスバー）を有効化"
+        },
+        "posPage.recomputeIdleMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 100,
+          "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
         },
         "posPage.page.rowsPerPage": {
           "type": "number",
@@ -166,6 +211,25 @@
             "、"
           ],
           "description": "行頭に来ないよう前行へ送る文字（行頭禁則）"
+        }
+      }
+    },
+    "configurationDefaults": {
+      "editor.semanticHighlighting.enabled": true,
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "verb": "#11ff84",
+          "adjective": "#ffd900",
+          "adverb": "#f94446",
+          "particle": "#f6f7f8",
+          "prenoun": "#d48c00",
+          "conjunction": "#ff14e0",
+          "symbol": "#fd9bcc",
+          "bracket": "#fd9bcc",
+          "fwspace": {
+            "underline": true,
+            "foreground": "#ff0000"
+          }
         }
       }
     }

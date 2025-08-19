@@ -138,6 +138,29 @@
 
 * * *
 
+// settings.json の例: 好みで上書きできます
+"editor.semanticTokenColorCustomizations": {
+  "rules": {
+    // 名詞をテーマ既定のままにしたい → 何も書かない（= inherit）
+    "noun": "#a0d9ff",           // 例: 名詞を水色に
+    "verb": "#11ff84",           // 動詞（デフォルト同じ、ここで別色にしてもOK）
+    "adjective": "#ffd900",      // 形容詞
+    "adverb": "#f94446",         // 副詞
+    "particle": "#f6f7f8",       // 助詞
+    "auxiliary": "#cccccc",      // 例: 助動詞に薄灰（デフォルトでは未設定=inherit）
+    "prenoun": "#c0ffa0",        // 例: 連体詞に薄緑
+    "conjunction": "#ff14e0",    // 接続詞
+    "interjection": "#ffb3b3",   // 例: 感動詞に淡赤
+    "other": "#888888"           // 例: その他にグレー
+    "bracket": "#fd9bcc",         // 括弧と中身
+    "fwspace": { "underline": true }, // 全角スペース（背景は不可）
+    // 必要なら fwspace に色（前景）も指定できるが、背景にはならない点に注意
+    // "fwspace": "#ff0000"
+    // 接頭詞(kuromojiの「接頭」)は現在「modifier」として付与しています。
+    // 特定の組合せだけ色を変えたい場合は `type.modifier` の形で指定できます（例: "noun.prefix": "#ff8800"）。
+  }
+}
+
 ## 推奨ワークフロー
 
 - `.txt` を対象にした小説や論文の執筆
