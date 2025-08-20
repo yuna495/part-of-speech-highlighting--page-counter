@@ -2,6 +2,20 @@
 
 All notable changes to this extension are documented here.
 
+## [1.1.0]
+
+- `.md` ファイルを新たに解析対象に追加
+- 他拡張「NOVEL-WRITER」による言語モード `Novel` に対応
+  - 「NOVEL-WRITER」かこちらのどちらかの品詞ハイライトをOFFにして下さい。
+- 品詞ハイライトの有効/無効を `posPage.semantic.enabled` に統合
+  - 旧オプション `posPage.enabledPos` とコマンド `posPage.togglePos` を削除
+- 既定値を `rowsPerPage=20` / `colsPerRow=20` に統一
+- `.md` ファイルの品詞ハイライトを独立して ON/OFF できる設定項目を追加
+  - `posPage.semantic.enabledMd`（デフォルト: true）
+  - `.txt` / `Novel` 用の `posPage.semantic.enabled` とは別に制御可能
+- README の設定例を拡充（全品詞トークンのサンプルを記載）
+- README を更新し、新オプションの説明を追加
+
 ## [1.0.1]
 
 - デコレーション方式を semantic token に統一

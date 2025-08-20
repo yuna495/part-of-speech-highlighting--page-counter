@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "日本語 品詞カラー表示＋ページカウンタ",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -26,7 +26,9 @@
   ],
   "activationEvents": [
     "onLanguage:plaintext",
-    "onLanguage:novel"
+    "onLanguage:novel",
+    "onLanguage:markdown",
+    "onLanguage:Novel"
   ],
   "contributes": {
     "semanticTokenScopes": [
@@ -124,10 +126,6 @@
     ],
     "commands": [
       {
-        "command": "posPage.togglePos",
-        "title": "POS/Page: 品詞ハイライト 有効/無効"
-      },
-      {
         "command": "posPage.refreshPos",
         "title": "POS/Page: 解析を再適用"
       },
@@ -146,12 +144,12 @@
         "posPage.semantic.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Semantic Tokens で品詞ハイライトを行う。false で品詞ハイライトを無効化"
+          "description": "「.txt / Novel」の品詞ハイライトを行う。false で品詞ハイライトを無効化"
         },
-        "posPage.enabledPos": {
+        "posPage.semantic.enabledMd": {
           "type": "boolean",
           "default": true,
-          "description": "品詞ハイライトを有効化"
+          "description": "「.md」の品詞ハイライトを行う。false で無効化"
         },
         "posPage.enabledPage": {
           "type": "boolean",
@@ -161,7 +159,7 @@
         "posPage.applyToTxtOnly": {
           "type": "boolean",
           "default": true,
-          "description": ".txt（languageId: plaintext）のみ対象にする"
+          "description": ".txt と .md（languageId: plaintext/markdown/novel）を対象にする"
         },
         "posPage.debounceMs": {
           "type": "number",

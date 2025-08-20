@@ -1,12 +1,15 @@
 # 日本語 品詞カラー表示＋ページカウンタ
 
-**日本語テキスト向け**の VS Code 拡張です。
+**日本語テキスト向け**の VS Code 拡張です。（最新版: v1.1.0）
 
 - **品詞カラー表示**：`kuromoji` による形態素解析で、品詞ごとに**文字色**を付与
 - **ページカウンタ**：原稿用紙風（行×列）で折り返し、**禁則処理**（行頭禁則）に対応
 - **選択文字数表示**：選択範囲があればその文字数を表示、なければ全体文字数を表示
 - **特殊記号・括弧ハイライト**：括弧内の文章や「—」「、」「。」などを指定色で強調
 - **全角スペース表示**：全角スペース（　）に下線を付与（semantic token 方式）
+- **Markdown に対応**：`.md` ファイルも解析対象
+
+- **NOVEL-WRITER 連携**：言語モードが `Novel` の場合も対象
 
 ---
 
@@ -48,28 +51,42 @@
 ```jsonc
 "editor.semanticTokenColorCustomizations": {
   "rules": {
-    "verb": "#11ff84",
-    "adjective": "#ffd900",
-    "adverb": "#f94446",
-    "particle": "#f6f7f8",
-    "conjunction": "#ff14e0",
-    "bracket": "#fd9bcc",
-    "symbol": "#fd9bcc",
-    "fwspace": { "underline": true }
+    // 品詞ごとの例（任意で色コードを変更可能）
+    "noun": "#4dd0e1",        // 名詞
+    "verb": "#11ff84",        // 動詞
+    "adjective": "#ffd900",   // 形容詞
+    "adverb": "#f94446",      // 副詞
+    "particle": "#f6f7f8",    // 助詞
+    "auxiliary": "#a1887f",   // 助動詞
+    "prenoun": "#e0a000",     // 連体詞
+    "conjunction": "#ff14e0", // 接続詞
+    "interjection": "#ff7043",// 感動詞
+    "symbol": "#fd9bcc",      // 記号
+    "other": "#9e9e9e",       // その他
+
+    // 特殊トークン
+    "bracket": "#fd9bcc",     // 括弧と括弧内文書
+    "fwspace": {              // 全角スペース
+      "underline": true,
+      "foreground": "#ff0000"
+    }
   }
 }
+
+"posPage.semantic.enabled": true,    // .txt や Novel 言語モードの品詞ハイライトを有効化
+"posPage.semantic.enabledMd": true   // .md の品詞ハイライトを有効化
+
+```
 
 
 ## 推奨ワークフロー
 
-- `.txt` を対象にした小説や論文の執筆
+- `.txt` `.md`を対象にした小説や論文の執筆
 
 - 入力中はカーソル周囲のみ装飾を残し、カクつきを低減
 
 - 仕上げ時に全装飾を適用して見直し
 
-
-* * *
 
 ## 既知の制約
 
@@ -77,8 +94,6 @@
 
 - 禁則処理は一部の組み合わせに限定
 
-
-* * *
 
 ## ライセンス
 

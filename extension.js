@@ -15,7 +15,6 @@ const kuromoji = require("kuromoji"); // CJS
 let tokenizer = null; // kuromoji tokenizer
 let debouncer = null; // 軽い UI 更新用デバウンサ
 let idleRecomputeTimer = null; // 重い再計算の遅延実行用
-let enabledPos = true; // 品詞ハイライトのON/OFF（コマンドで切替）
 let enabledPage = true; // ページカウンタON/OFF（コマンドで切替）
 let statusBarItem = null; // ステータスバー部品
 let m = null; // ページカウンタ用メトリクスのキャッシュ
@@ -25,14 +24,14 @@ function cfg() {
   const c = vscode.workspace.getConfiguration("posPage");
   return {
     semanticEnabled: c.get("semantic.enabled", true),
+    semanticEnabledMd: c.get("semantic.enabledMd", true),
     applyToTxtOnly: c.get("applyToTxtOnly", true),
     debounceMs: c.get("debounceMs", 500), // 軽いUI更新
     recomputeIdleMs: c.get("recomputeIdleMs", 1200), // 重い再計算
-    enabledPos: c.get("enabledPos", true),
     enabledPage: c.get("enabledPage", true),
     maxDocLength: c.get("maxDocLength", 200000),
-    rowsPerPage: c.get("page.rowsPerPage", 40),
-    colsPerRow: c.get("page.colsPerRow", 40),
+    rowsPerPage: c.get("page.rowsPerPage", 20),
+    colsPerRow: c.get("page.colsPerRow", 20),
     kinsokuEnabled: c.get("kinsoku.enabled", true),
     kinsokuBanned: c.get("kinsoku.bannedStart", [
       "」",
@@ -50,10 +49,15 @@ function cfg() {
 // 対象ドキュメントか判定（既定では plaintext + .txt）
 function isTargetDoc(doc, c) {
   if (!doc) return false;
+  // 既定では plaintext/.txt と markdown/.md を対象にする
   if (!c.applyToTxtOnly) return true;
-  const isPlain = doc.languageId === "plaintext";
-  const isTxt = doc.uri.fsPath.toLowerCase().endsWith(".txt");
-  return isPlain && isTxt;
+  const lang = (doc.languageId || "").toLowerCase();
+  const fsPath = (doc.uri?.fsPath || "").toLowerCase();
+  const isPlain = lang === "plaintext" || fsPath.endsWith(".txt");
+  const isMd = lang === "markdown" || fsPath.endsWith(".md");
+  // 他拡張「NOVEL-WRITER」等で言語モードが Novel になる場合も許可（id は通常 lowercase 化されるが保険）
+  const isNovel = lang === "novel";
+  return isPlain || isMd || isNovel;
 }
 
 // ===== 4) tokenizer loader =====
@@ -251,12 +255,6 @@ function scheduleUpdate(editor) {
 }
 
 // ===== 7) commands =====
-async function cmdTogglePos() {
-  enabledPos = !enabledPos;
-  vscode.window.showInformationMessage(
-    `品詞ハイライト: ${enabledPos ? "有効化" : "無効化"}`
-  );
-}
 async function cmdRefreshPos() {
   // 手動で「いまの状態」を確定したいとき用：ページ計算を即再計算し、ステータスバーを即反映
   const ed = vscode.window.activeTextEditor;
@@ -322,7 +320,6 @@ function activate(context) {
 
   // commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("posPage.togglePos", () => cmdTogglePos()),
     vscode.commands.registerCommand("posPage.refreshPos", () =>
       cmdRefreshPos()
     ),
@@ -379,13 +376,19 @@ function activate(context) {
     })
   );
 
-  // Semantic Tokens Provider の登録
   const selector = [
     { language: "plaintext", scheme: "file" },
     { language: "plaintext", scheme: "untitled" },
     { language: "novel", scheme: "file" },
     { language: "novel", scheme: "untitled" },
+    // 保険：表示名が「Novel」となるケースにも対応（通常は小文字 id に正規化される）
+    { language: "Novel", scheme: "file" },
+    { language: "Novel", scheme: "untitled" },
+    // Markdown にも対応
+    { language: "markdown", scheme: "file" },
+    { language: "markdown", scheme: "untitled" },
   ];
+
   const semProvider = new JapaneseSemanticProvider(context);
   context.subscriptions.push(
     vscode.languages.registerDocumentSemanticTokensProvider(
@@ -476,8 +479,18 @@ class JapaneseSemanticProvider {
 
   async _buildTokens(document, range, cancelToken) {
     const c = cfg();
-    if (!c.semanticEnabled || !enabledPos) {
-      return new vscode.SemanticTokens(new Uint32Array());
+    // 言語別に品詞ハイライトの有効/無効を判定
+    const lang = (document.languageId || "").toLowerCase();
+    if (lang === "markdown") {
+      if (!c.semanticEnabledMd) {
+        return new vscode.SemanticTokens(new Uint32Array());
+      }
+    } else {
+      // plaintext / novel（他拡張NOVEL-WRITER）など
+      // ※ VSCode の languageId は通常 lowercase だが保険として toLowerCase 済
+      if (!c.semanticEnabled) {
+        return new vscode.SemanticTokens(new Uint32Array());
+      }
     }
     await ensureTokenizer(this._context);
     if (!tokenizer) {
