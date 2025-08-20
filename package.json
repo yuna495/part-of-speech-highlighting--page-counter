@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "日本語 品詞カラー表示＋ページカウンタ",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -155,11 +155,6 @@
           "type": "boolean",
           "default": true,
           "description": "ページカウンタ（ステータスバー）を有効化"
-        },
-        "posPage.applyToTxtOnly": {
-          "type": "boolean",
-          "default": true,
-          "description": ".txt と .md（languageId: plaintext/markdown/novel）を対象にする"
         },
         "posPage.debounceMs": {
           "type": "number",
