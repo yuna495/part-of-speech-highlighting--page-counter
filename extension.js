@@ -18,6 +18,11 @@ let idleRecomputeTimer = null; // 重い再計算の遅延実行用
 let enabledPage = true; // ページカウンタON/OFF（コマンドで切替）
 let statusBarItem = null; // ステータスバー部品
 let m = null; // ページカウンタ用メトリクスのキャッシュ
+// 追加：合算文字数のキャッシュ（アクティブ文書の「ディレクトリ+拡張子」をキー）
+let combinedCharsCache = {
+  key: null, // 例: "/path/to/dir::.txt"
+  value: null, // 数値（null は未計算/非対象）
+};
 
 // ===== 3) config helper =====
 function cfg() {
@@ -43,6 +48,7 @@ function cfg() {
       "。",
       "、",
     ]),
+    showCombined: c.get("aggregate.showCombinedChars", true),
   };
 }
 
@@ -225,15 +231,98 @@ function updateStatusBar(editor) {
   };
   const displayChars = selectedChars > 0 ? selectedChars : mm.totalChars;
 
-  statusBarItem.text =
-    `${mm.currentPage}/${mm.totalPages}（${c.rowsPerPage}×${c.colsPerRow}）` +
-    `${mm.lastLineInLastPage}行｜${displayChars}字`;
+  // ★合算文字数（保存時に更新されたキャッシュを使う。設定OFFなら null ）
+  const combined = c.showCombined ? combinedCharsCache.value : null;
+  const combinedPart = combined != null ? `（${combined}字）` : "";
+
+  statusBarItem.text = `${mm.currentPage}/${mm.totalPages} -${mm.lastLineInLastPage}（${c.rowsPerPage}×${c.colsPerRow}）${displayChars}字${combinedPart}`;
+
   statusBarItem.tooltip =
     selectedChars > 0
-      ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）"
-      : "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=全体の文字数（改行除外）";
+      ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）｜（ ）=同一フォルダ×同一拡張子の合算文字数"
+      : "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=全体の文字数（改行除外）｜（ ）=同一フォルダ×同一拡張子の合算文字数";
+
   statusBarItem.command = "posPage.setPageSize";
   statusBarItem.show();
+}
+
+// ===== 合算文字数（同一フォルダ×同一拡張子）ユーティリティ =====
+
+// 改行(LF)を除いたコードポイント数をファイルから数える（同期読み込み）
+function countFileCharsNoLF_FromFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const text = raw.replace(/\r\n/g, "\n");
+    return Array.from(text).filter((ch) => ch !== "\n").length;
+  } catch (e) {
+    console.warn("[pos-page] countFileChars error:", e?.message);
+    return 0;
+  }
+}
+
+// アクティブドキュメントと同じフォルダ内・同一拡張子の合算文字数を計算
+function computeCombinedCharsForFolder(editor) {
+  if (!editor) {
+    combinedCharsCache = { key: null, value: null };
+    return;
+  }
+  const c = cfg();
+  if (!c.showCombined) {
+    // 非表示設定時は「未計算」のままでよい
+    combinedCharsCache = { key: null, value: null };
+    return;
+  }
+
+  const doc = editor.document;
+  const fsPath = doc?.uri?.fsPath || "";
+  if (!fsPath) {
+    combinedCharsCache = { key: null, value: null };
+    return;
+  }
+
+  // 拡張子判定（.txt or .md のみ対象）
+  const lower = fsPath.toLowerCase();
+  const isTxt = lower.endsWith(".txt");
+  const isMd = lower.endsWith(".md");
+  if (!isTxt && !isMd) {
+    combinedCharsCache = { key: null, value: null };
+    return;
+  }
+
+  const dir = path.dirname(fsPath);
+  const ext = isTxt ? ".txt" : ".md";
+  const cacheKey = `${dir}::${ext}`;
+
+  // 同一キーなら再計算不要（保存トリガ等で更新する）
+  if (combinedCharsCache.key === cacheKey && combinedCharsCache.value != null) {
+    return;
+  }
+
+  let sum = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isFile()) continue;
+      const nameLower = ent.name.toLowerCase();
+      if (!nameLower.endsWith(ext)) continue;
+      const childPath = path.join(dir, ent.name);
+      sum += countFileCharsNoLF_FromFile(childPath);
+    }
+    combinedCharsCache = { key: cacheKey, value: sum };
+  } catch (e) {
+    console.warn("[pos-page] readdir error:", e?.message);
+    combinedCharsCache = { key: cacheKey, value: null };
+  }
+}
+
+// アクティブ文書が保存されたタイミングで合算文字数を再計算
+function recomputeCombinedOnSaveIfNeeded(savedDoc) {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed || savedDoc !== ed.document) return;
+
+  // 保存後のみ再計算：同一フォルダ×同一拡張子
+  combinedCharsCache = { key: null, value: null }; // キーを崩して再計算させる
+  computeCombinedCharsForFolder(ed);
 }
 
 // ===== 6) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
@@ -347,6 +436,8 @@ function activate(context) {
           clearTimeout(debouncer);
           debouncer = null;
         }
+        //  保存時のみ、合算文字数を再計算
+        recomputeCombinedOnSaveIfNeeded(doc);
         recomputeAndCacheMetrics(ed);
         updateStatusBar(ed);
       }
@@ -354,6 +445,8 @@ function activate(context) {
     // エディタ切替：即時に確定計算＋軽い更新
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (ed) {
+        // 切替時に（入力中ではないので）初期の合算を計算
+        computeCombinedCharsForFolder(ed);
         recomputeAndCacheMetrics(ed);
         scheduleUpdate(ed);
       }
@@ -405,6 +498,8 @@ function activate(context) {
 
   // 初回：確定計算→UI反映
   if (vscode.window.activeTextEditor) {
+    // 起動直後に合算を計算（入力操作ではない）
+    computeCombinedCharsForFolder(vscode.window.activeTextEditor);
     recomputeAndCacheMetrics(vscode.window.activeTextEditor);
     updateStatusBar(vscode.window.activeTextEditor);
   }

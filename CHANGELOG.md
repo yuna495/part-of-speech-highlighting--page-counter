@@ -2,6 +2,15 @@
 
 All notable changes to this extension are documented here.
 
+## [1.2.0]
+
+- ステータスバー表示を強化
+  - `現在ページ/総ページ-行（行×列）字（編集中のファイルと同一フォルダ内、同一拡張子の総文字数）` の形式に変更
+  - 合算文字数は同一フォルダ内の `.txt` または `.md` を対象とし、ファイル保存時に再計算
+  - 設定 `posPage.aggregate.showCombinedChars` で ON/OFF を切り替え可能
+- README の機能を更新
+
+
 ## [1.1.0]
 
 - `.md` ファイルを新たに解析対象に追加

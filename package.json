@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "日本語 品詞カラー表示＋ページカウンタ",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -205,6 +205,11 @@
             "、"
           ],
           "description": "行頭に来ないよう前行へ送る文字（行頭禁則）"
+        },
+        "posPage.aggregate.showCombinedChars": {
+          "type": "boolean",
+          "default": true,
+          "description": "同一フォルダ内・同一拡張子（.txt または .md）の合算文字数を表示する（計算は保存時に実行）"
         }
       }
     },
