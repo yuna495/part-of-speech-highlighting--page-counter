@@ -10,6 +10,27 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
+// セマンティック定義
+const tokenTypesArr = [
+  "noun",
+  "verb",
+  "adjective",
+  "adverb",
+  "particle",
+  "auxiliary",
+  "prenoun",
+  "conjunction",
+  "interjection",
+  "symbol",
+  "other",
+  "bracket",
+  "fwspace",
+];
+const tokenModsArr = ["proper", "prefix", "suffix"];
+const semanticLegend = new vscode.SemanticTokensLegend(
+  Array.from(tokenTypesArr),
+  Array.from(tokenModsArr)
+);
 
 // ===== 2) state =====
 let tokenizer = null; // kuromoji tokenizer
@@ -24,6 +45,28 @@ let combinedCharsCache = {
   value: null, // 数値（null は未計算/非対象）
 };
 
+// 全角の開き括弧 → 閉じ括弧を自動補完するためのマップと再入防止フラグ
+const FW_BRACKET_MAP = new Map([
+  ["「", "」"],
+  ["『", "』"],
+  ["（", "）"],
+  ["［", "］"],
+  ["｛", "｝"],
+  ["〈", "〉"],
+  ["《", "》"],
+  ["【", "】"],
+  ["〔", "〕"],
+  ["“", "”"],
+  ["‘", "’"],
+]);
+// 対応する「閉じ」集合
+const FW_CLOSE_SET = new Set(Array.from(FW_BRACKET_MAP.values()));
+// 括弧入力の再入防止・Backspace 用
+let _insertingFwClose = false;
+// Backspace ペア削除用：直前テキストのスナップショット
+const _prevTextByUri = new Map(); // key: uriString, value: string
+let _deletingPair = false; // 再入防止（Backspaceの連鎖）
+
 // ===== 3) config helper =====
 function cfg() {
   const c = vscode.workspace.getConfiguration("posPage");
@@ -34,7 +77,6 @@ function cfg() {
     debounceMs: c.get("debounceMs", 500), // 軽いUI更新
     recomputeIdleMs: c.get("recomputeIdleMs", 1200), // 重い再計算
     enabledPage: c.get("enabledPage", true),
-    maxDocLength: c.get("maxDocLength", 200000),
     rowsPerPage: c.get("page.rowsPerPage", 20),
     colsPerRow: c.get("page.colsPerRow", 20),
     kinsokuEnabled: c.get("kinsoku.enabled", true),
@@ -47,6 +89,35 @@ function cfg() {
       "】",
       "。",
       "、",
+      "’",
+      "”",
+      "！",
+      "？",
+      "…",
+      "—",
+      "―",
+      "ぁ",
+      "ぃ",
+      "ぅ",
+      "ぇ",
+      "ぉ",
+      "ゃ",
+      "ゅ",
+      "ょ",
+      "っ",
+      "ー",
+      "々",
+      "ゞ",
+      "ゝ",
+      "ァ",
+      "ィ",
+      "ゥ",
+      "ェ",
+      "ォ",
+      "ャ",
+      "ュ",
+      "ョ",
+      "ッ",
     ]),
     showCombined: c.get("aggregate.showCombinedChars", true),
   };
@@ -246,6 +317,181 @@ function updateStatusBar(editor) {
   statusBarItem.show();
 }
 
+// === AutoClose FW Brackets ===
+/**
+ * 全角の開き括弧が 1 文字入力された直後に、対応する閉じ括弧を補完し、
+ * キャレットを内側へ移動する。対象は plaintext / novel / markdown。
+ */
+function maybeAutoCloseFullwidthBracket(e) {
+  try {
+    if (_insertingFwClose) return; // 再入防止
+    const ed = vscode.window.activeTextEditor;
+    if (!ed) return;
+    const c = cfg();
+    if (!isTargetDoc(ed.document, c)) return;
+    if (e.document !== ed.document) return;
+
+    if (!e.contentChanges || e.contentChanges.length !== 1) return;
+    const chg = e.contentChanges[0];
+    const isSingleCharText =
+      typeof chg.text === "string" && chg.text.length === 1;
+
+    // --- Case 1: 通常タイプ（挿入） ---
+    if (chg.rangeLength === 0 && isSingleCharText) {
+      const open = chg.text;
+      const close = FW_BRACKET_MAP.get(open);
+      if (!close) return;
+
+      const posAfterOpen = chg.range.start.translate(0, 1);
+
+      _insertingFwClose = true;
+      ed.edit((builder) => {
+        builder.insert(posAfterOpen, close);
+      })
+        .then((ok) => {
+          if (!ok) return;
+          const sel = new vscode.Selection(posAfterOpen, posAfterOpen);
+          ed.selections = [sel];
+        })
+        .then(
+          () => {
+            _insertingFwClose = false;
+          },
+          () => {
+            _insertingFwClose = false;
+          }
+        );
+      return;
+    }
+
+    // --- Case 2: 1文字置換（IME変換などで「→『 のように変わる） ---
+    if (chg.rangeLength === 1 && isSingleCharText) {
+      const newOpen = chg.text;
+      const newClose = FW_BRACKET_MAP.get(newOpen);
+      if (!newClose) return;
+
+      const posAfterOpen = chg.range.start.translate(0, 1);
+      const nextCharRange = new vscode.Range(
+        posAfterOpen,
+        posAfterOpen.translate(0, 1)
+      );
+      const nextChar = ed.document.getText(nextCharRange);
+
+      // グローバルの FW_CLOSE_SET を使用（ローカル再定義を削除）
+      if (FW_CLOSE_SET.has(nextChar) && nextChar !== newClose) {
+        _insertingFwClose = true;
+        ed.edit((builder) => {
+          builder.replace(nextCharRange, newClose);
+        }).then(
+          () => {
+            _insertingFwClose = false;
+          },
+          () => {
+            _insertingFwClose = false;
+          }
+        );
+      }
+      return;
+    }
+  } catch (_) {
+    _insertingFwClose = false;
+  }
+}
+
+/**
+ * Backspaceで「開き括弧」1文字を削除した直後に、
+ * 直後に残った「閉じ括弧」が対応ペアなら自動で同時削除する。
+ * 仕組み：
+ *  - onDidChangeTextDocument の e.contentChanges[0] から rangeOffset を使い、
+ *    「変更前テキスト（_prevTextByUri に保存）」から削除された1文字を復元。
+ *  - それが開き括弧で、現在ドキュメント上のカーソル位置の直後に
+ *    対応する「閉じ括弧」があれば削除する。
+ */
+function maybeDeleteClosingOnBackspace(e) {
+  try {
+    if (_deletingPair) return; // 再入防止
+    const ed = vscode.window.activeTextEditor;
+    if (!ed || e.document !== ed.document) return;
+
+    // 単一変更のみ対象
+    if (!e.contentChanges || e.contentChanges.length !== 1) return;
+    const chg = e.contentChanges[0];
+
+    // Backspace（左削除）：rangeLength === 1 && text === ""
+    if (!(chg.rangeLength === 1 && chg.text === "")) return;
+
+    // 変更前全文から「削除された1文字」を復元
+    const uriKey = e.document.uri.toString();
+    const prevText = _prevTextByUri.get(uriKey);
+    if (typeof prevText !== "string") return;
+
+    const off = chg.rangeOffset; // 削除開始オフセット（UTF-16単位）
+    const len = chg.rangeLength; // 通常 1
+    const removed = prevText.substring(off, off + len); // 削除前の1文字
+
+    if (!FW_BRACKET_MAP.has(removed)) return; // 開き括弧でなければ対象外
+    const expectedClose = FW_BRACKET_MAP.get(removed);
+
+    // 現在ドキュメント（削除後）の「カーソル位置＝chg.range.start」
+    const pos = chg.range.start;
+    const nextRange = new vscode.Range(pos, pos.translate(0, 1));
+    const nextChar = e.document.getText(nextRange);
+
+    if (nextChar !== expectedClose) return; // 直後が対応する閉じでなければ何もしない
+
+    // 直後の閉じ括弧を削除
+    _deletingPair = true;
+    ed.edit((builder) => {
+      builder.delete(nextRange);
+    }).then(
+      () => {
+        _deletingPair = false;
+      },
+      () => {
+        _deletingPair = false;
+      }
+    );
+  } catch {
+    _deletingPair = false;
+  }
+}
+
+function computeFullwidthQuoteRanges(doc) {
+  const text = doc.getText(); // UTF-16 文字列
+  const ranges = [];
+  const stack = []; // { openChar, expectedClose, openOffset }
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    // 開き？
+    const close = FW_BRACKET_MAP.get(ch);
+    if (close) {
+      stack.push({ openChar: ch, expectedClose: close, openOffset: i });
+      continue;
+    }
+
+    // 閉じ？
+    if (FW_CLOSE_SET.has(ch)) {
+      if (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        if (ch === top.expectedClose) {
+          // 正しく対応 → 範囲確定
+          stack.pop();
+          const startPos = doc.positionAt(top.openOffset);
+          const endPos = doc.positionAt(i + 1); // 閉じを含む
+          ranges.push(new vscode.Range(startPos, endPos));
+        }
+        // 異種の閉じは無視（ネスト内で他種の閉じが来る等はスキップ）
+      }
+      // 孤立した閉じも無視
+    }
+  }
+
+  // ※未閉じ（開きだけ）の範囲は追加しない
+  return ranges;
+}
+
 // ===== 合算文字数（同一フォルダ×同一拡張子）ユーティリティ =====
 
 // 改行(LF)を除いたコードポイント数をファイルから数える（同期読み込み）
@@ -324,6 +570,13 @@ function recomputeCombinedOnSaveIfNeeded(savedDoc) {
   combinedCharsCache = { key: null, value: null }; // キーを崩して再計算させる
   computeCombinedCharsForFolder(ed);
 }
+
+/**
+ * ドキュメント全文を走査し、全角括弧の「開き」から「対応する閉じ」までを
+ * 1 つの Range として収集する。ネスト対応、行またぎ対応。
+ * ・対象の対は FW_BRACKET_MAP に従う（「」/『』/（ ）/【】/…）
+ * ・未閉じ（閉じが見つからない）はハイライトしない（誤爆を避ける）
+ */
 
 // ===== 6) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
 function scheduleUpdate(editor) {
@@ -426,7 +679,12 @@ function activate(context) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       const ed = vscode.window.activeTextEditor;
       if (!ed || e.document !== ed.document) return;
+      // === AutoClose FW Brackets === 先に括弧補完を試みる
+      maybeAutoCloseFullwidthBracket(e);
+      maybeDeleteClosingOnBackspace(e);
       scheduleUpdate(ed);
+      // 変更後テキストをスナップショットに反映（次回の比較用）
+      _prevTextByUri.set(e.document.uri.toString(), e.document.getText());
     }),
     // 保存：即時に確定計算
     vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -449,6 +707,7 @@ function activate(context) {
         computeCombinedCharsForFolder(ed);
         recomputeAndCacheMetrics(ed);
         scheduleUpdate(ed);
+        _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
       }
     }),
     // 選択変更：選択文字数を即時反映（軽い）
@@ -502,6 +761,10 @@ function activate(context) {
     computeCombinedCharsForFolder(vscode.window.activeTextEditor);
     recomputeAndCacheMetrics(vscode.window.activeTextEditor);
     updateStatusBar(vscode.window.activeTextEditor);
+    _prevTextByUri.set(
+      vscode.window.activeTextEditor.document.uri.toString(),
+      vscode.window.activeTextEditor.document.getText()
+    );
   }
 }
 function deactivate() {
@@ -510,27 +773,6 @@ function deactivate() {
 module.exports = { activate, deactivate };
 
 // ===== 9) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
-const tokenTypesArr = [
-  "noun",
-  "verb",
-  "adjective",
-  "adverb",
-  "particle",
-  "auxiliary",
-  "prenoun",
-  "conjunction",
-  "interjection",
-  "symbol",
-  "other",
-  "bracket",
-  "fwspace",
-];
-const tokenModsArr = ["proper", "prefix", "suffix"];
-const semanticLegend = new vscode.SemanticTokensLegend(
-  Array.from(tokenTypesArr),
-  Array.from(tokenModsArr)
-);
-
 // kuromoji → token type / modifiers
 function mapKuromojiToSemantic(tk) {
   const pos = tk.pos || "";
@@ -588,13 +830,32 @@ class JapaneseSemanticProvider {
       }
     }
     await ensureTokenizer(this._context);
-    if (!tokenizer) {
-      return new vscode.SemanticTokens(new Uint32Array());
-    }
 
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     const startLine = Math.max(0, range.start.line);
     const endLine = Math.min(document.lineCount - 1, range.end.line);
+
+    // 括弧ペアを行ごとの [startChar, endChar) セグメントに割り付け
+    const idxBracket = tokenTypesArr.indexOf("bracket");
+    const bracketSegsByLine = new Map(); // line -> Array<[s,e]>
+    (() => {
+      // ★トップレベル関数に一本化（改行＆ネスト対応）
+      const pairs = computeFullwidthQuoteRanges(document); // 全文の Range[]
+      for (const r of pairs) {
+        const sL = r.start.line,
+          eL = r.end.line;
+        for (let ln = sL; ln <= eL; ln++) {
+          const lineText = document.lineAt(ln).text;
+          const sCh = ln === sL ? r.start.character : 0;
+          const eCh = ln === eL ? r.end.character : lineText.length;
+          if (eCh > sCh) {
+            const arr = bracketSegsByLine.get(ln) || [];
+            arr.push([sCh, eCh]);
+            bracketSegsByLine.set(ln, arr);
+          }
+        }
+      }
+    })();
 
     for (let line = startLine; line <= endLine; line++) {
       if (cancelToken?.isCancellationRequested) break;
@@ -624,45 +885,19 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // 括弧＋その中身 → bracket
+      // 括弧＋中身（改行対応・セマンティック一本化）
       {
-        const pairs = [
-          ["「", "」"],
-          ["『", "』"],
-          ["（", "）"],
-          ["［", "］"],
-          ["｛", "｝"],
-          ["〈", "〉"],
-          ["《", "》"],
-          ["【", "】"],
-          ["〔", "〕"],
-        ];
-        for (const [open, close] of pairs) {
-          let idx = 0;
-          while (idx < text.length) {
-            const s = text.indexOf(open, idx);
-            if (s < 0) break;
-            const e = text.indexOf(close, s + open.length);
-            if (e < 0) {
-              builder.push(
-                line,
-                s,
-                open.length,
-                tokenTypesArr.indexOf("bracket"),
-                0
-              );
-              idx = s + open.length;
-            } else {
-              const len = e + close.length - s;
-              builder.push(line, s, len, tokenTypesArr.indexOf("bracket"), 0);
-              idx = e + close.length;
-            }
+        const segs = bracketSegsByLine.get(line);
+        if (segs && segs.length) {
+          for (const [sCh, eCh] of segs) {
+            const len = eCh - sCh;
+            if (len > 0) builder.push(line, sCh, len, idxBracket, 0);
           }
         }
       }
 
-      // 品詞 → kuromoji で行単位トークン化
-      if (text.trim()) {
+      // 品詞 → kuromoji で行単位トークン化（tokenizer が用意できた時だけ）
+      if (tokenizer && text.trim()) {
         const tokens = tokenizer.tokenize(text);
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const { typeIdx, mods } = mapKuromojiToSemantic(seg.tk);

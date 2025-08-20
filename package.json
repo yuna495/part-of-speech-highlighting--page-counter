@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "日本語 品詞カラー表示＋ページカウンタ",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -139,7 +139,7 @@
       }
     ],
     "configuration": {
-      "title": "POS & Page (Japanese)",
+      "title": "POS & Page (日本語)",
       "properties": {
         "posPage.semantic.enabled": {
           "type": "boolean",
@@ -166,11 +166,6 @@
           "default": 1200,
           "minimum": 100,
           "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
-        },
-        "posPage.maxDocLength": {
-          "type": "number",
-          "default": 200000,
-          "description": "解析上限（文字数）。超過時はスキップ/部分適用"
         },
         "posPage.page.rowsPerPage": {
           "type": "number",
@@ -202,7 +197,36 @@
             "》",
             "】",
             "。",
-            "、"
+            "、",
+            "’",
+            "”",
+            "！",
+            "？",
+            "…",
+            "—",
+            "―",
+            "ぁ",
+            "ぃ",
+            "ぅ",
+            "ぇ",
+            "ぉ",
+            "ゃ",
+            "ゅ",
+            "ょ",
+            "っ",
+            "ー",
+            "々",
+            "ゞ",
+            "ゝ",
+            "ァ",
+            "ィ",
+            "ゥ",
+            "ェ",
+            "ォ",
+            "ャ",
+            "ュ",
+            "ョ",
+            "ッ"
           ],
           "description": "行頭に来ないよう前行へ送る文字（行頭禁則）"
         },
