@@ -10,7 +10,7 @@ All notable changes to this extension are documented here.
     - `Ctrl + [` による展開/折りたたみ
     - 一つでも見出しが展開され、変更されていれば「全折りたたみ」に切り替え、それ以外では「全展開」を実行
   - 見出しの一括折りたたみにおいて、**折りたたむ最小レベル**を指定できる設定を追加  
-    - `posPage.headings.foldMinLevel`（既定: **2**）  
+    - `posNote.headings.foldMinLevel`（既定: **2**）  
     - 例）2 → `##` 以上を一括折りたたみ、3 → `###` 以上を一括折りたたみ
 
 - 修正
@@ -18,6 +18,7 @@ All notable changes to this extension are documented here.
   - eslint 警告をすべて解消
   - 設定項目から行頭禁則文字を削除。
     - setting.jsonにて設定可
+  - ステータスバー関連の関数を`status_bar.js`に分割
 
 ## [1.2.1] - 2025-08-21
 
@@ -46,7 +47,7 @@ All notable changes to this extension are documented here.
 - ステータスバー表示を強化
   - `現在ページ/総ページ-行（行×列）字（編集中のファイルと同一フォルダ内、同一拡張子の総文字数）` の形式に変更
   - 合算文字数は同一フォルダ内の `.txt` または `.md` を対象とし、ファイル保存時に再計算
-  - 設定 `posPage.aggregate.showCombinedChars` で ON/OFF を切り替え可能
+  - 設定 `posNote.aggregate.showCombinedChars` で ON/OFF を切り替え可能
 - README の機能を更新
 
 
@@ -55,12 +56,12 @@ All notable changes to this extension are documented here.
 - `.md` ファイルを新たに解析対象に追加
 - 他拡張「NOVEL-WRITER」による言語モード `Novel` に対応
   - 「NOVEL-WRITER」かこちらのどちらかの品詞ハイライトをOFFにして下さい。
-- 品詞ハイライトの有効/無効を `posPage.semantic.enabled` に統合
-  - 旧オプション `posPage.enabledPos` とコマンド `posPage.togglePos` を削除
-- 既定値を `rowsPerPage=20` / `colsPerRow=20` に統一
+- 品詞ハイライトの有効/無効を `posNote.semantic.enabled` に統合
+  - 旧オプション `posNote.enabledPos` とコマンド `posNote.togglePos` を削除
+- 既定値を `rowsPerNote=20` / `colsPerRow=20` に統一
 - `.md` ファイルの品詞ハイライトを独立して ON/OFF できる設定項目を追加
-  - `posPage.semantic.enabledMd`（デフォルト: true）
-  - `.txt` / `Novel` 用の `posPage.semantic.enabled` とは別に制御可能
+  - `posNote.semantic.enabledMd`（デフォルト: true）
+  - `.txt` / `Novel` 用の `posNote.semantic.enabled` とは別に制御可能
 - README の設定例を拡充（全品詞トークンのサンプルを記載）
 - README を更新し、新オプションの説明を追加
 

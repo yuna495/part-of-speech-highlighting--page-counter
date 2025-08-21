@@ -10,6 +10,7 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
+const { initStatusBar } = require("./status_bar");
 
 // ===== 1-1) セマンティック定義・固定定数 =====
 const tokenTypesArr = [
@@ -97,17 +98,8 @@ let _deletingPair = false; // 再入防止（Backspaceペア削除）
 
 // ===== 2) state =====
 let tokenizer = null; // kuromoji tokenizer
-let debouncer = null; // 軽い UI 更新
-let idleRecomputeTimer = null; // 重い再計算の遅延実行
-let enabledPage = true; // ページカウンタ ON/OFF
-let statusBarItem = null; // ステータスバー
-let m = null; // メトリクスキャッシュ
-
-// 合算文字数のキャッシュ（アクティブ文書の「ディレクトリ+拡張子」をキー）
-let combinedCharsCache = {
-  key: null, // 例: "/path/to/dir::.txt"
-  value: null, // 数値（null は未計算/非対象）
-};
+// status_bar の公開APIを保持（activateでセット）
+let _sb = null;
 
 // 全折/全展開のトグル状態（docごと）
 let foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
@@ -115,7 +107,7 @@ let foldDocVersionAtFold = new Map(); // key: uri, value: document.version
 
 // ===== 3) 設定ヘルパ =====
 function getBannedStart() {
-  const config = vscode.workspace.getConfiguration("posPage");
+  const config = vscode.workspace.getConfiguration("posNote");
   const userValue = config.get("kinsoku.bannedStart");
   return Array.isArray(userValue) && userValue.length > 0
     ? userValue
@@ -123,19 +115,20 @@ function getBannedStart() {
 }
 
 function cfg() {
-  const c = vscode.workspace.getConfiguration("posPage");
+  const c = vscode.workspace.getConfiguration("posNote");
   return {
     semanticEnabled: c.get("semantic.enabled", true),
     semanticEnabledMd: c.get("semantic.enabledMd", true),
     applyToTxtOnly: c.get("applyToTxtOnly", true),
     debounceMs: c.get("debounceMs", 500), // 軽いUI更新
-    recomputeIdleMs: c.get("recomputeIdleMs", 1200), // 重い再計算
-    enabledPage: c.get("enabledPage", true),
-    rowsPerPage: c.get("page.rowsPerPage", 20),
-    colsPerRow: c.get("page.colsPerRow", 20),
+    recomputeIdleMs: c.get("recomputeIdleMs", 1000), // 重い再計算
+    enabledNote: c.get("enabledNote", true),
+    showSelectedChars: c.get("status.showSelectedChars", true),
+    showDeltaFromHEAD: c.get("aggregate.showDeltaFromHEAD", true),
+    rowsPerNote: c.get("Note.rowsPerNote", 20),
+    colsPerRow: c.get("Note.colsPerRow", 20),
     kinsokuEnabled: c.get("kinsoku.enabled", true),
     kinsokuBanned: getBannedStart(), // settings.json 優先
-    showCombined: c.get("aggregate.showCombinedChars", true),
     headingFoldEnabled: c.get("headings.folding.enabled", true),
     headingSemanticEnabled: c.get("headings.semantic.enabled", true),
     headingFoldMinLevel: c.get("headings.foldMinLevel", 2),
@@ -160,7 +153,7 @@ function isTargetDoc(doc, c) {
 async function ensureTokenizer(context) {
   if (tokenizer) return;
   const dictPath = path.join(context.extensionPath, "dict"); // 拡張直下の dict/
-  console.log("[pos-page] dict path:", dictPath);
+  console.log("[pos-Note] dict path:", dictPath);
   if (!fs.existsSync(dictPath)) {
     vscode.window.showErrorMessage(
       "kuromoji の辞書が見つかりません。拡張直下の 'dict/' を配置してください。"
@@ -175,167 +168,7 @@ async function ensureTokenizer(context) {
   });
 }
 
-// ===== 5) ページカウンタ・コア =====
-
-// 改行(LF)を除いたコードポイント数
-function countCharsNoLF(text) {
-  return Array.from(text.replace(/\r\n/g, "\n")).filter((ch) => ch !== "\n")
-    .length;
-}
-
-// 複数選択に対応して合計文字数
-function countSelectedChars(doc, selections) {
-  let sum = 0;
-  for (const sel of selections) {
-    if (!sel.isEmpty) {
-      const t = doc.getText(sel);
-      sum += countCharsNoLF(t);
-    }
-  }
-  return sum;
-}
-
-// 選択先頭までのテキスト（現在ページ算出用）
-function editorPrefixText(doc, selection) {
-  if (!selection) return "";
-  const start = new vscode.Position(0, 0);
-  const range = new vscode.Range(start, selection.active);
-  return doc.getText(range);
-}
-
-// テキストを原稿用紙風に折り返したときの行数（禁則対応）
-function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const banned = new Set(kinsokuEnabled ? bannedChars : []);
-  let rows = 0;
-
-  for (const line of lines) {
-    const arr = Array.from(line);
-    const n = arr.length;
-    if (n === 0) {
-      rows += 1; // 空行も1
-      continue;
-    }
-
-    let pos = 0;
-    while (pos < n) {
-      let take = Math.min(cols, n - pos);
-      if (kinsokuEnabled) {
-        let ni = pos + take;
-        while (ni < n && banned.has(arr[ni])) {
-          take++;
-          ni++;
-        }
-      }
-      rows += 1;
-      pos += take;
-    }
-  }
-  return rows;
-}
-
-// メトリクス計算
-function computePageMetrics(doc, c, selection) {
-  const text = doc.getText();
-
-  // 文字数: 改行(LF)を除くコードポイント数
-  const totalChars = Array.from(text.replace(/\r\n/g, "\n")).filter(
-    (ch) => ch !== "\n"
-  ).length;
-
-  // 総行数（禁則込みの折返し）
-  const totalWrappedRows = wrappedRowsForText(
-    text,
-    c.colsPerRow,
-    c.kinsokuEnabled,
-    c.kinsokuBanned
-  );
-  const totalPages = Math.max(1, Math.ceil(totalWrappedRows / c.rowsPerPage));
-
-  // 現在ページ
-  const prefixText = editorPrefixText(doc, selection);
-  const currRows = wrappedRowsForText(
-    prefixText,
-    c.colsPerRow,
-    c.kinsokuEnabled,
-    c.kinsokuBanned
-  );
-  const currentPage = Math.max(
-    1,
-    Math.min(totalPages, Math.ceil(currRows / c.rowsPerPage))
-  );
-
-  // 最終ページの最終文字が何行目か
-  const rem = totalWrappedRows % c.rowsPerPage;
-  const lastLineInLastPage = rem === 0 ? c.rowsPerPage : rem;
-
-  return {
-    totalChars,
-    totalWrappedRows,
-    totalPages,
-    currentPage,
-    lastLineInLastPage,
-  };
-}
-
-// メトリクス計算→キャッシュ
-function recomputeAndCacheMetrics(editor) {
-  if (!editor) {
-    m = null;
-    return;
-  }
-  const c = cfg();
-  if (!isTargetDoc(editor.document, c) || !enabledPage || !c.enabledPage) {
-    m = null;
-    return;
-  }
-  m = computePageMetrics(editor.document, c, editor.selection);
-}
-
-// ステータスバー更新
-function updateStatusBar(editor) {
-  const c = cfg();
-  if (!statusBarItem) return;
-
-  if (
-    !editor ||
-    !isTargetDoc(editor.document, c) ||
-    !enabledPage ||
-    !c.enabledPage
-  ) {
-    statusBarItem.hide();
-    return;
-  }
-
-  const selections = editor.selections?.length
-    ? editor.selections
-    : [editor.selection];
-  const selectedChars = countSelectedChars(editor.document, selections);
-
-  const mm = m ?? {
-    totalChars: 0,
-    totalWrappedRows: 0,
-    totalPages: 1,
-    currentPage: 1,
-    lastLineInLastPage: 1,
-  };
-  const displayChars = selectedChars > 0 ? selectedChars : mm.totalChars;
-
-  // 合算文字数（保存時に更新されたキャッシュを表示）
-  const combined = c.showCombined ? combinedCharsCache.value : null;
-  const combinedPart = combined != null ? `（${combined}字）` : "";
-
-  statusBarItem.text = `${mm.currentPage}/${mm.totalPages} -${mm.lastLineInLastPage}（${c.rowsPerPage}×${c.colsPerRow}）${displayChars}字${combinedPart}`;
-  statusBarItem.tooltip =
-    selectedChars > 0
-      ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）｜（ ）=同一フォルダ×同一拡張子の合算文字数"
-      : "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=全体の文字数（改行除外）｜（ ）=同一フォルダ×同一拡張子の合算文字数";
-
-  statusBarItem.command = "posPage.setPageSize";
-  statusBarItem.show();
-}
-
-// ===== 6) 全角括弧ユーティリティ（レンジ検出 & 入力補助） =====
+// ===== 5) 全角括弧ユーティリティ（レンジ検出 & 入力補助） =====
 
 // ドキュメント全文を走査し、全角括弧の「開き」〜「対応する閉じ」までの Range[] を収集
 function computeFullwidthQuoteRanges(doc) {
@@ -486,146 +319,7 @@ function maybeDeleteClosingOnBackspace(e) {
   }
 }
 
-// ===== 7) 合算文字数（同一フォルダ×同一拡張子） =====
-function countFileCharsNoLF_FromFile(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const text = raw.replace(/\r\n/g, "\n");
-    return Array.from(text).filter((ch) => ch !== "\n").length;
-  } catch (e) {
-    console.warn("[pos-page] countFileChars error:", e?.message);
-    return 0;
-  }
-}
-
-function computeCombinedCharsForFolder(editor) {
-  if (!editor) {
-    combinedCharsCache = { key: null, value: null };
-    return;
-  }
-  const c = cfg();
-  if (!c.showCombined) {
-    combinedCharsCache = { key: null, value: null };
-    return;
-  }
-
-  const doc = editor.document;
-  const fsPath = doc?.uri?.fsPath || "";
-  if (!fsPath) {
-    combinedCharsCache = { key: null, value: null };
-    return;
-  }
-
-  const lower = fsPath.toLowerCase();
-  const isTxt = lower.endsWith(".txt");
-  const isMd = lower.endsWith(".md");
-  if (!isTxt && !isMd) {
-    combinedCharsCache = { key: null, value: null };
-    return;
-  }
-
-  const dir = path.dirname(fsPath);
-  const ext = isTxt ? ".txt" : ".md";
-  const cacheKey = `${dir}::${ext}`;
-
-  if (combinedCharsCache.key === cacheKey && combinedCharsCache.value != null)
-    return;
-
-  let sum = 0;
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const ent of entries) {
-      if (!ent.isFile()) continue;
-      const nameLower = ent.name.toLowerCase();
-      if (!nameLower.endsWith(ext)) continue;
-      const childPath = path.join(dir, ent.name);
-      sum += countFileCharsNoLF_FromFile(childPath);
-    }
-    combinedCharsCache = { key: cacheKey, value: sum };
-  } catch (e) {
-    console.warn("[pos-page] readdir error:", e?.message);
-    combinedCharsCache = { key: cacheKey, value: null };
-  }
-}
-
-function recomputeCombinedOnSaveIfNeeded(savedDoc) {
-  const ed = vscode.window.activeTextEditor;
-  if (!ed || savedDoc !== ed.document) return;
-  combinedCharsCache = { key: null, value: null }; // 保存後に再計算
-  computeCombinedCharsForFolder(ed);
-}
-
-// ===== 8) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
-function scheduleUpdate(editor) {
-  const c = cfg();
-
-  // 軽いUI更新（キャッシュ m を反映）
-  if (debouncer) clearTimeout(debouncer);
-  debouncer = setTimeout(() => {
-    updateStatusBar(editor);
-  }, c.debounceMs);
-
-  // 重い再計算はアイドル時
-  if (idleRecomputeTimer) clearTimeout(idleRecomputeTimer);
-  idleRecomputeTimer = setTimeout(() => {
-    recomputeAndCacheMetrics(editor);
-    updateStatusBar(editor);
-  }, c.recomputeIdleMs);
-}
-
-// ===== 9) commands =====
-async function cmdRefreshPos() {
-  const ed = vscode.window.activeTextEditor;
-  if (!ed) return;
-  recomputeAndCacheMetrics(ed);
-  updateStatusBar(ed);
-}
-
-async function cmdTogglePage() {
-  enabledPage = !enabledPage;
-  updateStatusBar(vscode.window.activeTextEditor);
-  vscode.window.showInformationMessage(
-    `ページカウンタ: ${enabledPage ? "有効化" : "無効化"}`
-  );
-}
-
-async function cmdSetPageSize() {
-  const c = cfg();
-  const rows = await vscode.window.showInputBox({
-    prompt: "1ページの行数",
-    value: String(c.rowsPerPage),
-    validateInput: (v) => (/^\d+$/.test(v) && +v > 0 ? null : "正の整数で入力"),
-  });
-  if (!rows) return;
-  const cols = await vscode.window.showInputBox({
-    prompt: "1行の文字数",
-    value: String(c.colsPerRow),
-    validateInput: (v) => (/^\d+$/.test(v) && +v > 0 ? null : "正の整数で入力"),
-  });
-  if (!cols) return;
-
-  const conf = vscode.workspace.getConfiguration("posPage");
-  await conf.update(
-    "page.rowsPerPage",
-    parseInt(rows, 10),
-    vscode.ConfigurationTarget.Global
-  );
-  await conf.update(
-    "page.colsPerRow",
-    parseInt(cols, 10),
-    vscode.ConfigurationTarget.Global
-  );
-
-  const ed = vscode.window.activeTextEditor;
-  if (ed) {
-    recomputeAndCacheMetrics(ed);
-    updateStatusBar(ed);
-  }
-  vscode.window.showInformationMessage(
-    `行×列を ${rows}×${cols} に変更しました`
-  );
-}
-
+// ===== 6) コマンド実装=====
 // 見出しの“全折/全展開”トグル（.txt / novel）
 async function cmdToggleFoldAllHeadings() {
   const ed = vscode.window.activeTextEditor;
@@ -641,7 +335,7 @@ async function cmdToggleFoldAllHeadings() {
   }
   if (!c.headingFoldEnabled) {
     vscode.window.showInformationMessage(
-      "見出しの折りたたみ機能が無効です（posPage.headings.folding.enabled）"
+      "見出しの折りたたみ機能が無効です（posNote.headings.folding.enabled）"
     );
     return;
   }
@@ -657,9 +351,11 @@ async function cmdToggleFoldAllHeadings() {
   if (shouldUnfold) {
     await vscode.commands.executeCommand("editor.unfoldAll");
     foldToggledByDoc.set(key, false);
-    recomputeAndCacheMetrics(ed);
-    updateStatusBar(ed);
-    vscode.commands.executeCommand("posPage.refreshPos"); // 再解析
+    if (_sb) {
+      _sb.recomputeAndCacheMetrics(ed);
+      _sb.updateStatusBar(ed);
+    }
+    vscode.commands.executeCommand("posNote.refreshPos"); // 再解析
   } else {
     // 設定したレベル以上の見出しだけ折りたたむ
     const minLv = cfg().headingFoldMinLevel;
@@ -669,22 +365,48 @@ async function cmdToggleFoldAllHeadings() {
         `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
       );
     } else {
-      const origSelections = ed.selections;
+      // 1) いまのカーソルが「折りたたみ対象の見出しの本文内」に居るかを判定
+      const caret = ed.selection?.active ?? new vscode.Position(0, 0);
+      const enclosing = findEnclosingHeadingLineFor(
+        ed.document,
+        caret.line,
+        minLv
+      );
+      // 退避先（デフォは元の選択のまま / 対象本文内なら見出し行末尾へ移動）
+      const safeRestoreSelections = (() => {
+        if (enclosing >= 0) {
+          const endCh = ed.document.lineAt(enclosing).text.length;
+          const pos = new vscode.Position(enclosing, endCh);
+          return [new vscode.Selection(pos, pos)];
+        }
+        return ed.selections;
+      })();
+
       try {
-        // 見出し行へ複数選択を張って一括 fold
+        // 2) 見出し行へ複数選択を張って一括 fold
         ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
         await vscode.commands.executeCommand("editor.fold");
         foldToggledByDoc.set(key, true);
         foldDocVersionAtFold.set(key, currVer);
       } finally {
-        // ユーザーの選択を復元
-        ed.selections = origSelections;
+        // 3) カーソルを安全な位置へ復帰（本文内→見出し行末尾 / それ以外→元の選択）
+        ed.selections = safeRestoreSelections;
+        // 4) 必要ならスクロールも合わせる
+        if (safeRestoreSelections.length === 1) {
+          ed.revealRange(
+            new vscode.Range(
+              safeRestoreSelections[0].active,
+              safeRestoreSelections[0].active
+            ),
+            vscode.TextEditorRevealType.Default
+          );
+        }
       }
     }
   }
 }
 
-// ===== 10) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
+// ===== 7) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
 
 // kuromoji → token type / modifiers
 function mapKuromojiToSemantic(tk) {
@@ -727,7 +449,33 @@ function getHeadingLevel(lineText) {
   const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
   return m ? m[1].length : 0;
 }
+// 現在行が「見出し level>=minLevel の本文」に含まれていれば、その見出し行番号を返す
+function findEnclosingHeadingLineFor(doc, line, minLevel) {
+  // 上へ遡って直近の見出しを探す
+  let hLine = -1,
+    hLevel = 0;
+  for (let i = line; i >= 0; i--) {
+    const lvl = getHeadingLevel(doc.lineAt(i).text);
+    if (lvl > 0) {
+      hLine = i;
+      hLevel = lvl;
+      break;
+    }
+  }
+  if (hLine < 0 || hLevel < Math.max(1, Math.min(6, minLevel))) return -1;
 
+  // 直近見出しの「本文」に居るか判定（次の同レベル以下の見出しまでが本文）
+  // 次の heading（level <= hLevel）の直前までが本文
+  for (let j = hLine + 1; j < doc.lineCount; j++) {
+    const lvl2 = getHeadingLevel(doc.lineAt(j).text);
+    if (lvl2 > 0 && lvl2 <= hLevel) {
+      // 次の見出しが line より後ろなら本文内
+      return line > hLine && line < j ? hLine : -1;
+    }
+  }
+  // 次の見出しが無い＝末尾まで本文
+  return line > hLine ? hLine : -1;
+}
 // 見出しレベルが minLevel 以上の見出し「行番号」リストを返す
 function collectHeadingLinesByMinLevel(document, minLevel) {
   const lines = [];
@@ -741,7 +489,7 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
   return lines;
 }
 
-// ===== 11) Providers =====
+// ===== 8) Providers =====
 class JapaneseSemanticProvider {
   constructor(context) {
     this._context = context;
@@ -926,29 +674,26 @@ class HeadingFoldingProvider {
   }
 }
 
-// ===== 12) activate/deactivate =====
+// ===== 9) activate/deactivate =====
 function activate(context) {
-  console.log("[pos-page] activate called");
-  vscode.window.showInformationMessage("POS/Page: activate");
+  console.log("[pos-Note] activate called");
+  vscode.window.showInformationMessage("POS/Note: activate");
 
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left,
-    2
-  );
-  context.subscriptions.push(statusBarItem);
+  // ステータスバー管理の初期化（cfg/isTargetDoc を渡す）
+  const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
 
   // commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("posPage.refreshPos", () =>
-      cmdRefreshPos()
+    vscode.commands.registerCommand("posNote.refreshPos", () =>
+      sb.cmdRefreshPos()
     ),
-    vscode.commands.registerCommand("posPage.togglePageCounter", () =>
-      cmdTogglePage()
+    vscode.commands.registerCommand("posNote.toggleNoteCounter", () =>
+      sb.cmdToggleNote()
     ),
-    vscode.commands.registerCommand("posPage.setPageSize", () =>
-      cmdSetPageSize()
+    vscode.commands.registerCommand("posNote.setNoteSize", () =>
+      sb.cmdSetNoteSize()
     ),
-    vscode.commands.registerCommand("posPage.toggleFoldAllHeadings", () =>
+    vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
       cmdToggleFoldAllHeadings()
     )
   );
@@ -962,7 +707,7 @@ function activate(context) {
       // 先に括弧補完系
       maybeAutoCloseFullwidthBracket(e);
       maybeDeleteClosingOnBackspace(e);
-      scheduleUpdate(ed);
+      sb.scheduleUpdate(ed);
       // 変更後テキストをスナップショットに反映（Backspace復元用）
       _prevTextByUri.set(e.document.uri.toString(), e.document.getText());
     }),
@@ -971,24 +716,15 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
-        if (debouncer) {
-          clearTimeout(debouncer);
-          debouncer = null;
-        }
-        // 保存時のみ合算文字数を再計算
-        recomputeCombinedOnSaveIfNeeded(doc);
-        recomputeAndCacheMetrics(ed);
-        updateStatusBar(ed);
+        // 保存時のみGit差分を再計算
+        sb.recomputeOnSaveIfNeeded(doc);
       }
     }),
 
     // アクティブエディタ切替：確定計算＋軽い更新
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (ed) {
-        // 切替時は入力中ではないので初期の合算を計算
-        computeCombinedCharsForFolder(ed);
-        recomputeAndCacheMetrics(ed);
-        scheduleUpdate(ed);
+        sb.onActiveEditorChanged(ed);
         _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
       }
     }),
@@ -996,17 +732,15 @@ function activate(context) {
     // 選択変更：選択文字数を即反映
     vscode.window.onDidChangeTextEditorSelection((e) => {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
-      recomputeAndCacheMetrics(e.textEditor);
-      updateStatusBar(e.textEditor);
+      sb.onSelectionChanged(e.textEditor);
     }),
 
     // 設定変更：確定計算＋軽い更新
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("posPage")) {
+      if (e.affectsConfiguration("posNote")) {
         const ed = vscode.window.activeTextEditor;
         if (ed) {
-          recomputeAndCacheMetrics(ed);
-          scheduleUpdate(ed);
+          sb.onConfigChanged(ed);
         }
       }
     })
@@ -1053,17 +787,6 @@ function activate(context) {
     )
   );
 
-  // 初回：確定計算→UI反映
-  if (vscode.window.activeTextEditor) {
-    computeCombinedCharsForFolder(vscode.window.activeTextEditor);
-    recomputeAndCacheMetrics(vscode.window.activeTextEditor);
-    updateStatusBar(vscode.window.activeTextEditor);
-    _prevTextByUri.set(
-      vscode.window.activeTextEditor.document.uri.toString(),
-      vscode.window.activeTextEditor.document.getText()
-    );
-  }
-
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       const ed = e.textEditor;
@@ -1079,15 +802,12 @@ function activate(context) {
       if (semProvider && semProvider._onDidChangeSemanticTokens) {
         semProvider._onDidChangeSemanticTokens.fire();
       }
-      // ついでにページ情報も同期
-      recomputeAndCacheMetrics(ed);
-      updateStatusBar(ed);
+      sb.recomputeAndCacheMetrics(ed);
+      sb.updateStatusBar(ed);
     })
   );
 }
 
-function deactivate() {
-  if (statusBarItem) statusBarItem.dispose();
-}
+function deactivate() {}
 
 module.exports = { activate, deactivate };
