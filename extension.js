@@ -112,8 +112,6 @@ let combinedCharsCache = {
 // 全折/全展開のトグル状態（docごと）
 let foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
 let foldDocVersionAtFold = new Map(); // key: uri, value: document.version
-// 手動展開に追随するための「可視範囲」キャッシュ
-let visibleRangesByDoc = new Map(); // key: uriString, value: vscode.Range[]
 
 // ===== 3) 設定ヘルパ =====
 function getBannedStart() {
@@ -140,6 +138,7 @@ function cfg() {
     showCombined: c.get("aggregate.showCombinedChars", true),
     headingFoldEnabled: c.get("headings.folding.enabled", true),
     headingSemanticEnabled: c.get("headings.semantic.enabled", true),
+    headingFoldMinLevel: c.get("headings.foldMinLevel", 2),
   };
 }
 
@@ -580,7 +579,6 @@ async function cmdRefreshPos() {
   if (!ed) return;
   recomputeAndCacheMetrics(ed);
   updateStatusBar(ed);
-  vscode.window.showInformationMessage("POS/Page: 解析を再適用しました");
 }
 
 async function cmdTogglePage() {
@@ -663,9 +661,26 @@ async function cmdToggleFoldAllHeadings() {
     updateStatusBar(ed);
     vscode.commands.executeCommand("posPage.refreshPos"); // 再解析
   } else {
-    await vscode.commands.executeCommand("editor.foldAll");
-    foldToggledByDoc.set(key, true);
-    foldDocVersionAtFold.set(key, currVer);
+    // 設定したレベル以上の見出しだけ折りたたむ
+    const minLv = cfg().headingFoldMinLevel;
+    const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
+    if (lines.length === 0) {
+      vscode.window.showInformationMessage(
+        `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+      );
+    } else {
+      const origSelections = ed.selections;
+      try {
+        // 見出し行へ複数選択を張って一括 fold
+        ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
+        await vscode.commands.executeCommand("editor.fold");
+        foldToggledByDoc.set(key, true);
+        foldDocVersionAtFold.set(key, currVer);
+      } finally {
+        // ユーザーの選択を復元
+        ed.selections = origSelections;
+      }
+    }
   }
 }
 
@@ -713,18 +728,17 @@ function getHeadingLevel(lineText) {
   return m ? m[1].length : 0;
 }
 
-function lineIsVisible(document, line) {
-  try {
-    const key = document.uri.toString();
-    const ranges = visibleRangesByDoc.get(key);
-    if (!ranges || ranges.length === 0) return true; // 情報なしなら可視扱い（安全側）
-    for (const r of ranges) {
-      if (line >= r.start.line && line <= r.end.line) return true;
+// 見出しレベルが minLevel 以上の見出し「行番号」リストを返す
+function collectHeadingLinesByMinLevel(document, minLevel) {
+  const lines = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    const text = document.lineAt(i).text;
+    const lvl = getHeadingLevel(text);
+    if (lvl > 0 && lvl >= Math.max(1, Math.min(6, minLevel))) {
+      lines.push(i);
     }
-    return false;
-  } catch {
-    return true;
   }
+  return lines;
 }
 
 // ===== 11) Providers =====
@@ -754,16 +768,6 @@ class JapaneseSemanticProvider {
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     const startLine = Math.max(0, range.start.line);
     const endLine = Math.min(document.lineCount - 1, range.end.line);
-
-    // 当拡張の「全折りたたみ」中は見出し配下本文をスキップ
-    let foldedMode = false;
-    if (c.headingFoldEnabled && c.headingSemanticEnabled) {
-      const ed = vscode.window.activeTextEditor;
-      if (ed && ed.document === document) {
-        const key = document.uri.toString();
-        if (foldToggledByDoc.get(key) === true) foldedMode = true;
-      }
-    }
 
     // 全角括弧＋中身のセグメントを先に集計（改行対応）
     const idxBracket = tokenTypesArr.indexOf("bracket");
@@ -808,8 +812,7 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // 折りたたみモード中は「不可視行」だけスキップ（手動展開で可視になった行は解析）
-      const skipKuromojiHere = foldedMode && !lineIsVisible(document, line);
+      const skipKuromojiHere = false; // 常に解析（見出し行は下でcontinue）
 
       // 全角スペース
       {
@@ -1060,8 +1063,7 @@ function activate(context) {
       vscode.window.activeTextEditor.document.getText()
     );
   }
-  // === 可視範囲の変化（折りたたみ/展開/スクロール等）でトークン再発行 ===
-  const _visDebounceByDoc = new Map(); // key: docURI, value: timeoutId
+
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       const ed = e.textEditor;
@@ -1070,27 +1072,16 @@ function activate(context) {
       const lang = (ed.document.languageId || "").toLowerCase();
       // 対象は .txt / novel（MarkdownはVSCode標準）
       if (!(lang === "plaintext" || lang === "novel")) return;
-      if (!c.headingFoldEnabled || !c.headingSemanticEnabled) return;
+      if (!c.headingFoldEnabled) return;
 
-      const key = ed.document.uri.toString();
-      // ← 可視範囲をキャッシュ
-      visibleRangesByDoc.set(key, e.visibleRanges);
-      // スクロール連打対策で少し待つ（展開操作にも即応できる程度）
-      if (_visDebounceByDoc.has(key)) {
-        clearTimeout(_visDebounceByDoc.get(key));
+      // 見出しの手動展開/全展開などで可視範囲が変わったら、全文を再ハイライト
+      // （Provider に再発行を通知）
+      if (semProvider && semProvider._onDidChangeSemanticTokens) {
+        semProvider._onDidChangeSemanticTokens.fire();
       }
-      _visDebounceByDoc.set(
-        key,
-        setTimeout(() => {
-          // Semantic Tokens の再発行を要求
-          if (semProvider && semProvider._onDidChangeSemanticTokens) {
-            semProvider._onDidChangeSemanticTokens.fire();
-          }
-          // ステータスバー等も同期しておく（軽い）
-          recomputeAndCacheMetrics(ed);
-          updateStatusBar(ed);
-        }, 200)
-      );
+      // ついでにページ情報も同期
+      recomputeAndCacheMetrics(ed);
+      updateStatusBar(ed);
     })
   );
 }

@@ -166,15 +166,27 @@
             "default": true,
             "description": "「.md」の品詞ハイライトを行う。false で無効化"
           },
+          "posPage.headings.semantic.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": ".txt/novel で # 見出し行にセマンティック色を付ける（色は editor.semanticTokenColorCustomizations で変更可能）"
+          }
+        }
+      },
+      {
+        "title": "POS & Page (日本語) - 見出し折りたたみ",
+        "properties": {
           "posPage.headings.folding.enabled": {
             "type": "boolean",
             "default": true,
             "description": ".txt/novel で # 見出しを Markdown と同様に折りたたみ可能にする"
           },
-          "posPage.headings.semantic.enabled": {
-            "type": "boolean",
-            "default": true,
-            "description": ".txt/novel で # 見出し行にセマンティック色を付ける（色は editor.semanticTokenColorCustomizations で変更可能）"
+          "posPage.headings.foldMinLevel": {
+            "type": "number",
+            "default": 2,
+            "minimum": 1,
+            "maximum": 6,
+            "description": "ショートカットによる『全見出し折りたたみ』で対象とする最小見出しレベル。2なら##以上、3なら###以上を折りたたむ。"
           }
         }
       },
