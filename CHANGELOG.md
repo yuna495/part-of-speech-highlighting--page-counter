@@ -2,6 +2,10 @@
 
 All notable changes to this extension are documented here.
 
+## [1.3.1] - 2025/08/22
+
+- Readmeの画像リンクを正しました。
+
 ## [1.3.0] - 2025-08-21
 
 - 追加
