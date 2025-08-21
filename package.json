@@ -1,8 +1,8 @@
 {
   "name": "part-of-speech-highlighting---page-counter",
-  "displayName": "日本語 品詞カラー表示＋ページカウンタ",
+  "displayName": "POS & Page (ハイライト+カウンタ+α)",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -122,6 +122,16 @@
             "whitespace"
           ]
         }
+      },
+      {
+        "scopes": {
+          "heading": [
+            "heading",
+            "entity.name.section",
+            "markup.heading",
+            "label"
+          ]
+        }
       }
     ],
     "commands": [
@@ -136,107 +146,87 @@
       {
         "command": "posPage.setPageSize",
         "title": "POS/Page: 行×列を設定"
+      },
+      {
+        "command": "posPage.toggleFoldAllHeadings",
+        "title": "POS/Page: 見出しを 全折りたたみ／全展開 トグル"
       }
     ],
-    "configuration": {
-      "title": "POS & Page (日本語)",
-      "properties": {
-        "posPage.semantic.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "「.txt / Novel」の品詞ハイライトを行う。false で品詞ハイライトを無効化"
-        },
-        "posPage.semantic.enabledMd": {
-          "type": "boolean",
-          "default": true,
-          "description": "「.md」の品詞ハイライトを行う。false で無効化"
-        },
-        "posPage.enabledPage": {
-          "type": "boolean",
-          "default": true,
-          "description": "ページカウンタ（ステータスバー）を有効化"
-        },
-        "posPage.debounceMs": {
-          "type": "number",
-          "default": 500,
-          "description": "タイプ時のステータスバー軽量更新の待ち時間(ms)"
-        },
-        "posPage.recomputeIdleMs": {
-          "type": "number",
-          "default": 1200,
-          "minimum": 100,
-          "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
-        },
-        "posPage.page.rowsPerPage": {
-          "type": "number",
-          "default": 20,
-          "minimum": 1,
-          "description": "1ページの行数"
-        },
-        "posPage.page.colsPerRow": {
-          "type": "number",
-          "default": 20,
-          "minimum": 1,
-          "description": "1行の文字数"
-        },
-        "posPage.kinsoku.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "禁則処理（行頭禁則）を有効化"
-        },
-        "posPage.kinsoku.bannedStart": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "POS & Page (日本語) - ハイライト",
+        "properties": {
+          "posPage.semantic.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "「.txt / Novel」の品詞ハイライトを行う。false で品詞ハイライトを無効化"
           },
-          "default": [
-            "」",
-            "）",
-            "『",
-            "』",
-            "》",
-            "】",
-            "。",
-            "、",
-            "’",
-            "”",
-            "！",
-            "？",
-            "…",
-            "—",
-            "―",
-            "ぁ",
-            "ぃ",
-            "ぅ",
-            "ぇ",
-            "ぉ",
-            "ゃ",
-            "ゅ",
-            "ょ",
-            "っ",
-            "ー",
-            "々",
-            "ゞ",
-            "ゝ",
-            "ァ",
-            "ィ",
-            "ゥ",
-            "ェ",
-            "ォ",
-            "ャ",
-            "ュ",
-            "ョ",
-            "ッ"
-          ],
-          "description": "行頭に来ないよう前行へ送る文字（行頭禁則）"
-        },
-        "posPage.aggregate.showCombinedChars": {
-          "type": "boolean",
-          "default": true,
-          "description": "同一フォルダ内・同一拡張子（.txt または .md）の合算文字数を表示する（計算は保存時に実行）"
+          "posPage.semantic.enabledMd": {
+            "type": "boolean",
+            "default": true,
+            "description": "「.md」の品詞ハイライトを行う。false で無効化"
+          },
+          "posPage.headings.folding.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": ".txt/novel で # 見出しを Markdown と同様に折りたたみ可能にする"
+          },
+          "posPage.headings.semantic.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": ".txt/novel で # 見出し行にセマンティック色を付ける（色は editor.semanticTokenColorCustomizations で変更可能）"
+          }
+        }
+      },
+      {
+        "title": "POS & Page (日本語) - ステータスバー",
+        "properties": {
+          "posPage.enabledPage": {
+            "type": "boolean",
+            "default": true,
+            "description": "ページカウンタ（ステータスバー）を有効化"
+          },
+          "posPage.aggregate.showCombinedChars": {
+            "type": "boolean",
+            "default": true,
+            "description": "同一フォルダ内・同一拡張子（.txt または .md）の合算文字数を表示する（計算は保存時に実行）"
+          },
+          "posPage.page.rowsPerPage": {
+            "type": "number",
+            "default": 20,
+            "minimum": 1,
+            "description": "1ページの行数"
+          },
+          "posPage.page.colsPerRow": {
+            "type": "number",
+            "default": 20,
+            "minimum": 1,
+            "description": "1行の文字数"
+          },
+          "posPage.kinsoku.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "禁則処理（行頭禁則）を有効化"
+          }
+        }
+      },
+      {
+        "title": "POS & Page (日本語) - 更新ディレイ",
+        "properties": {
+          "posPage.debounceMs": {
+            "type": "number",
+            "default": 500,
+            "description": "タイプ時のステータスバー軽量更新の待ち時間(ms)"
+          },
+          "posPage.recomputeIdleMs": {
+            "type": "number",
+            "default": 1200,
+            "minimum": 100,
+            "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。タイプ中はキャッシュ表示にし、ここで確定させる。"
+          }
         }
       }
-    },
+    ],
     "configurationDefaults": {
       "editor.semanticHighlighting.enabled": true,
       "editor.semanticTokenColorCustomizations": {
@@ -252,10 +242,23 @@
           "fwspace": {
             "underline": true,
             "foreground": "#ff0000"
-          }
+          },
+          "heading": "#ff14e0"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "posPage.toggleFoldAllHeadings",
+        "key": "ctrl+[",
+        "when": "editorTextFocus && editorLangId == plaintext"
+      },
+      {
+        "command": "posPage.toggleFoldAllHeadings",
+        "key": "ctrl+[",
+        "when": "editorTextFocus && editorLangId == novel"
+      }
+    ]
   },
   "dependencies": {
     "kuromoji": "^0.1.2"

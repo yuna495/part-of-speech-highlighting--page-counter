@@ -10,7 +10,8 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
-// セマンティック定義
+
+// ===== 1-1) セマンティック定義・固定定数 =====
 const tokenTypesArr = [
   "noun",
   "verb",
@@ -25,6 +26,7 @@ const tokenTypesArr = [
   "other",
   "bracket",
   "fwspace",
+  "heading",
 ];
 const tokenModsArr = ["proper", "prefix", "suffix"];
 const semanticLegend = new vscode.SemanticTokensLegend(
@@ -32,20 +34,47 @@ const semanticLegend = new vscode.SemanticTokensLegend(
   Array.from(tokenModsArr)
 );
 
-// ===== 2) state =====
-let tokenizer = null; // kuromoji tokenizer
-let debouncer = null; // 軽い UI 更新用デバウンサ
-let idleRecomputeTimer = null; // 重い再計算の遅延実行用
-let enabledPage = true; // ページカウンタON/OFF（コマンドで切替）
-let statusBarItem = null; // ステータスバー部品
-let m = null; // ページカウンタ用メトリクスのキャッシュ
-// 追加：合算文字数のキャッシュ（アクティブ文書の「ディレクトリ+拡張子」をキー）
-let combinedCharsCache = {
-  key: null, // 例: "/path/to/dir::.txt"
-  value: null, // 数値（null は未計算/非対象）
-};
+const DEFAULT_BANNED_START = [
+  "」",
+  "）",
+  "『",
+  "』",
+  "》",
+  "】",
+  "。",
+  "、",
+  "’",
+  "”",
+  "！",
+  "？",
+  "…",
+  "—",
+  "―",
+  "ぁ",
+  "ぃ",
+  "ぅ",
+  "ぇ",
+  "ぉ",
+  "ゃ",
+  "ゅ",
+  "ょ",
+  "っ",
+  "ー",
+  "々",
+  "ゞ",
+  "ゝ",
+  "ァ",
+  "ィ",
+  "ゥ",
+  "ェ",
+  "ォ",
+  "ャ",
+  "ュ",
+  "ョ",
+  "ッ",
+];
 
-// 全角の開き括弧 → 閉じ括弧を自動補完するためのマップと再入防止フラグ
+// 全角の開き括弧 → 閉じ括弧
 const FW_BRACKET_MAP = new Map([
   ["「", "」"],
   ["『", "』"],
@@ -59,15 +88,42 @@ const FW_BRACKET_MAP = new Map([
   ["“", "”"],
   ["‘", "’"],
 ]);
-// 対応する「閉じ」集合
 const FW_CLOSE_SET = new Set(Array.from(FW_BRACKET_MAP.values()));
-// 括弧入力の再入防止・Backspace 用
-let _insertingFwClose = false;
-// Backspace ペア削除用：直前テキストのスナップショット
-const _prevTextByUri = new Map(); // key: uriString, value: string
-let _deletingPair = false; // 再入防止（Backspaceの連鎖）
 
-// ===== 3) config helper =====
+// 入力補助フラグ
+let _insertingFwClose = false; // 再入防止（自動クローズ）
+const _prevTextByUri = new Map(); // Backspace用、直前スナップショット
+let _deletingPair = false; // 再入防止（Backspaceペア削除）
+
+// ===== 2) state =====
+let tokenizer = null; // kuromoji tokenizer
+let debouncer = null; // 軽い UI 更新
+let idleRecomputeTimer = null; // 重い再計算の遅延実行
+let enabledPage = true; // ページカウンタ ON/OFF
+let statusBarItem = null; // ステータスバー
+let m = null; // メトリクスキャッシュ
+
+// 合算文字数のキャッシュ（アクティブ文書の「ディレクトリ+拡張子」をキー）
+let combinedCharsCache = {
+  key: null, // 例: "/path/to/dir::.txt"
+  value: null, // 数値（null は未計算/非対象）
+};
+
+// 全折/全展開のトグル状態（docごと）
+let foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
+let foldDocVersionAtFold = new Map(); // key: uri, value: document.version
+// 手動展開に追随するための「可視範囲」キャッシュ
+let visibleRangesByDoc = new Map(); // key: uriString, value: vscode.Range[]
+
+// ===== 3) 設定ヘルパ =====
+function getBannedStart() {
+  const config = vscode.workspace.getConfiguration("posPage");
+  const userValue = config.get("kinsoku.bannedStart");
+  return Array.isArray(userValue) && userValue.length > 0
+    ? userValue
+    : DEFAULT_BANNED_START;
+}
+
 function cfg() {
   const c = vscode.workspace.getConfiguration("posPage");
   return {
@@ -80,60 +136,24 @@ function cfg() {
     rowsPerPage: c.get("page.rowsPerPage", 20),
     colsPerRow: c.get("page.colsPerRow", 20),
     kinsokuEnabled: c.get("kinsoku.enabled", true),
-    kinsokuBanned: c.get("kinsoku.bannedStart", [
-      "」",
-      "）",
-      "『",
-      "』",
-      "》",
-      "】",
-      "。",
-      "、",
-      "’",
-      "”",
-      "！",
-      "？",
-      "…",
-      "—",
-      "―",
-      "ぁ",
-      "ぃ",
-      "ぅ",
-      "ぇ",
-      "ぉ",
-      "ゃ",
-      "ゅ",
-      "ょ",
-      "っ",
-      "ー",
-      "々",
-      "ゞ",
-      "ゝ",
-      "ァ",
-      "ィ",
-      "ゥ",
-      "ェ",
-      "ォ",
-      "ャ",
-      "ュ",
-      "ョ",
-      "ッ",
-    ]),
+    kinsokuBanned: getBannedStart(), // settings.json 優先
     showCombined: c.get("aggregate.showCombinedChars", true),
+    headingFoldEnabled: c.get("headings.folding.enabled", true),
+    headingSemanticEnabled: c.get("headings.semantic.enabled", true),
   };
 }
 
-// 対象ドキュメントか判定（既定では plaintext + .txt）
+// 対象ドキュメント判定
 function isTargetDoc(doc, c) {
   if (!doc) return false;
-  // 既定では plaintext/.txt と markdown/.md を対象にする
   if (!c.applyToTxtOnly) return true;
+
   const lang = (doc.languageId || "").toLowerCase();
   const fsPath = (doc.uri?.fsPath || "").toLowerCase();
   const isPlain = lang === "plaintext" || fsPath.endsWith(".txt");
   const isMd = lang === "markdown" || fsPath.endsWith(".md");
-  // 他拡張「NOVEL-WRITER」等で言語モードが Novel になる場合も許可（id は通常 lowercase 化されるが保険）
-  const isNovel = lang === "novel";
+  const isNovel = lang === "novel"; // Novel拡張互換
+
   return isPlain || isMd || isNovel;
 }
 
@@ -156,9 +176,35 @@ async function ensureTokenizer(context) {
   });
 }
 
-// ===== 5) page counter core =====
+// ===== 5) ページカウンタ・コア =====
 
-// テキスト全体を原稿用紙風に折り返したときの行数を返す（行頭禁則対応）
+// 改行(LF)を除いたコードポイント数
+function countCharsNoLF(text) {
+  return Array.from(text.replace(/\r\n/g, "\n")).filter((ch) => ch !== "\n")
+    .length;
+}
+
+// 複数選択に対応して合計文字数
+function countSelectedChars(doc, selections) {
+  let sum = 0;
+  for (const sel of selections) {
+    if (!sel.isEmpty) {
+      const t = doc.getText(sel);
+      sum += countCharsNoLF(t);
+    }
+  }
+  return sum;
+}
+
+// 選択先頭までのテキスト（現在ページ算出用）
+function editorPrefixText(doc, selection) {
+  if (!selection) return "";
+  const start = new vscode.Position(0, 0);
+  const range = new vscode.Range(start, selection.active);
+  return doc.getText(range);
+}
+
+// テキストを原稿用紙風に折り返したときの行数（禁則対応）
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const banned = new Set(kinsokuEnabled ? bannedChars : []);
@@ -168,9 +214,9 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
     const arr = Array.from(line);
     const n = arr.length;
     if (n === 0) {
-      rows += 1;
+      rows += 1; // 空行も1
       continue;
-    } // 空行も1行
+    }
 
     let pos = 0;
     while (pos < n) {
@@ -189,7 +235,7 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   return rows;
 }
 
-// 現在の文書に対するメトリクス（総行/総ページ/現在ページ等）を計算
+// メトリクス計算
 function computePageMetrics(doc, c, selection) {
   const text = doc.getText();
 
@@ -198,7 +244,7 @@ function computePageMetrics(doc, c, selection) {
     (ch) => ch !== "\n"
   ).length;
 
-  // 総行数（原稿用紙の折返し + 禁則）
+  // 総行数（禁則込みの折返し）
   const totalWrappedRows = wrappedRowsForText(
     text,
     c.colsPerRow,
@@ -207,7 +253,7 @@ function computePageMetrics(doc, c, selection) {
   );
   const totalPages = Math.max(1, Math.ceil(totalWrappedRows / c.rowsPerPage));
 
-  // 現在ページ：先頭〜カーソルまでの行数から算出
+  // 現在ページ
   const prefixText = editorPrefixText(doc, selection);
   const currRows = wrappedRowsForText(
     prefixText,
@@ -233,33 +279,7 @@ function computePageMetrics(doc, c, selection) {
   };
 }
 
-// 選択先頭までのテキストを取得（現在ページ算出用）
-function editorPrefixText(doc, selection) {
-  if (!selection) return "";
-  const start = new vscode.Position(0, 0);
-  const range = new vscode.Range(start, selection.active);
-  return doc.getText(range);
-}
-
-// 改行(LF)を除いたコードポイント数
-function countCharsNoLF(text) {
-  return Array.from(text.replace(/\r\n/g, "\n")).filter((ch) => ch !== "\n")
-    .length;
-}
-
-// 複数選択に対応して合計文字数を返す（空選択は0）
-function countSelectedChars(doc, selections) {
-  let sum = 0;
-  for (const sel of selections) {
-    if (!sel.isEmpty) {
-      const t = doc.getText(sel);
-      sum += countCharsNoLF(t);
-    }
-  }
-  return sum;
-}
-
-// メトリクスを計算→キャッシュ
+// メトリクス計算→キャッシュ
 function recomputeAndCacheMetrics(editor) {
   if (!editor) {
     m = null;
@@ -273,7 +293,7 @@ function recomputeAndCacheMetrics(editor) {
   m = computePageMetrics(editor.document, c, editor.selection);
 }
 
-// ステータスバー表示
+// ステータスバー更新
 function updateStatusBar(editor) {
   const c = cfg();
   if (!statusBarItem) return;
@@ -302,12 +322,11 @@ function updateStatusBar(editor) {
   };
   const displayChars = selectedChars > 0 ? selectedChars : mm.totalChars;
 
-  // ★合算文字数（保存時に更新されたキャッシュを使う。設定OFFなら null ）
+  // 合算文字数（保存時に更新されたキャッシュを表示）
   const combined = c.showCombined ? combinedCharsCache.value : null;
   const combinedPart = combined != null ? `（${combined}字）` : "";
 
   statusBarItem.text = `${mm.currentPage}/${mm.totalPages} -${mm.lastLineInLastPage}（${c.rowsPerPage}×${c.colsPerRow}）${displayChars}字${combinedPart}`;
-
   statusBarItem.tooltip =
     selectedChars > 0
       ? "選択位置/全体ページ｜行=最終文字が最後のページの何行目か｜字=選択範囲の文字数（改行除外）｜（ ）=同一フォルダ×同一拡張子の合算文字数"
@@ -317,33 +336,64 @@ function updateStatusBar(editor) {
   statusBarItem.show();
 }
 
-// === AutoClose FW Brackets ===
-/**
- * 全角の開き括弧が 1 文字入力された直後に、対応する閉じ括弧を補完し、
- * キャレットを内側へ移動する。対象は plaintext / novel / markdown。
- */
+// ===== 6) 全角括弧ユーティリティ（レンジ検出 & 入力補助） =====
+
+// ドキュメント全文を走査し、全角括弧の「開き」〜「対応する閉じ」までの Range[] を収集
+function computeFullwidthQuoteRanges(doc) {
+  const text = doc.getText(); // UTF-16
+  const ranges = [];
+  const stack = []; // { openChar, expectedClose, openOffset }
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    // 開き？
+    const close = FW_BRACKET_MAP.get(ch);
+    if (close) {
+      stack.push({ openChar: ch, expectedClose: close, openOffset: i });
+      continue;
+    }
+    // 閉じ？
+    if (FW_CLOSE_SET.has(ch)) {
+      if (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        if (ch === top.expectedClose) {
+          // 対応 → 範囲確定
+          stack.pop();
+          const startPos = doc.positionAt(top.openOffset);
+          const endPos = doc.positionAt(i + 1); // 閉じを含む
+          ranges.push(new vscode.Range(startPos, endPos));
+        }
+      }
+      // 孤立した閉じは無視
+    }
+  }
+  // 未閉じは追加しない
+  return ranges;
+}
+
+// 開き入力直後に閉じを補完し、キャレットを内側へ
 function maybeAutoCloseFullwidthBracket(e) {
   try {
-    if (_insertingFwClose) return; // 再入防止
+    if (_insertingFwClose) return;
     const ed = vscode.window.activeTextEditor;
     if (!ed) return;
     const c = cfg();
     if (!isTargetDoc(ed.document, c)) return;
     if (e.document !== ed.document) return;
-
     if (!e.contentChanges || e.contentChanges.length !== 1) return;
+
     const chg = e.contentChanges[0];
     const isSingleCharText =
       typeof chg.text === "string" && chg.text.length === 1;
 
-    // --- Case 1: 通常タイプ（挿入） ---
+    // Case 1: 挿入
     if (chg.rangeLength === 0 && isSingleCharText) {
       const open = chg.text;
       const close = FW_BRACKET_MAP.get(open);
       if (!close) return;
 
       const posAfterOpen = chg.range.start.translate(0, 1);
-
       _insertingFwClose = true;
       ed.edit((builder) => {
         builder.insert(posAfterOpen, close);
@@ -364,7 +414,7 @@ function maybeAutoCloseFullwidthBracket(e) {
       return;
     }
 
-    // --- Case 2: 1文字置換（IME変換などで「→『 のように変わる） ---
+    // Case 2: 1文字置換（例: 「 に変換）
     if (chg.rangeLength === 1 && isSingleCharText) {
       const newOpen = chg.text;
       const newClose = FW_BRACKET_MAP.get(newOpen);
@@ -377,7 +427,6 @@ function maybeAutoCloseFullwidthBracket(e) {
       );
       const nextChar = ed.document.getText(nextCharRange);
 
-      // グローバルの FW_CLOSE_SET を使用（ローカル再定義を削除）
       if (FW_CLOSE_SET.has(nextChar) && nextChar !== newClose) {
         _insertingFwClose = true;
         ed.edit((builder) => {
@@ -391,59 +440,41 @@ function maybeAutoCloseFullwidthBracket(e) {
           }
         );
       }
-      return;
     }
-  } catch (_) {
+  } catch {
     _insertingFwClose = false;
   }
 }
 
-/**
- * Backspaceで「開き括弧」1文字を削除した直後に、
- * 直後に残った「閉じ括弧」が対応ペアなら自動で同時削除する。
- * 仕組み：
- *  - onDidChangeTextDocument の e.contentChanges[0] から rangeOffset を使い、
- *    「変更前テキスト（_prevTextByUri に保存）」から削除された1文字を復元。
- *  - それが開き括弧で、現在ドキュメント上のカーソル位置の直後に
- *    対応する「閉じ括弧」があれば削除する。
- */
+// Backspaceで開きを消した直後、直後の閉じが対応ペアなら同時削除
 function maybeDeleteClosingOnBackspace(e) {
   try {
-    if (_deletingPair) return; // 再入防止
+    if (_deletingPair) return;
     const ed = vscode.window.activeTextEditor;
     if (!ed || e.document !== ed.document) return;
-
-    // 単一変更のみ対象
     if (!e.contentChanges || e.contentChanges.length !== 1) return;
+
     const chg = e.contentChanges[0];
+    if (!(chg.rangeLength === 1 && chg.text === "")) return; // Backspace（左削除）のみ
 
-    // Backspace（左削除）：rangeLength === 1 && text === ""
-    if (!(chg.rangeLength === 1 && chg.text === "")) return;
-
-    // 変更前全文から「削除された1文字」を復元
+    // 変更前全文から削除1文字を復元
     const uriKey = e.document.uri.toString();
     const prevText = _prevTextByUri.get(uriKey);
     if (typeof prevText !== "string") return;
 
-    const off = chg.rangeOffset; // 削除開始オフセット（UTF-16単位）
-    const len = chg.rangeLength; // 通常 1
-    const removed = prevText.substring(off, off + len); // 削除前の1文字
+    const off = chg.rangeOffset;
+    const removed = prevText.substring(off, off + chg.rangeLength);
+    if (!FW_BRACKET_MAP.has(removed)) return; // 開き以外は対象外
 
-    if (!FW_BRACKET_MAP.has(removed)) return; // 開き括弧でなければ対象外
     const expectedClose = FW_BRACKET_MAP.get(removed);
-
-    // 現在ドキュメント（削除後）の「カーソル位置＝chg.range.start」
     const pos = chg.range.start;
     const nextRange = new vscode.Range(pos, pos.translate(0, 1));
     const nextChar = e.document.getText(nextRange);
 
-    if (nextChar !== expectedClose) return; // 直後が対応する閉じでなければ何もしない
+    if (nextChar !== expectedClose) return;
 
-    // 直後の閉じ括弧を削除
     _deletingPair = true;
-    ed.edit((builder) => {
-      builder.delete(nextRange);
-    }).then(
+    ed.edit((builder) => builder.delete(nextRange)).then(
       () => {
         _deletingPair = false;
       },
@@ -456,45 +487,7 @@ function maybeDeleteClosingOnBackspace(e) {
   }
 }
 
-function computeFullwidthQuoteRanges(doc) {
-  const text = doc.getText(); // UTF-16 文字列
-  const ranges = [];
-  const stack = []; // { openChar, expectedClose, openOffset }
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    // 開き？
-    const close = FW_BRACKET_MAP.get(ch);
-    if (close) {
-      stack.push({ openChar: ch, expectedClose: close, openOffset: i });
-      continue;
-    }
-
-    // 閉じ？
-    if (FW_CLOSE_SET.has(ch)) {
-      if (stack.length > 0) {
-        const top = stack[stack.length - 1];
-        if (ch === top.expectedClose) {
-          // 正しく対応 → 範囲確定
-          stack.pop();
-          const startPos = doc.positionAt(top.openOffset);
-          const endPos = doc.positionAt(i + 1); // 閉じを含む
-          ranges.push(new vscode.Range(startPos, endPos));
-        }
-        // 異種の閉じは無視（ネスト内で他種の閉じが来る等はスキップ）
-      }
-      // 孤立した閉じも無視
-    }
-  }
-
-  // ※未閉じ（開きだけ）の範囲は追加しない
-  return ranges;
-}
-
-// ===== 合算文字数（同一フォルダ×同一拡張子）ユーティリティ =====
-
-// 改行(LF)を除いたコードポイント数をファイルから数える（同期読み込み）
+// ===== 7) 合算文字数（同一フォルダ×同一拡張子） =====
 function countFileCharsNoLF_FromFile(filePath) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
@@ -506,7 +499,6 @@ function countFileCharsNoLF_FromFile(filePath) {
   }
 }
 
-// アクティブドキュメントと同じフォルダ内・同一拡張子の合算文字数を計算
 function computeCombinedCharsForFolder(editor) {
   if (!editor) {
     combinedCharsCache = { key: null, value: null };
@@ -514,7 +506,6 @@ function computeCombinedCharsForFolder(editor) {
   }
   const c = cfg();
   if (!c.showCombined) {
-    // 非表示設定時は「未計算」のままでよい
     combinedCharsCache = { key: null, value: null };
     return;
   }
@@ -526,7 +517,6 @@ function computeCombinedCharsForFolder(editor) {
     return;
   }
 
-  // 拡張子判定（.txt or .md のみ対象）
   const lower = fsPath.toLowerCase();
   const isTxt = lower.endsWith(".txt");
   const isMd = lower.endsWith(".md");
@@ -539,10 +529,8 @@ function computeCombinedCharsForFolder(editor) {
   const ext = isTxt ? ".txt" : ".md";
   const cacheKey = `${dir}::${ext}`;
 
-  // 同一キーなら再計算不要（保存トリガ等で更新する）
-  if (combinedCharsCache.key === cacheKey && combinedCharsCache.value != null) {
+  if (combinedCharsCache.key === cacheKey && combinedCharsCache.value != null)
     return;
-  }
 
   let sum = 0;
   try {
@@ -561,34 +549,24 @@ function computeCombinedCharsForFolder(editor) {
   }
 }
 
-// アクティブ文書が保存されたタイミングで合算文字数を再計算
 function recomputeCombinedOnSaveIfNeeded(savedDoc) {
   const ed = vscode.window.activeTextEditor;
   if (!ed || savedDoc !== ed.document) return;
-
-  // 保存後のみ再計算：同一フォルダ×同一拡張子
-  combinedCharsCache = { key: null, value: null }; // キーを崩して再計算させる
+  combinedCharsCache = { key: null, value: null }; // 保存後に再計算
   computeCombinedCharsForFolder(ed);
 }
 
-/**
- * ドキュメント全文を走査し、全角括弧の「開き」から「対応する閉じ」までを
- * 1 つの Range として収集する。ネスト対応、行またぎ対応。
- * ・対象の対は FW_BRACKET_MAP に従う（「」/『』/（ ）/【】/…）
- * ・未閉じ（閉じが見つからない）はハイライトしない（誤爆を避ける）
- */
-
-// ===== 6) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
+// ===== 8) scheduler（入力中は軽い更新、手が止まってから重い再計算） =====
 function scheduleUpdate(editor) {
   const c = cfg();
 
-  // 軽いUI更新（キャッシュmを反映）
+  // 軽いUI更新（キャッシュ m を反映）
   if (debouncer) clearTimeout(debouncer);
   debouncer = setTimeout(() => {
     updateStatusBar(editor);
   }, c.debounceMs);
 
-  // 重い再計算はアイドル時にまとめて実行
+  // 重い再計算はアイドル時
   if (idleRecomputeTimer) clearTimeout(idleRecomputeTimer);
   idleRecomputeTimer = setTimeout(() => {
     recomputeAndCacheMetrics(editor);
@@ -596,15 +574,15 @@ function scheduleUpdate(editor) {
   }, c.recomputeIdleMs);
 }
 
-// ===== 7) commands =====
+// ===== 9) commands =====
 async function cmdRefreshPos() {
-  // 手動で「いまの状態」を確定したいとき用：ページ計算を即再計算し、ステータスバーを即反映
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
   recomputeAndCacheMetrics(ed);
   updateStatusBar(ed);
   vscode.window.showInformationMessage("POS/Page: 解析を再適用しました");
 }
+
 async function cmdTogglePage() {
   enabledPage = !enabledPage;
   updateStatusBar(vscode.window.activeTextEditor);
@@ -612,6 +590,7 @@ async function cmdTogglePage() {
     `ページカウンタ: ${enabledPage ? "有効化" : "無効化"}`
   );
 }
+
 async function cmdSetPageSize() {
   const c = cfg();
   const rows = await vscode.window.showInputBox({
@@ -649,130 +628,49 @@ async function cmdSetPageSize() {
   );
 }
 
-// ===== 8) activate/deactivate =====
-function activate(context) {
-  console.log("[pos-page] activate called");
-  vscode.window.showInformationMessage("POS/Page: activate");
+// 見出しの“全折/全展開”トグル（.txt / novel）
+async function cmdToggleFoldAllHeadings() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
 
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left,
-    2
-  );
-  context.subscriptions.push(statusBarItem);
-
-  // commands
-  context.subscriptions.push(
-    vscode.commands.registerCommand("posPage.refreshPos", () =>
-      cmdRefreshPos()
-    ),
-    vscode.commands.registerCommand("posPage.togglePageCounter", () =>
-      cmdTogglePage()
-    ),
-    vscode.commands.registerCommand("posPage.setPageSize", () =>
-      cmdSetPageSize()
-    )
-  );
-
-  // events
-  context.subscriptions.push(
-    // 入力：軽い更新＋アイドル時に重い再計算
-    vscode.workspace.onDidChangeTextDocument((e) => {
-      const ed = vscode.window.activeTextEditor;
-      if (!ed || e.document !== ed.document) return;
-      // === AutoClose FW Brackets === 先に括弧補完を試みる
-      maybeAutoCloseFullwidthBracket(e);
-      maybeDeleteClosingOnBackspace(e);
-      scheduleUpdate(ed);
-      // 変更後テキストをスナップショットに反映（次回の比較用）
-      _prevTextByUri.set(e.document.uri.toString(), e.document.getText());
-    }),
-    // 保存：即時に確定計算
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      const ed = vscode.window.activeTextEditor;
-      if (ed && ed.document === doc) {
-        if (debouncer) {
-          clearTimeout(debouncer);
-          debouncer = null;
-        }
-        //  保存時のみ、合算文字数を再計算
-        recomputeCombinedOnSaveIfNeeded(doc);
-        recomputeAndCacheMetrics(ed);
-        updateStatusBar(ed);
-      }
-    }),
-    // エディタ切替：即時に確定計算＋軽い更新
-    vscode.window.onDidChangeActiveTextEditor((ed) => {
-      if (ed) {
-        // 切替時に（入力中ではないので）初期の合算を計算
-        computeCombinedCharsForFolder(ed);
-        recomputeAndCacheMetrics(ed);
-        scheduleUpdate(ed);
-        _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
-      }
-    }),
-    // 選択変更：選択文字数を即時反映（軽い）
-    vscode.window.onDidChangeTextEditorSelection((e) => {
-      if (e.textEditor !== vscode.window.activeTextEditor) return;
-      recomputeAndCacheMetrics(e.textEditor);
-      updateStatusBar(e.textEditor);
-    }),
-    // 設定変更：確定計算＋軽い更新
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("posPage")) {
-        const ed = vscode.window.activeTextEditor;
-        if (ed) {
-          recomputeAndCacheMetrics(ed);
-          scheduleUpdate(ed);
-        }
-      }
-    })
-  );
-
-  const selector = [
-    { language: "plaintext", scheme: "file" },
-    { language: "plaintext", scheme: "untitled" },
-    { language: "novel", scheme: "file" },
-    { language: "novel", scheme: "untitled" },
-    // 保険：表示名が「Novel」となるケースにも対応（通常は小文字 id に正規化される）
-    { language: "Novel", scheme: "file" },
-    { language: "Novel", scheme: "untitled" },
-    // Markdown にも対応
-    { language: "markdown", scheme: "file" },
-    { language: "markdown", scheme: "untitled" },
-  ];
-
-  const semProvider = new JapaneseSemanticProvider(context);
-  context.subscriptions.push(
-    vscode.languages.registerDocumentSemanticTokensProvider(
-      selector,
-      semProvider,
-      semanticLegend
-    ),
-    vscode.languages.registerDocumentRangeSemanticTokensProvider(
-      selector,
-      semProvider,
-      semanticLegend
-    )
-  );
-
-  // 初回：確定計算→UI反映
-  if (vscode.window.activeTextEditor) {
-    // 起動直後に合算を計算（入力操作ではない）
-    computeCombinedCharsForFolder(vscode.window.activeTextEditor);
-    recomputeAndCacheMetrics(vscode.window.activeTextEditor);
-    updateStatusBar(vscode.window.activeTextEditor);
-    _prevTextByUri.set(
-      vscode.window.activeTextEditor.document.uri.toString(),
-      vscode.window.activeTextEditor.document.getText()
+  const c = cfg();
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel")) {
+    vscode.window.showInformationMessage(
+      "このトグルは .txt / novel でのみ有効です"
     );
+    return;
+  }
+  if (!c.headingFoldEnabled) {
+    vscode.window.showInformationMessage(
+      "見出しの折りたたみ機能が無効です（posPage.headings.folding.enabled）"
+    );
+    return;
+  }
+
+  const key = ed.document.uri.toString();
+  const lastStateFolded = foldToggledByDoc.get(key) === true;
+  const lastVer = foldDocVersionAtFold.get(key);
+  const currVer = ed.document.version;
+
+  // 前回「全折りたたみ」実行後、編集されていなければ「全展開」
+  const shouldUnfold = lastStateFolded && lastVer === currVer;
+
+  if (shouldUnfold) {
+    await vscode.commands.executeCommand("editor.unfoldAll");
+    foldToggledByDoc.set(key, false);
+    recomputeAndCacheMetrics(ed);
+    updateStatusBar(ed);
+    vscode.commands.executeCommand("posPage.refreshPos"); // 再解析
+  } else {
+    await vscode.commands.executeCommand("editor.foldAll");
+    foldToggledByDoc.set(key, true);
+    foldDocVersionAtFold.set(key, currVer);
   }
 }
-function deactivate() {
-  if (statusBarItem) statusBarItem.dispose();
-}
-module.exports = { activate, deactivate };
 
-// ===== 9) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
+// ===== 10) Semantic Tokens（POS/括弧/ダッシュ/全角スペース） =====
+
 // kuromoji → token type / modifiers
 function mapKuromojiToSemantic(tk) {
   const pos = tk.pos || "";
@@ -796,7 +694,7 @@ function mapKuromojiToSemantic(tk) {
   return { typeIdx: Math.max(0, tokenTypesArr.indexOf(type)), mods };
 }
 
-// 行内で kuromoji トークンの開始位置を素朴に探索（ズレたらスキップ）
+// 行内で kuromoji トークンの開始位置を素朴に探索
 function* enumerateTokenOffsets(lineText, tokens) {
   let cur = 0;
   for (const tk of tokens) {
@@ -809,38 +707,69 @@ function* enumerateTokenOffsets(lineText, tokens) {
   }
 }
 
+// Markdown風見出し検出（0〜3スペース許容）
+function getHeadingLevel(lineText) {
+  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
+  return m ? m[1].length : 0;
+}
+
+function lineIsVisible(document, line) {
+  try {
+    const key = document.uri.toString();
+    const ranges = visibleRangesByDoc.get(key);
+    if (!ranges || ranges.length === 0) return true; // 情報なしなら可視扱い（安全側）
+    for (const r of ranges) {
+      if (line >= r.start.line && line <= r.end.line) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// ===== 11) Providers =====
 class JapaneseSemanticProvider {
   constructor(context) {
     this._context = context;
+    this._onDidChangeSemanticTokens = new vscode.EventEmitter(); // ← 追加
+    /** @type {vscode.Event<void>} */
+    this.onDidChangeSemanticTokens = this._onDidChangeSemanticTokens.event; // ← 追加
   }
 
   async _buildTokens(document, range, cancelToken) {
     const c = cfg();
-    // 言語別に品詞ハイライトの有効/無効を判定
+
+    // 言語別の有効/無効
     const lang = (document.languageId || "").toLowerCase();
     if (lang === "markdown") {
-      if (!c.semanticEnabledMd) {
+      if (!c.semanticEnabledMd)
         return new vscode.SemanticTokens(new Uint32Array());
-      }
     } else {
-      // plaintext / novel（他拡張NOVEL-WRITER）など
-      // ※ VSCode の languageId は通常 lowercase だが保険として toLowerCase 済
-      if (!c.semanticEnabled) {
+      if (!c.semanticEnabled)
         return new vscode.SemanticTokens(new Uint32Array());
-      }
     }
+
     await ensureTokenizer(this._context);
 
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     const startLine = Math.max(0, range.start.line);
     const endLine = Math.min(document.lineCount - 1, range.end.line);
 
-    // 括弧ペアを行ごとの [startChar, endChar) セグメントに割り付け
+    // 当拡張の「全折りたたみ」中は見出し配下本文をスキップ
+    let foldedMode = false;
+    if (c.headingFoldEnabled && c.headingSemanticEnabled) {
+      const ed = vscode.window.activeTextEditor;
+      if (ed && ed.document === document) {
+        const key = document.uri.toString();
+        if (foldToggledByDoc.get(key) === true) foldedMode = true;
+      }
+    }
+
+    // 全角括弧＋中身のセグメントを先に集計（改行対応）
     const idxBracket = tokenTypesArr.indexOf("bracket");
-    const bracketSegsByLine = new Map(); // line -> Array<[s,e]>
+    const bracketSegsByLine = new Map();
     (() => {
-      // ★トップレベル関数に一本化（改行＆ネスト対応）
-      const pairs = computeFullwidthQuoteRanges(document); // 全文の Range[]
+      const pairs = computeFullwidthQuoteRanges(document);
       for (const r of pairs) {
         const sL = r.start.line,
           eL = r.end.line;
@@ -861,7 +790,28 @@ class JapaneseSemanticProvider {
       if (cancelToken?.isCancellationRequested) break;
       const text = document.lineAt(line).text;
 
-      // 全角スペース → fwspace（※背景はSemantic不可、既定は赤＋下線）
+      // 見出し行は heading で全面着色（plaintext/novel）
+      if (c.headingSemanticEnabled) {
+        const l = (document.languageId || "").toLowerCase();
+        if (l === "plaintext" || l === "novel") {
+          const lvl = getHeadingLevel(text);
+          if (lvl > 0) {
+            builder.push(
+              line,
+              0,
+              text.length,
+              tokenTypesArr.indexOf("heading"),
+              0
+            );
+            continue; // 見出しは品詞解析対象外
+          }
+        }
+      }
+
+      // 折りたたみモード中は「不可視行」だけスキップ（手動展開で可視になった行は解析）
+      const skipKuromojiHere = foldedMode && !lineIsVisible(document, line);
+
+      // 全角スペース
       {
         const re = /　/g;
         let m;
@@ -870,7 +820,7 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // ダッシュ（—/―） → bracket と同じ色で強調
+      // ダッシュ（—/―） → bracket 色で
       {
         const reDash = /[—―]/g;
         let m;
@@ -885,7 +835,7 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // 括弧＋中身（改行対応・セマンティック一本化）
+      // 括弧＋中身（改行対応セグメント）
       {
         const segs = bracketSegsByLine.get(line);
         if (segs && segs.length) {
@@ -896,8 +846,8 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // 品詞 → kuromoji で行単位トークン化（tokenizer が用意できた時だけ）
-      if (tokenizer && text.trim()) {
+      // 品詞ハイライト（必要時のみ）
+      if (!skipKuromojiHere && tokenizer && text.trim()) {
         const tokens = tokenizer.tokenize(text);
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const { typeIdx, mods } = mapKuromojiToSemantic(seg.tk);
@@ -910,6 +860,9 @@ class JapaneseSemanticProvider {
   }
 
   async provideDocumentSemanticTokens(document, token) {
+    if (token?.isCancellationRequested) {
+      return new vscode.SemanticTokens(new Uint32Array());
+    }
     const fullRange = new vscode.Range(
       0,
       0,
@@ -918,7 +871,232 @@ class JapaneseSemanticProvider {
     );
     return this._buildTokens(document, fullRange, token);
   }
+
   async provideDocumentRangeSemanticTokens(document, range, token) {
+    if (token?.isCancellationRequested) {
+      return new vscode.SemanticTokens(new Uint32Array());
+    }
     return this._buildTokens(document, range, token);
   }
 }
+
+class HeadingFoldingProvider {
+  provideFoldingRanges(document, context, token) {
+    // 意図的に未使用。ESLint対策と、将来の拡張余地のため残す
+    void context;
+    if (token?.isCancellationRequested) return [];
+    const c = cfg();
+    if (!c.headingFoldEnabled) return [];
+
+    const lang = (document.languageId || "").toLowerCase();
+    // 対象は plaintext / novel（Markdownは VSCode 既定に任せる）
+    if (!(lang === "plaintext" || lang === "novel")) return [];
+
+    const lines = document.lineCount;
+    const heads = [];
+
+    for (let i = 0; i < lines; i++) {
+      const text = document.lineAt(i).text;
+      const lvl = getHeadingLevel(text);
+      if (lvl > 0) heads.push({ line: i, level: lvl });
+    }
+    if (heads.length === 0) return [];
+
+    const ranges = [];
+    for (let i = 0; i < heads.length; i++) {
+      const { line: start, level } = heads[i];
+      // 次の「同レベル以下」の見出し直前まで
+      let end = lines - 1;
+      for (let j = i + 1; j < heads.length; j++) {
+        if (heads[j].level <= level) {
+          end = heads[j].line - 1;
+          break;
+        }
+      }
+      if (end > start) {
+        ranges.push(
+          new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region)
+        );
+      }
+    }
+    return ranges;
+  }
+}
+
+// ===== 12) activate/deactivate =====
+function activate(context) {
+  console.log("[pos-page] activate called");
+  vscode.window.showInformationMessage("POS/Page: activate");
+
+  statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    2
+  );
+  context.subscriptions.push(statusBarItem);
+
+  // commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posPage.refreshPos", () =>
+      cmdRefreshPos()
+    ),
+    vscode.commands.registerCommand("posPage.togglePageCounter", () =>
+      cmdTogglePage()
+    ),
+    vscode.commands.registerCommand("posPage.setPageSize", () =>
+      cmdSetPageSize()
+    ),
+    vscode.commands.registerCommand("posPage.toggleFoldAllHeadings", () =>
+      cmdToggleFoldAllHeadings()
+    )
+  );
+
+  // events
+  context.subscriptions.push(
+    // 入力：軽い更新＋アイドル時に重い再計算
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      const ed = vscode.window.activeTextEditor;
+      if (!ed || e.document !== ed.document) return;
+      // 先に括弧補完系
+      maybeAutoCloseFullwidthBracket(e);
+      maybeDeleteClosingOnBackspace(e);
+      scheduleUpdate(ed);
+      // 変更後テキストをスナップショットに反映（Backspace復元用）
+      _prevTextByUri.set(e.document.uri.toString(), e.document.getText());
+    }),
+
+    // 保存：即時確定計算
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      const ed = vscode.window.activeTextEditor;
+      if (ed && ed.document === doc) {
+        if (debouncer) {
+          clearTimeout(debouncer);
+          debouncer = null;
+        }
+        // 保存時のみ合算文字数を再計算
+        recomputeCombinedOnSaveIfNeeded(doc);
+        recomputeAndCacheMetrics(ed);
+        updateStatusBar(ed);
+      }
+    }),
+
+    // アクティブエディタ切替：確定計算＋軽い更新
+    vscode.window.onDidChangeActiveTextEditor((ed) => {
+      if (ed) {
+        // 切替時は入力中ではないので初期の合算を計算
+        computeCombinedCharsForFolder(ed);
+        recomputeAndCacheMetrics(ed);
+        scheduleUpdate(ed);
+        _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
+      }
+    }),
+
+    // 選択変更：選択文字数を即反映
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (e.textEditor !== vscode.window.activeTextEditor) return;
+      recomputeAndCacheMetrics(e.textEditor);
+      updateStatusBar(e.textEditor);
+    }),
+
+    // 設定変更：確定計算＋軽い更新
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("posPage")) {
+        const ed = vscode.window.activeTextEditor;
+        if (ed) {
+          recomputeAndCacheMetrics(ed);
+          scheduleUpdate(ed);
+        }
+      }
+    })
+  );
+
+  // Provider登録
+  const selector = [
+    { language: "plaintext", scheme: "file" },
+    { language: "plaintext", scheme: "untitled" },
+    { language: "novel", scheme: "file" },
+    { language: "novel", scheme: "untitled" },
+    { language: "Novel", scheme: "file" }, // 保険
+    { language: "Novel", scheme: "untitled" }, // 保険
+    { language: "markdown", scheme: "file" },
+    { language: "markdown", scheme: "untitled" },
+  ];
+  const semProvider = new JapaneseSemanticProvider(context); // ← これを下のイベントで参照(context);
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      selector,
+      semProvider,
+      semanticLegend
+    ),
+    vscode.languages.registerDocumentRangeSemanticTokensProvider(
+      selector,
+      semProvider,
+      semanticLegend
+    )
+  );
+
+  // FoldingRangeProvider（.txt / novel）
+  const foldSelector = [
+    { language: "plaintext", scheme: "file" },
+    { language: "plaintext", scheme: "untitled" },
+    { language: "novel", scheme: "file" },
+    { language: "novel", scheme: "untitled" },
+    { language: "Novel", scheme: "file" }, // 保険
+    { language: "Novel", scheme: "untitled" }, // 保険
+  ];
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider(
+      foldSelector,
+      new HeadingFoldingProvider()
+    )
+  );
+
+  // 初回：確定計算→UI反映
+  if (vscode.window.activeTextEditor) {
+    computeCombinedCharsForFolder(vscode.window.activeTextEditor);
+    recomputeAndCacheMetrics(vscode.window.activeTextEditor);
+    updateStatusBar(vscode.window.activeTextEditor);
+    _prevTextByUri.set(
+      vscode.window.activeTextEditor.document.uri.toString(),
+      vscode.window.activeTextEditor.document.getText()
+    );
+  }
+  // === 可視範囲の変化（折りたたみ/展開/スクロール等）でトークン再発行 ===
+  const _visDebounceByDoc = new Map(); // key: docURI, value: timeoutId
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
+      const ed = e.textEditor;
+      if (!ed) return;
+      const c = cfg();
+      const lang = (ed.document.languageId || "").toLowerCase();
+      // 対象は .txt / novel（MarkdownはVSCode標準）
+      if (!(lang === "plaintext" || lang === "novel")) return;
+      if (!c.headingFoldEnabled || !c.headingSemanticEnabled) return;
+
+      const key = ed.document.uri.toString();
+      // ← 可視範囲をキャッシュ
+      visibleRangesByDoc.set(key, e.visibleRanges);
+      // スクロール連打対策で少し待つ（展開操作にも即応できる程度）
+      if (_visDebounceByDoc.has(key)) {
+        clearTimeout(_visDebounceByDoc.get(key));
+      }
+      _visDebounceByDoc.set(
+        key,
+        setTimeout(() => {
+          // Semantic Tokens の再発行を要求
+          if (semProvider && semProvider._onDidChangeSemanticTokens) {
+            semProvider._onDidChangeSemanticTokens.fire();
+          }
+          // ステータスバー等も同期しておく（軽い）
+          recomputeAndCacheMetrics(ed);
+          updateStatusBar(ed);
+        }, 200)
+      );
+    })
+  );
+}
+
+function deactivate() {
+  if (statusBarItem) statusBarItem.dispose();
+}
+
+module.exports = { activate, deactivate };
