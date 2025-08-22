@@ -57,19 +57,39 @@ function initStatusBar(context, helpers) {
   };
 }
 
+// Markdown風見出し検出（0〜3スペース許容）
+function getHeadingLevel(lineText) {
+  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
+  return m ? m[1].length : 0;
+}
+
 // ------- 低レベル util -------
 function countCharsNoLF(text) {
   return Array.from((text || "").replace(/\r\n/g, "\n")).filter(
     (ch) => ch !== "\n"
   ).length;
 }
-function countSelectedChars(doc, selections) {
+
+// 表示用：設定に応じて半角/全角スペースを除外
+function countCharsForDisplay(text, c) {
+  const arr = Array.from((text || "").replace(/\r\n/g, "\n"));
+  if (c?.countSpaces) {
+    // スペースも字として数える
+    return arr.filter((ch) => ch !== "\n").length;
+  } else {
+    // スペースは除外（半角: U+0020 / 全角: U+3000）
+    return arr.filter((ch) => ch !== "\n" && ch !== " " && ch !== "　").length;
+  }
+}
+
+function countSelectedCharsForDisplay(doc, selections, c) {
   let sum = 0;
   for (const sel of selections) {
-    if (!sel.isEmpty) sum += countCharsNoLF(doc.getText(sel));
+    if (!sel.isEmpty) sum += countCharsForDisplay(doc.getText(sel), c);
   }
   return sum;
 }
+
 function editorPrefixText(doc, selection) {
   if (!selection) return "";
   const start = new vscode.Position(0, 0);
@@ -110,17 +130,25 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
 
 // 原稿用紙風メトリクス
 function computeNoteMetrics(doc, c, selection) {
-  const text = doc.getText();
-  const totalChars = countCharsNoLF(text);
+  // 全文（CRLF→LF 正規化）
+  const fullText = doc.getText().replace(/\r\n/g, "\n");
 
+  // 1) 総文字数：見出し行を除外して数える
+  const allLines = fullText.split("\n");
+  const nonHeadingLines = allLines.filter((ln) => getHeadingLevel(ln) === 0);
+  const textNoHeadings = nonHeadingLines.join("\n");
+  const totalChars = countCharsForDisplay(textNoHeadings, c); // ← 字は見出し除外＋スペース設定に従う
+
+  // 2) ページ/行：従来どおり「全文」で計算（見出しを含む）
   const totalWrappedRows = wrappedRowsForText(
-    text,
+    fullText,
     c.colsPerRow,
     c.kinsokuEnabled,
     c.kinsokuBanned
   );
   const totalNotes = Math.max(1, Math.ceil(totalWrappedRows / c.rowsPerNote));
 
+  // 3) 現在ページ：選択位置までのテキストで従来どおり計算（全文ベース）
   const prefixText = editorPrefixText(doc, selection);
   const currRows = wrappedRowsForText(
     prefixText,
@@ -245,11 +273,12 @@ function updateStatusBar(editor) {
     const selections = editor.selections?.length
       ? editor.selections
       : [editor.selection];
-    const selCnt = countSelectedChars(editor.document, selections);
+    const selCnt = countSelectedCharsForDisplay(editor.document, selections, c);
     if (selCnt > 0) selPart = `${selCnt}字`;
     else {
       const total =
-        _metrics?.totalChars ?? countCharsNoLF(editor.document.getText());
+        _metrics?.totalChars ??
+        countCharsForDisplay(editor.document.getText(), c);
       selPart = `${total}字`;
     }
   }

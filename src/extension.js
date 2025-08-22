@@ -124,6 +124,7 @@ function cfg() {
     recomputeIdleMs: c.get("recomputeIdleMs", 1000), // 重い再計算
     enabledNote: c.get("enabledNote", true),
     showSelectedChars: c.get("status.showSelectedChars", true),
+    countSpaces: c.get("status.countSpaces", false),
     showDeltaFromHEAD: c.get("aggregate.showDeltaFromHEAD", true),
     rowsPerNote: c.get("Note.rowsPerNote", 20),
     colsPerRow: c.get("Note.colsPerRow", 20),
