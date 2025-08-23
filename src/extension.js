@@ -11,6 +11,7 @@ const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
 const { initStatusBar } = require("./status_bar");
+const { initHeadingSidebar } = require("./sidebar_headings"); // ★ 追加
 
 // ===== 1-1) セマンティック定義・固定定数 =====
 const tokenTypesArr = [
@@ -683,6 +684,8 @@ function activate(context) {
   // ステータスバー管理の初期化（cfg/isTargetDoc を渡す）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
 
+  // 見出しサイドバーの初期化
+  initHeadingSidebar(context, { cfg, isTargetDoc });
   // commands
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.refreshPos", () =>
@@ -719,6 +722,8 @@ function activate(context) {
       if (ed && ed.document === doc) {
         // 保存時のみGit差分を再計算
         sb.recomputeOnSaveIfNeeded(doc);
+        // 見出しビューも更新
+        vscode.commands.executeCommand("posNote.headings.refresh");
       }
     }),
 

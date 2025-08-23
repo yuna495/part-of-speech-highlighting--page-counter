@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (ハイライト+カウンタ+α)",
   "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -20,7 +20,7 @@
     "genko-yoshi"
   ],
   "main": "./src/extension.js",
-  "icon": "icon.png",
+  "icon": "./image/icon.png",
   "extensionKind": [
     "ui"
   ],
@@ -31,6 +31,23 @@
     "onLanguage:Novel"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "posNote",
+          "title": "POS/Note",
+          "icon": "./image/posnote_activitybar_icon.png"
+        }
+      ]
+    },
+    "views": {
+      "posNote": [
+        {
+          "id": "posNoteHeadings",
+          "name": "見出し（POS/Note）"
+        }
+      ]
+    },
     "semanticTokenScopes": [
       {
         "scopes": {
@@ -150,6 +167,10 @@
       {
         "command": "posNote.toggleFoldAllHeadings",
         "title": "POS/Note: 見出しを 全折りたたみ／全展開 トグル"
+      },
+      {
+        "command": "posNote.headings.refresh",
+        "title": "POS/Note: 見出しを更新"
       }
     ],
     "configuration": [
@@ -253,7 +274,10 @@
       "editor.semanticHighlighting.enabled": true,
       "editor.semanticTokenColorCustomizations": {
         "rules": {
-          "verb": "#11ff84",
+          "verb": {
+            "italic": false,
+            "foreground": "#11ff84"
+          },
           "adjective": "#ffe955",
           "adverb": "#f94446",
           "particle": "#f7f7f7",
