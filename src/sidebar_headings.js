@@ -23,11 +23,11 @@ function iconForLevel(level) {
     case 3:
       return new vscode.ThemeIcon("circle-small-filled"); // H3
     case 4:
-      return new vscode.ThemeIcon("chrome-minimize"); // H4
+      return new vscode.ThemeIcon("grabber"); // H4
     case 5:
-      return new vscode.ThemeIcon("ellipsis"); // H5
+      return new vscode.ThemeIcon("dash"); // H5
     default:
-      return new vscode.ThemeIcon("dash"); // H6 など
+      return new vscode.ThemeIcon("ellipsis"); // H6 など
   }
 }
 

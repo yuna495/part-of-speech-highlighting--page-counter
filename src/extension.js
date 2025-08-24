@@ -11,7 +11,8 @@ const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
 const { initStatusBar } = require("./status_bar");
-const { initHeadingSidebar } = require("./sidebar_headings"); // ★ 追加
+const { initHeadingSidebar } = require("./sidebar_headings");
+const { initMinimapHighlight } = require("./minimap_highlight");
 
 // ===== 1-1) セマンティック定義・固定定数 =====
 const tokenTypesArr = [
@@ -686,6 +687,9 @@ function activate(context) {
 
   // 見出しサイドバーの初期化
   initHeadingSidebar(context, { cfg, isTargetDoc });
+  // ミニマップ見出しハイライト（保存時更新）
+  initMinimapHighlight(context, { cfg, isTargetDoc });
+
   // commands
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.refreshPos", () =>
