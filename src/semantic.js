@@ -204,7 +204,7 @@ class JapaneseSemanticProvider {
       // 見出し行は heading 一色
       if (c.headingSemanticEnabled) {
         const l = (document.languageId || "").toLowerCase();
-        if (l === "plaintext" || l === "novel") {
+        if (l === "plaintext" || l === "novel" || l === "markdown") {
           const lvl = getHeadingLevel(text);
           if (lvl > 0) {
             builder.push(

@@ -2,6 +2,13 @@
 
 All notable changes to this extension are documented here.
 
+## [1.3.6] - 2025-08-27
+
+- 修正
+  - **見出しハイライト**
+    - "posNote.semantic.enabledMd"ON時に「.md」ファイルに適用されていなかった問題を修正
+  - **README**
+    - 品詞ハイライト設定例追記
 
 ## [1.3.5] - 2025-08-27
 
