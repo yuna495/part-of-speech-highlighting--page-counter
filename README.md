@@ -88,11 +88,26 @@
 {
   "editor.semanticTokenColorCustomizations": {
     "rules": {
-      "noun": "#4dd0e1",
-      "verb": "#11ff84",
-      "adjective": "#ffd900",
-      "bracket": "#fd9bcc",
-      "fwspace": { "underline": true, "foreground": "#ff0000" },
+      // 品詞ごとの例（任意で色コードを変更可能）
+      "noun": "#4dd0e1",        // 名詞
+      "verb": "#11ff84",        // 動詞
+      "adjective": "#ffd900",   // 形容詞
+      "adverb": "#f94446",      // 副詞
+      "particle": "#f6f7f8",    // 助詞
+      "auxiliary": "#a1887f",   // 助動詞
+      "prenoun": "#e0a000",     // 連体詞
+      "conjunction": "#ff14e0", // 接続詞
+      "interjection": "#ff7043",// 感動詞
+      "symbol": "#fd9bcc",      // 記号
+      "other": "#9e9e9e",       // その他
+
+      // 特殊トークン
+      "bracket": "#fd9bcc",     // 括弧と括弧内文書
+      "fwspace": {              // 全角スペース
+        "underline": true,
+        "foreground": "#ff0000"
+      },
+      // 見出しカラー
       "heading": "#ff14e0"
     }
   },
