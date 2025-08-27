@@ -1,11 +1,6 @@
 // minimap_highlight.js
 const vscode = require("vscode");
-
-/** Markdown風見出し検出（0〜3スペース許容）：既存と同一 */
-function getHeadingLevel(lineText) {
-  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
-  return m ? m[1].length : 0;
-}
+const { getHeadingLevel } = require("./utils");
 
 /** 見出しレベルごとに別デコレーション（ミニマップ前景色） */
 function makeDecorationTypes() {

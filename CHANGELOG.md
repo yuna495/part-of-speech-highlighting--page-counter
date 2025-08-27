@@ -2,6 +2,22 @@
 
 All notable changes to this extension are documented here.
 
+
+## [1.3.5] - 2025-08-27
+
+- 追加
+  - **括弧内ハイライトのトグル設定**
+    - 設定キー `posNote.semantic.bracketsOverride.enabled` を追加
+    - ON（デフォルト）: 括弧と括弧内を専用色で塗り、括弧内は品詞ハイライトを抑制
+    - OFF: 括弧内も通常の品詞ハイライトを適用
+
+- 改善
+  - **内部コード整理**
+    - セマンティックトークン関連を `semantic.js` に分割
+    - ステータスバー関連を `status_bar.js` に移動
+    - 共通関数 `getHeadingLevel` を `utils.js` に切り出し
+
+
 ## [1.3.4] - 2025-08-24
 
 - 追加

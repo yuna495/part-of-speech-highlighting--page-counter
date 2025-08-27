@@ -1,8 +1,8 @@
 {
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (ハイライト+カウンタ+α)",
-  "description": "kuromoji による日本語の品詞カラー表示と、禁則処理に対応した原稿用紙スタイルのページカウンタ（選択文字数にも対応）",
-  "version": "1.3.4",
+  "description": "kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
+  "version": "1.3.5",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -196,6 +196,11 @@
             "type": "boolean",
             "default": true,
             "description": ".txt/novel で # 見出し行にハイライト。"
+          },
+          "posNote.semantic.bracketsOverride.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "ON: 括弧とその内側を専用色ハイライト。"
           }
         }
       },
@@ -210,7 +215,7 @@
           "posNote.headings.foldMinLevel": {
             "type": "number",
             "default": 2,
-            "minimum": 1,
+            "minimum": 2,
             "maximum": 6,
             "description": "ショートカットによる『全見出し折りたたみ』で対象とする最小見出しレベル。2なら##以上、3なら###以上を折りたたむ。"
           }

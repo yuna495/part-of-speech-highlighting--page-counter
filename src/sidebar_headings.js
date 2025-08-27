@@ -1,11 +1,6 @@
 // sidebar_headings.js
 const vscode = require("vscode");
-
-/** Markdown風見出し検出（0〜3スペース許容） */
-function getHeadingLevel(lineText) {
-  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
-  return m ? m[1].length : 0;
-}
+const { getHeadingLevel } = require("./utils");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */
 function stripHeadingMarkup(lineText) {

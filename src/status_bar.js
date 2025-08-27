@@ -6,6 +6,8 @@ const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
 
+const { getHeadingLevel } = require("./utils");
+
 // ------- 内部 state -------
 let _statusBarItem = null;
 let _debouncer = null;
@@ -14,6 +16,55 @@ let _enabledNote = true; // ページ情報表示のON/OFF（トグル用）
 let _metrics = null; // computeNoteMetrics の結果（キャッシュ）
 let _deltaFromHEAD = { key: null, value: null }; // ファイル単体の±
 let _helpers = null; // { cfg, isTargetDoc }
+
+// デフォルトの禁則文字（行頭禁止）
+const DEFAULT_BANNED_START = [
+  "」",
+  "）",
+  "『",
+  "』",
+  "》",
+  "】",
+  "。",
+  "、",
+  "’",
+  "”",
+  "！",
+  "？",
+  "…",
+  "—",
+  "―",
+  "ぁ",
+  "ぃ",
+  "ぅ",
+  "ぇ",
+  "ぉ",
+  "ゃ",
+  "ゅ",
+  "ょ",
+  "っ",
+  "ー",
+  "々",
+  "ゞ",
+  "ゝ",
+  "ァ",
+  "ィ",
+  "ゥ",
+  "ェ",
+  "ォ",
+  "ャ",
+  "ュ",
+  "ョ",
+  "ッ",
+];
+
+function getBannedStart() {
+  const config = vscode.workspace.getConfiguration("posNote");
+  const userValue = config.get("kinsoku.bannedStart");
+  return Array.isArray(userValue) && userValue.length > 0
+    ? userValue
+    : DEFAULT_BANNED_START;
+}
 
 // ------- 公開APIの初期化 -------
 function initStatusBar(context, helpers) {
@@ -55,12 +106,6 @@ function initStatusBar(context, helpers) {
       if (_statusBarItem) _statusBarItem.dispose();
     },
   };
-}
-
-// Markdown風見出し検出（0〜3スペース許容）
-function getHeadingLevel(lineText) {
-  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
-  return m ? m[1].length : 0;
 }
 
 // ------- 低レベル util -------
@@ -415,4 +460,4 @@ async function cmdSetNoteSize() {
   );
 }
 
-module.exports = { initStatusBar };
+module.exports = { initStatusBar, getBannedStart };
