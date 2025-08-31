@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Webview CSP（必要最小限） -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'none';
+        style-src {{cspSource}};
+        script-src 'nonce-{{nonce}}';
+        img-src {{cspSource}} https: data:;
+        font-src {{cspSource}};
+      "
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="{{styleUri}}" rel="stylesheet" />
+    <title>縦書きプレビュー</title>
+  </head>
+  <body>
+    <!-- コンテンツ領域 -->
+    <div id="content" aria-label="vertical-preview"></div>
+
+    <!-- 受け取り・描画ロジック -->
+    <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+  </body>
+</html>

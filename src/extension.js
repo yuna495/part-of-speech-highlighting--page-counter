@@ -8,11 +8,13 @@
 
 // ===== 1) Imports =====
 const vscode = require("vscode");
+const fs = require("fs");
 const { initStatusBar, getBannedStart } = require("./status_bar");
 const { initHeadingSidebar } = require("./sidebar_headings");
 const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { getHeadingLevel } = require("./utils");
+const { PreviewPanel } = require("./preview_panel");
 
 // ===== 2) Fixed Constants =====
 // 全角の開き括弧 → 対応する閉じ括弧
@@ -398,7 +400,13 @@ function activate(context) {
     ),
     vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
       cmdToggleFoldAllHeadings()
-    )
+    ),
+    vscode.commands.registerCommand("posNote.Preview.open", () => {
+      PreviewPanel.show(context.extensionUri);
+    }),
+    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
+      PreviewPanel.update();
+    })
   );
 
   // --- 9-4) Providers
@@ -464,6 +472,8 @@ function activate(context) {
       if (ed && ed.document === doc) {
         sb.recomputeOnSaveIfNeeded(doc);
         vscode.commands.executeCommand("posNote.headings.refresh");
+        // プレビューの再描画（保存時のみ）
+        PreviewPanel.update();
       }
     }),
 
@@ -472,17 +482,45 @@ function activate(context) {
       if (!ed) return;
       sb.onActiveEditorChanged(ed);
       _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
+
+      // エディタ切替時にもハイライト同期
+      const panel = require("./preview_panel").PreviewPanel;
+      const cp = panel.currentPanel;
+      if (
+        cp &&
+        cp._docUri &&
+        ed.document.uri.toString() === cp._docUri.toString()
+      ) {
+        panel.highlight(ed.selection.active.line);
+      }
     }),
 
     // 選択変更：選択文字数の即時反映
     vscode.window.onDidChangeTextEditorSelection((e) => {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
       sb.onSelectionChanged(e.textEditor);
+
+      // プレビューにアクティブ行だけ通知（同一ドキュメント時）
+      const panel = require("./preview_panel").PreviewPanel;
+      const cp = panel.currentPanel;
+      if (
+        cp &&
+        cp._docUri &&
+        e.textEditor.document.uri.toString() === cp._docUri.toString()
+      ) {
+        panel.highlight(e.textEditor.selection.active.line);
+      }
     }),
 
     // 設定変更：確定計算＋軽い更新＋セマンティック再発行（MarkdownのON/OFF即時反映）
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration("posNote")) return;
+      if (
+        !(
+          e.affectsConfiguration("posNote") ||
+          e.affectsConfiguration("posNote.Preview")
+        )
+      )
+        return;
       const ed = vscode.window.activeTextEditor;
       if (ed) sb.onConfigChanged(ed);
       if (semProvider && semProvider.fireDidChange) {
@@ -510,6 +548,10 @@ function activate(context) {
   );
 }
 
-function deactivate() {}
+function deactivate() {
+  if (PreviewPanel.currentPanel) {
+    PreviewPanel.currentPanel.dispose();
+  }
+}
 
 module.exports = { activate, deactivate };

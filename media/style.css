@@ -1,0 +1,40 @@
+/* media/style.css */
+:root {
+  --vw-padding: 5px;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+#content {
+  writing-mode: vertical-rl; /* 縦書き */
+  width: 100%;
+  margin: var(--vw-padding);
+  overflow: auto;
+
+  /* 上下に余白（端がカツカツにならないように） */
+  padding-top: 5em;
+  padding-bottom: 5em;
+}
+
+p {
+  /* フォントは JS からインラインで上書き（サイズ／ファミリ） */
+  margin: 0;
+  padding: 0;
+  cursor: default;
+  line-height: 1.8em;
+  letter-spacing: 0.12em;
+}
+
+p.blank {
+  color: rgba(0, 0, 0, 0); /* 透明（行の高さ確保用） */
+}
+
+p.active {
+  background: var(--active-bg, rgba(255, 215, 0, 0.1));
+  outline: 1px solid var(--active-bg, rgba(255, 215, 0, 0.1));
+}
