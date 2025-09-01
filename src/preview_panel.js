@@ -9,10 +9,11 @@ class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
 
-  constructor(panel, extensionUri, editor) {
+  constructor(panel, extensionUri, editor, context) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._editor = editor;
+    this._context = context;
     this._docUri = editor?.document?.uri;
     this._disposables = [];
     this._initialized = false;
@@ -80,7 +81,7 @@ class PreviewPanel {
     this._update(true);
   }
 
-  static show(extensionUri) {
+  static show(extensionUri, context) {
     const column = vscode.window.activeTextEditor
       ? vscode.ViewColumn.Two
       : vscode.ViewColumn.Two;
@@ -103,11 +104,21 @@ class PreviewPanel {
       }
     );
 
-    PreviewPanel.currentPanel = new PreviewPanel(panel, extensionUri, editor);
+    PreviewPanel.currentPanel = new PreviewPanel(
+      panel,
+      extensionUri,
+      editor,
+      context
+    );
   }
 
-  static revive(panel, extensionUri, editor) {
-    PreviewPanel.currentPanel = new PreviewPanel(panel, extensionUri, editor);
+  static revive(panel, extensionUri, editor, context) {
+    PreviewPanel.currentPanel = new PreviewPanel(
+      panel,
+      extensionUri,
+      editor,
+      context
+    );
   }
 
   dispose() {
@@ -143,31 +154,22 @@ class PreviewPanel {
   }
 
   // preview_panel.js 内
-  _update(isFirst = false) {
+  async _update(isFirst = false) {
     this._panel.title = "posNote Preview";
 
-    // 直近のアクティブエディタ（Webview フォーカス中は undefined の可能性あり）
+    // アクティブエディタが無い（=Webviewにフォーカス）時でも doc を維持
     const active = vscode.window.activeTextEditor;
-
-    // エディタが生きていれば doc/uri を更新、なければ前回の _docUri を維持
     if (active && active.document) {
       this._editor = active;
       this._docUri = active.document.uri;
     }
-
-    // ここで doc を決定：アクティブが無ければ、URI一致の既存 TextDocument を探す
-    let doc = undefined;
-    if (this._editor && this._editor.document) {
-      doc = this._editor.document;
-    } else if (this._docUri) {
+    let doc = this._editor?.document;
+    if (!doc && this._docUri) {
       doc = vscode.workspace.textDocuments.find(
         (d) => d.uri.toString() === this._docUri.toString()
       );
     }
-
-    // どちらも取れない場合は「何もしない」→ 空更新で消さない
     if (!doc) {
-      // 初期化だけ必要なら HTML を張る（空送信はしない）
       if (!this._initialized || isFirst) {
         this._panel.webview.html = this._getHtmlForWebview();
         this._initialized = true;
@@ -175,41 +177,70 @@ class PreviewPanel {
       return;
     }
 
-    // テキスト・位置情報を doc ベースで取得（エディタが無ければ 0 にフォールバック）
     const text = doc.getText();
     const offset = this._editor
       ? doc.offsetAt(this._editor.selection.anchor)
       : 0;
     const activeLine = this._editor ? this._editor.selection.active.line : 0;
 
-    // === 設定（posNote.Preview） ===
-    const config = vscode.workspace.getConfiguration("posNote.Preview");
-    const fontSizeNum = clampNumber(config.get("fontSize", 20), 8, 72);
+    // === 設定 ===
+    const cfg = vscode.workspace.getConfiguration("posNote.Preview");
+    const fontSizeNum = clampNumber(cfg.get("fontSize", 20), 8, 72);
     const fontsize = `${fontSizeNum}px`;
-    const showCursor = !!config.get("showCursor", false);
+    const showCursor = !!cfg.get("showCursor", false);
     const fontfamily = "";
+    const bgColor = cfg.get("backgroundColor", "#111111");
+    const textColor = cfg.get("textColor", "#4dd0e1");
+    const activeBg = cfg.get("activeLineBackground", "rgba(150, 100, 0, 0.1)");
 
-    const bgColor = config.get("backgroundColor", "#111111");
-    const textColor = config.get("textColor", "#fafafafa");
-    const activeBg = config.get(
-      "activeLineBackground",
-      "rgba(150, 100, 0, 0.1)"
-    );
-
-    // カーソル表示有効時のみ利用
-    const symbol = "|";
-    const position = showCursor ? "inner" : "none";
+    // POS ハイライト ON/OFF
+    const posEnabled = !!cfg.get("posHighlight.enabled", false);
+    const maxLines = cfg.get("posHighlight.maxLines", 1000);
 
     if (!this._initialized || isFirst) {
       this._panel.webview.html = this._getHtmlForWebview();
       this._initialized = true;
     }
 
-    // webview へ差分データを送る（空文字は送らない）
+    // === 行ごと完成HTMLを作る（ONのときのみ）★ここだけ残す／置き換える ===
+    let isHtml = false;
+    let textHtml = "";
+    if (posEnabled) {
+      try {
+        const { toPosHtml } = require("./semantic");
+        const { getHeadingLevel } = require("./utils"); // 見出し検出
+        const headingDetector = (line) => {
+          try {
+            return getHeadingLevel ? getHeadingLevel(line) : 0;
+          } catch {
+            return 0;
+          }
+        };
+        textHtml = await toPosHtml(text, this._context, {
+          maxLines, // 選択行を中心に、この行数だけ前後解析
+          activeLine, // 選択行
+          headingDetector,
+          classPrefix: "pos-",
+        });
+        isHtml = true;
+      } catch (e) {
+        console.error("toPosHtml failed; fallback to plain:", e);
+        isHtml = false;
+        textHtml = "";
+      }
+    }
+
+    // === 送信直前で未定義だった値を定義 ===
+    const symbol = "|";
+    const position = showCursor ? "inner" : "none";
+
+    // webview へ差分データを送る（isHtml で描画ルートを分ける）
     this._panel.webview.postMessage({
       type: "update",
       payload: {
-        text,
+        isHtml,
+        textHtml, // isHtml=true の時のみ使用
+        text, // isHtml=false の時に paragraphsWithLine() へ
         offset,
         cursor: symbol,
         position,

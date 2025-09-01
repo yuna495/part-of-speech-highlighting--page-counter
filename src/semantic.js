@@ -294,7 +294,236 @@ class JapaneseSemanticProvider {
   }
 }
 
+// ---------- ここから semantic.js 末尾 追加/置換 ----------
+
+// 重複しないよう、この _escapeHtml は “一度だけ” 残す
+function _escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+/**
+ * VS Code 側と同じ分類（tokenTypesArr）で <span class="pos-XXX"> を吐く（行ごと）
+/**
+* @param {string} text
+* @param {import('vscode').ExtensionContext} context
+* @param {{ maxLines?: number, headingDetector?: (line:string)=>number, classPrefix?: string, activeLine?: number }} [opts]
+*/
+async function toPosHtml(text, context, opts = {}) {
+  const {
+    maxLines = 1000,
+    headingDetector,
+    classPrefix = "pos-",
+    activeLine = 0,
+  } = opts || {};
+
+  // 公式ルートのトークナイザを必ず使用
+  await ensureTokenizer(context);
+
+  // ===== 設定 =====
+  const c = vscode.workspace.getConfiguration("posNote");
+  const bracketOverrideOn = !!c.get("semantic.bracketsOverride.enabled", true);
+  const headingSemanticOn = !!c.get("headings.semantic.enabled", true);
+
+  // ===== 事前計算：全テキストを走査して括弧ペアの [startOff, endOff) を列挙 =====
+  // （エディタ側の computeFullwidthQuoteRanges と同等のスタック走査をテキスト版で実装）
+  const pairs = [];
+  {
+    const FW_BRACKET_MAP = new Map([
+      ["「", "」"],
+      ["『", "』"],
+      ["（", "）"],
+      ["［", "］"],
+      ["｛", "｝"],
+      ["〈", "〉"],
+      ["《", "》"],
+      ["【", "】"],
+      ["〔", "〕"],
+      ["“", "”"],
+      ["‘", "’"],
+    ]);
+    const FW_CLOSE_SET = new Set(Array.from(FW_BRACKET_MAP.values()));
+    const stack = []; // { expectedClose, openOffset }
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const close = FW_BRACKET_MAP.get(ch);
+      if (close) {
+        stack.push({ expectedClose: close, openOffset: i });
+        continue;
+      }
+      if (FW_CLOSE_SET.has(ch)) {
+        const top = stack[stack.length - 1];
+        if (top && ch === top.expectedClose) {
+          stack.pop();
+          pairs.push([top.openOffset, i + 1]); // [open, close+1)
+        }
+      }
+    }
+  }
+
+  // ===== 行配列 & 各行の開始オフセット =====
+  const lines = String(text).split(/\r?\n/);
+  const lineOffsets = new Array(lines.length);
+  {
+    let off = 0;
+    for (let i = 0; i < lines.length; i++) {
+      lineOffsets[i] = off;
+      off += lines[i].length + 1; // "\n" を1文字として加算（split時に消えているため）
+    }
+  }
+
+  // 行の一部文字列 s を、ダッシュだけ専用クラスで塗り分けしつつ、
+  // それ以外は従来どおり品詞スパン化して連結する。
+  const dashRe = /[—―]/g; // U+2014 EM DASH, U+2015 HORIZONTAL BAR
+  const renderWithDash = (s) => {
+    if (!s) return "";
+    const out = [];
+    let last = 0;
+    dashRe.lastIndex = 0;
+    let m;
+    while ((m = dashRe.exec(s)) !== null) {
+      const before = s.slice(last, m.index);
+      if (before) out.push(tokenizedSpanHtml(before));
+      const ch = _escapeHtml(m[0]);
+      const dashClass = bracketOverrideOn ? "bracket" : "symbol";
+      out.push(`<span class="${classPrefix}${dashClass}">${ch}</span>`);
+      last = m.index + m[0].length;
+    }
+    const tail = s.slice(last);
+    if (tail) out.push(tokenizedSpanHtml(tail));
+    return out.join("");
+  };
+
+  // === 行ごとに HTML を構築（全行を出力。品詞解析はウィンドウ内だけ）===
+  const out = [];
+  const total = lines.length;
+  const winStart = Math.max(0, activeLine - maxLines);
+  const winEnd = Math.min(total - 1, activeLine + maxLines);
+  // 互換：window 無効時は「先頭から maxLines-1 まで」を解析対象とする
+
+  // 補助：指定文字列を品詞トークン化して <span class="pos-xxx">…</span> 羅列を返す
+  const tokenizedSpanHtml = (s) => {
+    if (!s) return "";
+    const tokens = tokenizer.tokenize(s);
+    return tokens
+      .map((t) => {
+        const { typeIdx } = mapKuromojiToSemantic(t);
+        const typeName = tokenTypesArr[typeIdx] || "other";
+        const surf = _escapeHtml(t.surface_form || "");
+        return `<span class="${classPrefix}${typeName}" data-pos="${_escapeHtml(
+          t.pos || ""
+        )}">${surf}</span>`;
+      })
+      .join("");
+  };
+
+  for (let i = 0; i < total; i++) {
+    const line = lines[i];
+
+    // 空行もクリックターゲットにしたいので占位
+    if (/^\s*$/.test(line)) {
+      out.push(`<p class="blank" data-line="${i}">_</p>`);
+      continue;
+    }
+
+    const lineStart = lineOffsets[i];
+    const lineEnd = lineStart + line.length;
+
+    // この行にかかる括弧区間を抽出（交差する分だけ切り出し）
+    /** @type {[number, number][]} */ // 行内 [sCh,eCh)
+    let segs = /** @type {[number, number][]} */ ([]);
+    if (bracketOverrideOn && pairs.length) {
+      for (const [s, e] of pairs) {
+        const sCh = Math.max(0, s - lineStart);
+        const eCh = Math.min(line.length, e - lineStart);
+        if (eCh > 0 && sCh < line.length && eCh > sCh) {
+          segs.push([sCh, eCh]);
+        }
+      }
+      // 重なりマージ（安全のため）
+      if (segs.length > 1) {
+        segs.sort((a, b) => a[0] - b[0]);
+        /** @type {[number, number][]} */
+        const merged = [];
+        let [cs, ce] = segs[0];
+        for (let k = 1; k < segs.length; k++) {
+          const [ns, ne] = segs[k];
+          if (ns <= ce) ce = Math.max(ce, ne);
+          else {
+            merged.push([cs, ce]);
+            cs = ns;
+            ce = ne;
+          }
+        }
+        merged.push([cs, ce]);
+        segs = merged;
+      }
+    }
+
+    // ★ 見出しが有効かつ見出し行なら、POS を行わず heading 一色で出す
+    const isHeadingLevel =
+      typeof headingDetector === "function" ? headingDetector(line) || 0 : 0;
+    if (headingSemanticOn && isHeadingLevel > 0) {
+      const safe = _escapeHtml(line);
+      out.push(
+        `<p data-line="${i}" class="heading"><span class="${classPrefix}heading">${safe}</span></p>`
+      );
+      continue;
+    }
+
+    // ★ ウィンドウ外：プレーン出力（括弧上書きも無視してプレーン）
+    const inWindow = i >= winStart && i <= winEnd;
+    if (!inWindow) {
+      const safe = _escapeHtml(line);
+      const isHeading =
+        typeof headingDetector === "function" ? headingDetector(line) || 0 : 0;
+      const pClass = isHeading ? ` class="heading"` : "";
+      out.push(`<p data-line="${i}"${pClass}>${safe}</p>`);
+      continue;
+    }
+
+    // 以降：ウィンドウ内は従来ロジック
+    // 1) 括弧上書きが無ければ、ダッシュ分割＋品詞スパン化
+    if (!(bracketOverrideOn && segs.length)) {
+      const html = renderWithDash(line);
+      const isHeading =
+        typeof headingDetector === "function" ? headingDetector(line) || 0 : 0;
+      const pClass = isHeading ? ` class="heading"` : "";
+      out.push(`<p data-line="${i}"${pClass}>${html}</p>`);
+      continue;
+    }
+
+    // 2) 括弧区間がある場合：区間外は品詞スパン、区間内は一括で pos-bracket にする
+    let cur = 0;
+    const chunks = [];
+    for (const [sCh, eCh] of segs) {
+      if (sCh > cur) {
+        const plain = line.slice(cur, sCh);
+        chunks.push(renderWithDash(plain));
+      }
+      const brText = _escapeHtml(line.slice(sCh, eCh));
+      chunks.push(`<span class="${classPrefix}bracket">${brText}</span>`);
+      cur = eCh;
+    }
+    if (cur < line.length) {
+      chunks.push(renderWithDash(line.slice(cur)));
+    }
+
+    const isHeading =
+      typeof headingDetector === "function" ? headingDetector(line) || 0 : 0;
+    const pClass = isHeading ? ` class="heading"` : "";
+    out.push(`<p data-line="${i}"${pClass}>${chunks.join("")}</p>`);
+  }
+
+  return out.join("");
+}
+
+// ★ exports は “一回だけ” ここでまとめる
 module.exports = {
   JapaneseSemanticProvider,
   semanticLegend,
+  toPosHtml,
 };

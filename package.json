@@ -291,7 +291,7 @@
           },
           "posNote.Preview.textColor": {
             "type": "string",
-            "default": "#fafafafa",
+            "default": "#4dd0e1",
             "markdownDescription": "本文のフォントカラー"
           },
           "posNote.Preview.activeLineBackground": {
@@ -310,6 +310,27 @@
             "type": "boolean",
             "default": false,
             "markdownDescription": "プレビューにカーソル（縦線）を表示するか。false で非表示。"
+          },
+          "posNote.Preview.posHighlight.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "プレビューで品詞ハイライトを有効化（保存時反映）"
+          },
+          "posNote.Preview.posHighlight.mode": {
+            "type": "boolean",
+            "default": true,
+            "description": "ON: プレビュー画面での品詞ハイライトを適用する。"
+          },
+          "posNote.Preview.posHighlight.applyToMd": {
+            "type": "boolean",
+            "default": true,
+            "description": ".md でもプレビューPOSハイライトを適用する"
+          },
+          "posNote.Preview.posHighlight.maxLines": {
+            "type": "number",
+            "default": 1000,
+            "minimum": 200,
+            "description": "プレビューでPOS着色する最大行数（パフォーマンス上限）"
           }
         }
       },

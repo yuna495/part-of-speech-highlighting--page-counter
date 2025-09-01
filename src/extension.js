@@ -402,7 +402,7 @@ function activate(context) {
       cmdToggleFoldAllHeadings()
     ),
     vscode.commands.registerCommand("posNote.Preview.open", () => {
-      PreviewPanel.show(context.extensionUri);
+      PreviewPanel.show(context.extensionUri, context);
     }),
     vscode.commands.registerCommand("posNote.Preview.refresh", () => {
       PreviewPanel.update();

@@ -57,15 +57,12 @@
    *   fontsize:string, fontfamily:string, activeLine:number, showCursor:boolean
    * }} data
    */
+  // === main.js の render(data) をこの全文に置き換え ===
   function render(data) {
-    content.style.backgroundColor = data.bgColor || "#111111";
-    content.style.color = data.textColor || "#fafafa";
-    content.style.setProperty(
-      "--active-bg",
-      data.activeBg || "rgba(255, 215, 0, 0.2)"
-    );
     const {
-      text,
+      isHtml = false,
+      text = "",
+      textHtml = "",
       offset,
       cursor,
       position,
@@ -73,19 +70,32 @@
       fontfamily,
       activeLine,
       showCursor,
-    } = data;
+      bgColor = "#111111",
+      textColor = "#fafafa",
+      activeBg = "rgba(255, 215, 0, 0.2)",
+    } = data || {};
 
-    // 段落化（data-line を付与）＋ カーソルは必要なときだけ注入
-    const html = paragraphsWithLine(text, offset, cursor, showCursor);
-    content.innerHTML = html;
+    // 背景・色・CSS変数
+    content.style.backgroundColor = bgColor;
+    content.style.color = textColor;
+    content.style.setProperty("--active-bg", activeBg);
 
-    // フォント反映
+    // 本文：isHtml のときは拡張側で完成させた <p data-line> をそのまま適用
+    if (isHtml) {
+      content.innerHTML = textHtml;
+    } else {
+      // 旧来：プレーンテキストから <p data-line> を生成
+      const html = paragraphsWithLine(text, offset, cursor, showCursor);
+      content.innerHTML = html;
+    }
+
+    // p にフォント反映
     content.querySelectorAll("p").forEach((p) => {
       p.style.fontSize = fontsize || "14px";
       p.style.fontFamily = fontfamily ? `"${fontfamily}"` : "";
     });
 
-    // クリックでエディタへジャンプ
+    // クリックでエディタへジャンプ（data-line 依存）
     content.querySelectorAll("p").forEach((p) => {
       p.addEventListener("click", () => {
         const ln = Number(p.dataset.line || "0");
@@ -93,16 +103,14 @@
       });
     });
 
-    // カーソル取得（非表示設定なら null のまま）
+    // カーソル要素（必要なら）を再取得
     cursorEl = showCursor ? document.getElementById("cursor") : null;
-
-    // カーソル点滅（非表示時はスキップ）
     resetBlink(showCursor);
 
-    // エディタのカーソル行をハイライト＆中央表示
+    // ハイライト & 中央寄せ & 動的スタイル
     highlightActiveLine(activeLine);
     adjustScrollToActive(activeLine);
-    upsertDynamicStyle(data.activeBg || "rgba(255, 215, 0, 0.2)");
+    upsertDynamicStyle(activeBg);
   }
 
   /** data-line を付与した <p> 羅列を作る。showCursor=false のときは cursor 挿入しない */

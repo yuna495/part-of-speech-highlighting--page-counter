@@ -38,3 +38,58 @@ p.active {
   background: var(--active-bg, rgba(255, 215, 0, 0.1));
   outline: 1px solid var(--active-bg, rgba(255, 215, 0, 0.1));
 }
+
+/* === プレビュー用 品詞カラー（文字色のみ） === */
+/* package.json の editor.semanticTokenColorCustomizations.rules に合わせる */
+
+.pos-verb {
+  color: #11ff84;
+} /* rules.verb.foreground */ /* :contentReference[oaicite:2]{index=2} */
+.pos-adjective {
+  color: #ffe955;
+} /* rules.adjective */ /* :contentReference[oaicite:3]{index=3} */
+.pos-adverb {
+  color: #f94446;
+} /* rules.adverb */ /* :contentReference[oaicite:4]{index=4} */
+.pos-particle {
+  color: #f7f7f7;
+} /* rules.particle */ /* :contentReference[oaicite:5]{index=5} */
+.pos-prenoun {
+  color: #e0a000;
+} /* rules.prenoun */ /* :contentReference[oaicite:6]{index=6} */
+.pos-conjunction {
+  color: #ff14e0;
+} /* rules.conjunction */ /* :contentReference[oaicite:7]{index=7} */
+.pos-symbol {
+  color: #fd9bcc;
+} /* rules.symbol */ /* :contentReference[oaicite:8]{index=8} */
+.pos-bracket {
+  color: #fd9bcc;
+} /* rules.bracket */ /* :contentReference[oaicite:9]{index=9} */
+
+/* 補助タイプ（package.jsonに個別色が無いものは本文色を踏襲 or お好みで） */
+.pos-noun {
+  color: inherit;
+}
+.pos-auxiliary {
+  color: inherit;
+}
+.pos-interjection {
+  color: inherit;
+}
+.pos-other {
+  color: inherit;
+}
+
+/* 見出し（プレビューの <p class="heading"> に適用）。本文同様“文字色”で統一するなら： */
+p.heading {
+  color: #ff14e0;
+} /* rules.heading */ /* :contentReference[oaicite:10]{index=10} */
+.pos-heading {
+  color: #ff14e0;
+}
+
+/* 行選択ハイライト（既存）。背景は既存の設定から注入される想定 */
+p.active {
+  background: var(--active-bg, rgba(150, 100, 0, 0.1));
+}
