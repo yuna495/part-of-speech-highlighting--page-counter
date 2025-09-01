@@ -63,6 +63,7 @@
       isHtml = false,
       text = "",
       textHtml = "",
+      tokenCss = "",
       offset,
       cursor,
       position,
@@ -79,6 +80,9 @@
     content.style.backgroundColor = bgColor;
     content.style.color = textColor;
     content.style.setProperty("--active-bg", activeBg);
+
+    // 受け取ったトークンCSSを <head> に適用（エディタ設定の色で上書き）
+    upsertTokenStyle(tokenCss);
 
     // 本文：isHtml のときは拡張側で完成させた <p data-line> をそのまま適用
     if (isHtml) {
@@ -172,6 +176,25 @@
     const delta = targetCenter - viewCenter;
     if (Math.abs(delta) > 1) {
       content.scrollLeft += delta;
+    }
+  }
+
+  function upsertTokenStyle(cssText) {
+    const ID = "np-token-style";
+    let tag = document.getElementById(ID);
+    if (!cssText) {
+      // 空のときは既存タグがあれば消す（既定の style.css に戻す）
+      if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
+      return;
+    }
+    if (!tag) {
+      tag = document.createElement("style");
+      tag.id = ID;
+      tag.type = "text/css";
+      tag.textContent = cssText;
+      document.head.appendChild(tag);
+    } else {
+      tag.textContent = cssText;
     }
   }
 

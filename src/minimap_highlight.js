@@ -71,7 +71,7 @@ function initMinimapHighlight(context, helpers) {
     vscode.window.onDidChangeActiveTextEditor((ed) => refreshIfTarget(ed))
   );
 
-  // ★ 保存時だけ更新（要件どおり）
+  //  保存時だけ更新
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;

@@ -2,7 +2,7 @@
 
 All notable changes to this extension are documented here.
 
-## [1.4.0] - 2025-09-01
+## [2.0.0] - 2025-09-01
 
 - 追加
   - **プレビュー機能**

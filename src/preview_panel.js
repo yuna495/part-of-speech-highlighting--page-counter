@@ -223,10 +223,14 @@ class PreviewPanel {
           classPrefix: "pos-",
         });
         isHtml = true;
+        // 追加：ユーザーの semanticTokenColorCustomizations.rules をプレビューCSSへ
+        const { buildPreviewCssFromEditorRules } = require("./semantic");
+        var tokenCss = buildPreviewCssFromEditorRules();
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
         textHtml = "";
+        var tokenCss = "";
       }
     }
 
@@ -251,6 +255,7 @@ class PreviewPanel {
         bgColor,
         textColor,
         activeBg,
+        tokenCss,
       },
     });
   }
