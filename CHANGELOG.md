@@ -2,6 +2,23 @@
 
 All notable changes to this extension are documented here.
 
+## [2.0.1] - 2025-09-09
+
+- 変更
+  - **括弧補完の実装を VS Code の Language Configuration に委譲**  
+    `setLanguageConfiguration` の `autoClosingPairs / surroundingPairs / brackets` を利用し、開き入力→閉じ自動補完＋キャレット内側移動をエディタ側で処理。入力時の再入制御・余計な `edit` 呼び出しを撤去し、体感遅延を軽減。
+  - **Backspace 同時削除を軽量化**  
+    `_caretCacheByUri` による「カーソル前後1文字キャッシュ」で O(1) 判定。全文スナップショット `_prevTextByUri` を廃止。`TextEditor.edit()` の戻り（Thenable）に対しては `.finally` ではなく `then(success, failure)` で再入フラグを確実に解除。
+
+- 内部整理
+  - **ファイル分割**：`bracket.js`（括弧補完・Backspace 同時削除）、`headline.js`（見出しトグル／FoldingRangeProvider／可視範囲追随）。`extension.js` は初期化・司令塔に専念。
+  - **イベント購読の一本化**：見出しの可視範囲変更ハンドラ（`onDidChangeTextEditorVisibleRanges`）を `headline.js` 側へ移管し、二重発火を解消。
+  - **重複の除去**：`PreviewPanel` の再 `require` と `const cp` 再宣言（TS2451）を解消。未使用の import／旧関数／不要設定キーを削除。
+  - **型まわりの安定化**：Thenable への `.finally` 使用を撤去（TS2339回避）、オプション引数の JSDoc を `?` 指定にして TS2739 を回避。
+
+- 互換性
+  - 破壊的変更なし（設定キーの追加・削除なし）。既存プロジェクトでそのまま更新可能。
+
 ## [2.0.0] - 2025-09-01
 
 - 追加

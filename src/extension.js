@@ -4,44 +4,22 @@
 //  - status_bar.js: 原稿用紙風ページ/文字数・禁則処理
 //  - sidebar_headings.js / minimap_highlight.js: 見出しビュー/ミニマップ
 //  - utils.js: 共通ユーティリティ（getHeadingLevel）
+//  - bracket.js: 括弧補完
+//  - headline.js: 見出し操作
 // ===========================================
 
 // ===== 1) Imports =====
 const vscode = require("vscode");
-const fs = require("fs");
 const { initStatusBar, getBannedStart } = require("./status_bar");
 const { initHeadingSidebar } = require("./sidebar_headings");
 const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
-const { getHeadingLevel } = require("./utils");
 const { PreviewPanel } = require("./preview_panel");
-
-// ===== 2) Fixed Constants =====
-// 全角の開き括弧 → 対応する閉じ括弧
-const FW_BRACKET_MAP = new Map([
-  ["「", "」"],
-  ["『", "』"],
-  ["（", "）"],
-  ["［", "］"],
-  ["｛", "｝"],
-  ["〈", "〉"],
-  ["《", "》"],
-  ["【", "】"],
-  ["〔", "〕"],
-  ["“", "”"],
-  ["‘", "’"],
-]);
-const FW_CLOSE_SET = new Set(Array.from(FW_BRACKET_MAP.values()));
+const { registerBracketSupport } = require("./bracket");
+const { registerHeadlineSupport } = require("./headline");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
-let _insertingFwClose = false; // 再入防止（自動クローズ）
-let _deletingPair = false; // 再入防止（Backspaceペア削除）
-const _prevTextByUri = new Map(); // Backspace復元用の直前テキスト
-
-// 見出しの全折/全展開トグル状態（doc単位管理）
-const foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
-const foldDocVersionAtFold = new Map(); // key: uriString, value: document.version
 
 // ===== 4) Config Helper =====
 function cfg() {
@@ -79,6 +57,9 @@ function cfg() {
 
     // 括弧内ハイライトのトグル
     bracketsOverrideEnabled: c.get("semantic.bracketsOverride.enabled", true),
+
+    // 括弧補完の方式
+    bracketsBackspacePairDelete: c.get("brackets.backspacePairDelete", true), // ← 追加：互換モードでのみ true 推奨
   };
 }
 
@@ -96,287 +77,6 @@ function isTargetDoc(doc, c) {
   return isPlain || isMd || isNovel;
 }
 
-// ===== 5) Bracket Auto-Close & Pair Delete =====
-// (1) 開き入力 → 自動で閉じ補完し、キャレットを内側へ移動
-function maybeAutoCloseFullwidthBracket(e) {
-  try {
-    if (_insertingFwClose) return;
-    const ed = vscode.window.activeTextEditor;
-    if (!ed) return;
-    const c = cfg();
-    if (!isTargetDoc(ed.document, c)) return;
-    if (e.document !== ed.document) return;
-    if (!e.contentChanges || e.contentChanges.length !== 1) return;
-
-    const chg = e.contentChanges[0];
-    const isSingleCharText =
-      typeof chg.text === "string" && chg.text.length === 1;
-
-    // Case 1: 1文字の挿入（開き→閉じを自動補完）
-    if (chg.rangeLength === 0 && isSingleCharText) {
-      const open = chg.text;
-      const close = FW_BRACKET_MAP.get(open);
-      if (!close) return;
-
-      const posAfterOpen = chg.range.start.translate(0, 1);
-      _insertingFwClose = true;
-
-      const p = ed.edit((builder) => builder.insert(posAfterOpen, close));
-      // 1) 成功時：キャレット内側へ
-      p.then((ok) => {
-        if (!ok) return;
-        const sel = new vscode.Selection(posAfterOpen, posAfterOpen);
-        ed.selections = [sel];
-      });
-      // 2) 成功/失敗に関わらずフラグ解除
-      p.then(
-        () => {
-          _insertingFwClose = false;
-        },
-        () => {
-          _insertingFwClose = false;
-        }
-      );
-      return;
-    }
-
-    // Case 2: 1文字置換（IME変換で開きに変わった→隣の閉じも追従）
-    if (chg.rangeLength === 1 && isSingleCharText) {
-      const newOpen = chg.text;
-      const newClose = FW_BRACKET_MAP.get(newOpen);
-      if (!newClose) return;
-
-      const posAfterOpen = chg.range.start.translate(0, 1);
-      const nextCharRange = new vscode.Range(
-        posAfterOpen,
-        posAfterOpen.translate(0, 1)
-      );
-      const nextChar = ed.document.getText(nextCharRange);
-
-      if (FW_CLOSE_SET.has(nextChar) && nextChar !== newClose) {
-        _insertingFwClose = true;
-        const p2 = ed.edit((builder) =>
-          builder.replace(nextCharRange, newClose)
-        );
-        p2.then(
-          () => {
-            _insertingFwClose = false;
-          },
-          () => {
-            _insertingFwClose = false;
-          }
-        );
-      }
-    }
-  } catch {
-    _insertingFwClose = false;
-  }
-}
-
-// (2) Backspaceで開きを消した直後、直後の閉じが対応ペアなら同時削除
-function maybeDeleteClosingOnBackspace(e) {
-  try {
-    if (_deletingPair) return;
-    const ed = vscode.window.activeTextEditor;
-    if (!ed || e.document !== ed.document) return;
-    if (!e.contentChanges || e.contentChanges.length !== 1) return;
-
-    const chg = e.contentChanges[0];
-    // Backspace（左削除）判定：rangeLength=1 かつ text=""（挿入なし）
-    if (!(chg.rangeLength === 1 && chg.text === "")) return;
-
-    // 削除前テキストから、削除された1文字を復元
-    const uriKey = e.document.uri.toString();
-    const prevText = _prevTextByUri.get(uriKey);
-    if (typeof prevText !== "string") return;
-
-    const off = chg.rangeOffset;
-    const removed = prevText.substring(off, off + chg.rangeLength);
-    if (!FW_BRACKET_MAP.has(removed)) return; // 開き以外は対象外
-
-    const expectedClose = FW_BRACKET_MAP.get(removed);
-    const pos = chg.range.start;
-    const nextRange = new vscode.Range(pos, pos.translate(0, 1));
-    const nextChar = e.document.getText(nextRange);
-    if (nextChar !== expectedClose) return;
-
-    _deletingPair = true;
-    const p = ed.edit((builder) => builder.delete(nextRange));
-    p.then(
-      () => {
-        _deletingPair = false;
-      },
-      () => {
-        _deletingPair = false;
-      }
-    );
-  } catch {
-    _deletingPair = false;
-  }
-}
-
-// ===== 6) Heading Utilities =====
-// 現在行が「見出し level>=minLevel の本文」に含まれていれば、その見出し行番号を返す
-function findEnclosingHeadingLineFor(doc, line, minLevel) {
-  // 上へ遡って直近の見出しを探す
-  let hLine = -1,
-    hLevel = 0;
-  for (let i = line; i >= 0; i--) {
-    const lvl = getHeadingLevel(doc.lineAt(i).text);
-    if (lvl > 0) {
-      hLine = i;
-      hLevel = lvl;
-      break;
-    }
-  }
-  if (hLine < 0 || hLevel < Math.max(1, Math.min(6, minLevel))) return -1;
-
-  // 次の「同レベル以下」の見出し直前までが本文
-  for (let j = hLine + 1; j < doc.lineCount; j++) {
-    const lvl2 = getHeadingLevel(doc.lineAt(j).text);
-    if (lvl2 > 0 && lvl2 <= hLevel) {
-      return line > hLine && line < j ? hLine : -1;
-    }
-  }
-  // 次の見出しが無い場合は末尾まで本文扱い
-  return line > hLine ? hLine : -1;
-}
-
-// 見出しレベルが minLevel 以上の見出し「行番号」リスト
-function collectHeadingLinesByMinLevel(document, minLevel) {
-  const lines = [];
-  for (let i = 0; i < document.lineCount; i++) {
-    const text = document.lineAt(i).text;
-    const lvl = getHeadingLevel(text);
-    if (lvl > 0 && lvl >= Math.max(1, Math.min(6, minLevel))) {
-      lines.push(i);
-    }
-  }
-  return lines;
-}
-
-// ===== 7) Commands =====
-// 見出しの “全折/全展開” トグル（.txt / novel）
-async function cmdToggleFoldAllHeadings() {
-  const ed = vscode.window.activeTextEditor;
-  if (!ed) return;
-
-  const c = cfg();
-  const lang = (ed.document.languageId || "").toLowerCase();
-  if (!(lang === "plaintext" || lang === "novel")) {
-    vscode.window.showInformationMessage(
-      "このトグルは .txt / novel でのみ有効です"
-    );
-    return;
-  }
-  if (!c.headingFoldEnabled) {
-    vscode.window.showInformationMessage(
-      "見出しの折りたたみ機能が無効です（posNote.headings.folding.enabled）"
-    );
-    return;
-  }
-
-  const key = ed.document.uri.toString();
-  const lastStateFolded = foldToggledByDoc.get(key) === true;
-  const lastVer = foldDocVersionAtFold.get(key);
-  const currVer = ed.document.version;
-
-  // 前回「全折りたたみ」後に編集がなければ「全展開」
-  const shouldUnfold = lastStateFolded && lastVer === currVer;
-
-  if (shouldUnfold) {
-    await vscode.commands.executeCommand("editor.unfoldAll");
-    foldToggledByDoc.set(key, false);
-    if (_sb) {
-      _sb.recomputeAndCacheMetrics(ed);
-      _sb.updateStatusBar(ed);
-    }
-    vscode.commands.executeCommand("posNote.refreshPos"); // 再解析
-    return;
-  }
-
-  // 設定したレベル以上の見出しだけ折りたたむ
-  const minLv = cfg().headingFoldMinLevel;
-  const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
-  if (lines.length === 0) {
-    vscode.window.showInformationMessage(
-      `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
-    );
-    return;
-  }
-
-  // いまのカーソルが対象見出しの本文内に居るなら、安全に見出し行末へ退避
-  const caret = ed.selection?.active ?? new vscode.Position(0, 0);
-  const enclosing = findEnclosingHeadingLineFor(ed.document, caret.line, minLv);
-  const safeRestoreSelections =
-    enclosing >= 0
-      ? (() => {
-          const endCh = ed.document.lineAt(enclosing).text.length;
-          const pos = new vscode.Position(enclosing, endCh);
-          return [new vscode.Selection(pos, pos)];
-        })()
-      : ed.selections;
-
-  try {
-    ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
-    await vscode.commands.executeCommand("editor.fold");
-    foldToggledByDoc.set(key, true);
-    foldDocVersionAtFold.set(key, currVer);
-  } finally {
-    ed.selections = safeRestoreSelections;
-    if (safeRestoreSelections.length === 1) {
-      ed.revealRange(
-        new vscode.Range(
-          safeRestoreSelections[0].active,
-          safeRestoreSelections[0].active
-        ),
-        vscode.TextEditorRevealType.Default
-      );
-    }
-  }
-}
-
-// ===== 8) Providers =====
-class HeadingFoldingProvider {
-  provideFoldingRanges(document, context, token) {
-    void context; // eslint用
-    if (token?.isCancellationRequested) return [];
-    const c = cfg();
-    if (!c.headingFoldEnabled) return [];
-
-    const lang = (document.languageId || "").toLowerCase();
-    // 対象は plaintext / novel（Markdownは VSCode 既定に任せる）
-    if (!(lang === "plaintext" || lang === "novel")) return [];
-
-    const heads = [];
-    for (let i = 0; i < document.lineCount; i++) {
-      const text = document.lineAt(i).text;
-      const lvl = getHeadingLevel(text);
-      if (lvl > 0) heads.push({ line: i, level: lvl });
-    }
-    if (heads.length === 0) return [];
-
-    const ranges = [];
-    for (let i = 0; i < heads.length; i++) {
-      const { line: start, level } = heads[i];
-      // 次の「同レベル以下」の見出し直前まで
-      let end = document.lineCount - 1;
-      for (let j = i + 1; j < heads.length; j++) {
-        if (heads[j].level <= level) {
-          end = heads[j].line - 1;
-          break;
-        }
-      }
-      if (end > start) {
-        ranges.push(
-          new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region)
-        );
-      }
-    }
-    return ranges;
-  }
-}
-
 // ===== 9) activate / deactivate =====
 function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
@@ -386,6 +86,12 @@ function activate(context) {
 
   // --- 9-2) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });
+
+  // 括弧補完＋Backspace同時削除（外部モジュールへ委譲）
+  registerBracketSupport(context, { cfg, isTargetDoc });
+
+  // 見出し機能（外部モジュール）
+  registerHeadlineSupport(context, { cfg, isTargetDoc, sb, semProvider });
 
   // --- 9-3) Commands
   context.subscriptions.push(
@@ -397,9 +103,6 @@ function activate(context) {
     ),
     vscode.commands.registerCommand("posNote.setNoteSize", () =>
       sb.cmdSetNoteSize()
-    ),
-    vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
-      cmdToggleFoldAllHeadings()
     ),
     vscode.commands.registerCommand("posNote.Preview.open", () => {
       PreviewPanel.show(context.extensionUri, context);
@@ -433,21 +136,6 @@ function activate(context) {
     )
   );
 
-  const foldSelector = [
-    { language: "plaintext", scheme: "file" },
-    { language: "plaintext", scheme: "untitled" },
-    { language: "novel", scheme: "file" },
-    { language: "novel", scheme: "untitled" },
-    { language: "Novel", scheme: "file" }, // 保険
-    { language: "Novel", scheme: "untitled" }, // 保険
-  ];
-  context.subscriptions.push(
-    vscode.languages.registerFoldingRangeProvider(
-      foldSelector,
-      new HeadingFoldingProvider()
-    )
-  );
-
   // --- 9-5) Events
   context.subscriptions.push(
     // 入力：軽い更新＋アイドル時に重い再計算
@@ -455,15 +143,10 @@ function activate(context) {
       const ed = vscode.window.activeTextEditor;
       if (!ed || e.document !== ed.document) return;
 
-      // 括弧補完/削除
-      maybeAutoCloseFullwidthBracket(e);
-      maybeDeleteClosingOnBackspace(e);
+      const c = cfg();
 
       // ステータスバー更新
       sb.scheduleUpdate(ed);
-
-      // Backspace 復元用に変更後テキストを保持
-      _prevTextByUri.set(e.document.uri.toString(), e.document.getText());
     }),
 
     // 保存：即時確定計算（Git差分/見出しビュー）
@@ -481,17 +164,15 @@ function activate(context) {
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (!ed) return;
       sb.onActiveEditorChanged(ed);
-      _prevTextByUri.set(ed.document.uri.toString(), ed.document.getText());
 
-      // エディタ切替時にもハイライト同期
-      const panel = require("./preview_panel").PreviewPanel;
-      const cp = panel.currentPanel;
+      // 直参照で統一（再 require はしない）
+      const cp = PreviewPanel.currentPanel;
       if (
         cp &&
         cp._docUri &&
         ed.document.uri.toString() === cp._docUri.toString()
       ) {
-        panel.highlight(ed.selection.active.line);
+        PreviewPanel.highlight(ed.selection.active.line);
       }
     }),
 
@@ -500,15 +181,14 @@ function activate(context) {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
       sb.onSelectionChanged(e.textEditor);
 
-      // プレビューにアクティブ行だけ通知（同一ドキュメント時）
-      const panel = require("./preview_panel").PreviewPanel;
-      const cp = panel.currentPanel;
+      // 直参照で統一（再 require はしない）
+      const cp = PreviewPanel.currentPanel;
       if (
         cp &&
         cp._docUri &&
         e.textEditor.document.uri.toString() === cp._docUri.toString()
       ) {
-        panel.highlight(e.textEditor.selection.active.line);
+        PreviewPanel.highlight(e.textEditor.selection.active.line);
       }
     }),
 
@@ -526,24 +206,6 @@ function activate(context) {
       if (semProvider && semProvider.fireDidChange) {
         semProvider.fireDidChange();
       }
-    }),
-
-    // 可視範囲変更：見出し操作に追随して再ハイライト＆ステータス更新
-    vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
-      const ed = e.textEditor;
-      if (!ed) return;
-      const c = cfg();
-      const lang = (ed.document.languageId || "").toLowerCase();
-
-      // .txt / novel の見出し操作のみ拾う（Markdownは VSCode 標準へ委譲）
-      if (!(lang === "plaintext" || lang === "novel")) return;
-      if (!c.headingFoldEnabled) return;
-
-      if (semProvider && semProvider.fireDidChange) {
-        semProvider.fireDidChange();
-      }
-      sb.recomputeAndCacheMetrics(ed);
-      sb.updateStatusBar(ed);
     })
   );
 }

@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (ハイライト+カウンタ+α)",
   "description": "kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
