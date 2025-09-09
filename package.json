@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (ハイライト+カウンタ+α)",
   "description": "kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -150,6 +150,22 @@
             "label"
           ]
         }
+      },
+      {
+        "scopes": {
+          "character": [
+            "constant.character",
+            "entity.name.constant"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "glossary": [
+            "constant.language",
+            "entity.name.tag"
+          ]
+        }
       }
     ],
     "commands": [
@@ -282,6 +298,22 @@
         }
       },
       {
+        "title": "POS & Note - 更新ディレイ",
+        "properties": {
+          "posNote.debounceMs": {
+            "type": "number",
+            "default": 500,
+            "description": "タイプ時のステータスバー軽量更新の待ち時間(ms)。"
+          },
+          "posNote.recomputeIdleMs": {
+            "type": "number",
+            "default": 1000,
+            "minimum": 100,
+            "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。"
+          }
+        }
+      },
+      {
         "title": "POS & Note - プレビュー",
         "properties": {
           "posNote.Preview.backgroundColor": {
@@ -333,22 +365,6 @@
             "description": "プレビューでPOS着色する最大行数（パフォーマンス上限）"
           }
         }
-      },
-      {
-        "title": "POS & Note - 更新ディレイ",
-        "properties": {
-          "posNote.debounceMs": {
-            "type": "number",
-            "default": 500,
-            "description": "タイプ時のステータスバー軽量更新の待ち時間(ms)。"
-          },
-          "posNote.recomputeIdleMs": {
-            "type": "number",
-            "default": 1000,
-            "minimum": 100,
-            "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。"
-          }
-        }
       }
     ],
     "configurationDefaults": {
@@ -366,6 +382,8 @@
           "conjunction": "#ff14e0",
           "symbol": "#fd9bcc",
           "bracket": "#fd9bcc",
+          "character": "#ff14e0",
+          "glossary": "#ff0000",
           "fwspace": {
             "underline": true,
             "foreground": "#ff0000"

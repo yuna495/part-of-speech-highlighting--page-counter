@@ -221,6 +221,7 @@ class PreviewPanel {
           activeLine, // 選択行
           headingDetector,
           classPrefix: "pos-",
+          docUri: doc.uri,
         });
         isHtml = true;
         // 追加：ユーザーの semanticTokenColorCustomizations.rules をプレビューCSSへ
