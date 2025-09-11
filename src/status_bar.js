@@ -119,11 +119,13 @@ function countCharsNoLF(text) {
 function countCharsForDisplay(text, c) {
   const arr = Array.from((text || "").replace(/\r\n/g, "\n"));
   if (c?.countSpaces) {
-    // スペースも字として数える
-    return arr.filter((ch) => ch !== "\n").length;
+    // スペースも字として数えるが、# は常に除外
+    return arr.filter((ch) => ch !== "\n" && ch !== "#").length;
   } else {
-    // スペースは除外（半角: U+0020 / 全角: U+3000）
-    return arr.filter((ch) => ch !== "\n" && ch !== " " && ch !== "　").length;
+    // スペースは除外（半角: U+0020 / 全角: U+3000）、さらに # も除外
+    return arr.filter(
+      (ch) => ch !== "\n" && ch !== " " && ch !== "　" && ch !== "#"
+    ).length;
   }
 }
 

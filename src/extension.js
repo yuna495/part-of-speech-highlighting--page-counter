@@ -17,6 +17,7 @@ const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
 const { registerHeadlineSupport } = require("./headline");
+const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
@@ -109,6 +110,13 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("posNote.Preview.refresh", () => {
       PreviewPanel.update();
+    }),
+    vscode.commands.registerCommand("posNote.combineTxt", (resourceUri) => {
+      // エクスプローラーで右クリックしたフォルダ URI が渡ってくる
+      return combineTxtInFolder(resourceUri);
+    }),
+    vscode.commands.registerCommand("posNote.combineMd", (resourceUri) => {
+      return combineMdInFolder(resourceUri);
     })
   );
 

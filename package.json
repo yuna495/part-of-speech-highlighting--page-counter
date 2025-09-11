@@ -1,8 +1,8 @@
 {
   "name": "part-of-speech-highlighting---page-counter",
-  "displayName": "POS & Note (ハイライト+カウンタ+α)",
-  "description": "kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.1.0",
+  "displayName": "POS & Note (小説・論文執筆アシスト)",
+  "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
+  "version": "2.2.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -201,6 +201,14 @@
       {
         "command": "posNote.Preview.refresh",
         "title": "POS/Note: 再描画"
+      },
+      {
+        "command": "posNote.combineTxt",
+        "title": "POS/Note: フォルダ内の .txt を結合"
+      },
+      {
+        "command": "posNote.combineMd",
+        "title": "POS/Note: フォルダ内の .md を結合"
       }
     ],
     "menus": {
@@ -209,6 +217,18 @@
           "command": "posNote.Preview.open",
           "group": "navigation@100",
           "when": "resourceExtname == .txt"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "posNote.combineTxt",
+          "group": "navigation@50",
+          "when": "explorerResourceIsFolder == true"
+        },
+        {
+          "command": "posNote.combineMd",
+          "group": "navigation@51",
+          "when": "explorerResourceIsFolder == true"
         }
       ]
     },
