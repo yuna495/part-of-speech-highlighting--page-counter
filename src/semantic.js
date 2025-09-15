@@ -98,6 +98,110 @@ function _escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
+/**
+ * 文書の見出しブロックを (# の連なりで) 粗く特定する。
+ * 戻り値: [{ start: 見出し行, end: ブロック終端行(含む) }, ...]
+ */
+function _computeHeadingBlocks(document) {
+  const blocks = [];
+  const n = document.lineCount;
+  const headingLines = [];
+  for (let i = 0; i < n; i++) {
+    const t = document.lineAt(i).text;
+    if (/^\s*#{1,6}\s+/.test(t)) headingLines.push(i);
+  }
+  for (let idx = 0; idx < headingLines.length; idx++) {
+    const start = headingLines[idx];
+    const next = headingLines[idx + 1] ?? n; // 次の見出し or 末尾
+    const end = Math.max(start, next - 1);
+    blocks.push({ start, end });
+  }
+  return blocks;
+}
+
+/**
+ * 「折りたたみ中の見出しブロック」を推定する。
+ * 仕組み:
+ *  - FoldingRangeProvider から折りたたみ可能範囲を取得
+ *  - アクティブエディタの visibleRanges を boolean 配列に展開
+ *  - 見出し行が visible かつ、直下の行が non-visible、かつ
+ *    折りたたみ候補の範囲と heading ブロックが重なる → 折りたたみ中と判定
+ *
+ * 戻り値: 除外すべき行区間 [{ from, to } ...] （両端とも行番号・含む）
+ */
+async function _getCollapsedHeadingRanges(document) {
+  const editor = vscode.window.visibleTextEditors.find(
+    (e) => e.document === document
+  );
+  if (!editor) return [];
+
+  // 1) 折りたたみ候補範囲
+  /** @type {Array<{start: number, end: number, kind?: string}>} */
+  const foldingRanges =
+    (await vscode.commands.executeCommand(
+      "vscode.executeFoldingRangeProvider",
+      document.uri
+    )) || [];
+
+  // 2) 可視行配列
+  const visible = new Array(document.lineCount).fill(false);
+  for (const vr of editor.visibleRanges) {
+    const s = Math.max(0, vr.start.line);
+    const e = Math.min(document.lineCount - 1, vr.end.line);
+    for (let ln = s; ln <= e; ln++) visible[ln] = true;
+  }
+
+  // 3) 見出しブロックを算出
+  const headingBlocks = _computeHeadingBlocks(document);
+
+  const collapsed = [];
+
+  for (const hb of headingBlocks) {
+    const h = hb.start;
+    const blockFrom = h + 1; // 見出し直下
+    const blockTo = hb.end; // 次の見出しの直前（または末尾）
+    if (blockFrom > blockTo) continue; // 空ブロック
+
+    // 見出し行は見えているか？（折りたたみ UI 上、ヘッダは見える想定）
+    if (!visible[h]) continue;
+
+    // 直下行が見えていなければ、折りたたみ“らしい”
+    if (visible[blockFrom]) continue;
+
+    // FoldingRange と重なっているか（保険）
+    const overlapsFold = foldingRanges.some((fr) => {
+      const frStart = Math.min(fr.start, fr.end ?? fr.start);
+      const frEnd = Math.max(fr.start, fr.end ?? fr.start);
+      // 見出しの直下まで含む範囲と重なれば OK
+      return !(frEnd < blockFrom || blockTo < frStart);
+    });
+
+    if (!overlapsFold) continue;
+
+    // 折りたたみ中とみなす
+    collapsed.push({ from: blockFrom, to: blockTo });
+  }
+
+  return _mergeRanges(collapsed);
+}
+
+/** 区間配列をマージ（[{from,to}...] -> 非重複に） */
+function _mergeRanges(ranges) {
+  if (!ranges.length) return [];
+  const sorted = ranges.slice().sort((a, b) => a.from - b.from);
+  const out = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = sorted[i];
+    if (cur.from <= prev.to + 1) {
+      prev.to = Math.max(prev.to, cur.to);
+    } else {
+      out.push({ from: cur.from, to: cur.to });
+    }
+  }
+  return out;
+}
+
 /** 括弧セグメント内判定 */
 function isInsideAnySegment(start, end, segs) {
   if (!segs || segs.length === 0) return false;
@@ -376,6 +480,9 @@ class JapaneseSemanticProvider {
     /** @type {vscode.Event<void>} */
     this.onDidChangeSemanticTokens = this._onDidChangeSemanticTokens.event;
 
+    this._kuromojiCooldownUntil = 0;
+    this._kuromojiCooldownTimer = null;
+
     // 辞書ファイル変更を拾って再発行
     const w1 = vscode.workspace.createFileSystemWatcher("**/characters.json");
     const w2 = vscode.workspace.createFileSystemWatcher("**/glossary.json");
@@ -398,6 +505,7 @@ class JapaneseSemanticProvider {
     this._onDidChangeSemanticTokens.fire();
   }
 
+  // semantic.js 内 JapaneseSemanticProvider クラス
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
 
@@ -422,6 +530,22 @@ class JapaneseSemanticProvider {
     const startLine = Math.max(0, range.start.line);
     const endLine = Math.min(document.lineCount - 1, range.end.line);
 
+    // ★ 折りたたみ中の範囲（見出し由来のみ）を推定
+    //   - 画面外は除外しない（＝従来通りトークン化）
+    //   - 「折りたたみ中の行」だけ kuromoji をスキップする
+    let foldedRanges = [];
+    try {
+      foldedRanges = await _getCollapsedHeadingRanges(document);
+    } catch {
+      foldedRanges = [];
+    }
+    const foldedLineFlags = new Uint8Array(document.lineCount);
+    for (const r of foldedRanges) {
+      const from = Math.max(0, r.from);
+      const to = Math.min(document.lineCount - 1, r.to);
+      for (let ln = from; ln <= to; ln++) foldedLineFlags[ln] = 1;
+    }
+
     // 括弧セグメント収集
     const idxBracket = tokenTypesArr.indexOf("bracket");
     const idxChar = tokenTypesArr.indexOf("character");
@@ -429,7 +553,6 @@ class JapaneseSemanticProvider {
     /** @type {Map<number, Array<[number, number]>>} */
     const bracketSegsByLine = new Map();
     const bracketOverrideOn = !!c.bracketsOverrideEnabled;
-
     (() => {
       const pairs = computeFullwidthQuoteRanges(document);
       for (const r of pairs) {
@@ -450,11 +573,14 @@ class JapaneseSemanticProvider {
       }
     })();
 
+    // ★ ループは一つに統一（ネストしていた二重ループを削除）
     for (let line = startLine; line <= endLine; line++) {
       if (cancelToken?.isCancellationRequested) break;
+
+      // ループ冒頭で必ず行テキストを取得（これが無いと TS(2304) ）
       const text = document.lineAt(line).text;
 
-      // 見出し一色
+      // 見出し一色（見出し行は折りたたまれない想定）
       if (c.headingSemanticEnabled) {
         const l = (document.languageId || "").toLowerCase();
         if (l === "plaintext" || l === "novel" || l === "markdown") {
@@ -467,20 +593,17 @@ class JapaneseSemanticProvider {
               tokenTypesArr.indexOf("heading"),
               0
             );
-            continue;
+            continue; // 見出し行は他トークン不要で抜ける
           }
         }
       }
 
       // ▼ (1) ローカル辞書マッチ（最優先）
-      // 無い場合はスキップ（= 一切適用しない）
       const dictRanges =
         charWords.size || gloWords.size
           ? matchDictRanges(text, charWords, gloWords)
           : [];
 
-      // 事前に“辞書マスク”を作っておく（他トークンはここに重ならないようにする）
-      // push: character/glossary
       for (const r of dictRanges) {
         const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
         builder.push(line, r.start, r.end - r.start, typeIdx, 0);
@@ -525,19 +648,20 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
-      if (tokenizer && text.trim()) {
+      // ▼ (3) 品詞ハイライト（kuromoji）
+      // ★ ここだけ折りたたみ行を除外する（= 他の装飾はそのまま）
+      if (!foldedLineFlags[line] && tokenizer && text.trim()) {
         const tokens = tokenizer.tokenize(text);
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const start = seg.start,
             end = seg.end;
           const length = end - start;
 
-          // 辞書マスクとの重なりチェック
+          // 辞書マスクに重なる箇所は POS を出さない
           if (dictRanges.some((R) => !(end <= R.start || R.end <= start)))
             continue;
 
-          // 括弧上書きがONなら、括弧区間はPOSを出さない（ただし辞書は既に出している）
+          // 括弧上書きがONなら、括弧区間は POS を出さない（辞書は既に出力済み）
           if (bracketOverrideOn) {
             const segs = bracketSegsByLine.get(line);
             if (isInsideAnySegment(start, end, segs)) continue;
@@ -548,6 +672,7 @@ class JapaneseSemanticProvider {
         }
       }
     }
+
     return builder.build();
   }
 

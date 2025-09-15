@@ -79,7 +79,6 @@ All notable changes to this extension are documented here.
     - プレビューの描画・品詞ハイライトはエディタ保存時に反映される
     - 品詞着色は「選択行を中心に ±`maxLines` 行」のみを解析対象とする動的モードに変更（既定: 1000 行）
 
-
 ## [1.3.6] - 2025-08-27
 
 - 修正
@@ -101,7 +100,6 @@ All notable changes to this extension are documented here.
     - セマンティックトークン関連を `semantic.js` に分割
     - ステータスバー関連を `status_bar.js` に移動
     - 共通関数 `getHeadingLevel` を `utils.js` に切り出し
-
 
 ## [1.3.4] - 2025-08-24
 
@@ -182,7 +180,6 @@ All notable changes to this extension are documented here.
   - 合算文字数は同一フォルダ内の `.txt` または `.md` を対象とし、ファイル保存時に再計算
   - 設定 `posNote.aggregate.showCombinedChars` で ON/OFF を切り替え可能
 - README の機能を更新
-
 
 ## [1.1.0]
 
