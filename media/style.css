@@ -88,6 +88,10 @@ p.active {
   color: #ff0000;
 } /* rules.glossary  */
 
+.pos-fencecomment {
+  color: #f0f0c0;
+}
+
 /* 見出し（プレビューの <p class="heading"> に適用）。本文同様“文字色”で統一するなら： */
 p.heading {
   color: #ff14e0;

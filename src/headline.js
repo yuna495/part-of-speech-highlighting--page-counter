@@ -68,13 +68,55 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const shouldUnfold = lastStateFolded && lastVer === currVer;
 
   if (shouldUnfold) {
-    await vscode.commands.executeCommand("editor.unfoldAll");
-    foldToggledByDoc.set(key, false);
-    if (sb) {
-      sb.recomputeAndCacheMetrics(ed);
-      sb.updateStatusBar(ed);
+    // ▼ 見出しだけ“展開”する（フェンスは対象外のまま）
+    const minLv = c.headingFoldMinLevel;
+    const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
+    if (lines.length === 0) {
+      vscode.window.showInformationMessage(
+        `展開対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+      );
+      return;
     }
-    vscode.commands.executeCommand("posNote.refreshPos");
+
+    // 現在位置を丁寧に復元するための退避
+    const caret = ed.selection?.active ?? new vscode.Position(0, 0);
+    const enclosing = findEnclosingHeadingLineFor(
+      ed.document,
+      caret.line,
+      minLv
+    );
+    const safeRestoreSelections =
+      enclosing >= 0
+        ? (() => {
+            const endCh = ed.document.lineAt(enclosing).text.length;
+            const pos = new vscode.Position(enclosing, endCh);
+            return [new vscode.Selection(pos, pos)];
+          })()
+        : ed.selections;
+
+    try {
+      // 見出し行だけを複数選択 → editor.unfold で“見出しだけ”展開
+      ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
+      await vscode.commands.executeCommand("editor.unfold");
+      foldToggledByDoc.set(key, false);
+      foldDocVersionAtFold.set(key, currVer);
+      if (sb) {
+        sb.recomputeAndCacheMetrics(ed);
+        sb.updateStatusBar(ed);
+      }
+      vscode.commands.executeCommand("posNote.refreshPos");
+    } finally {
+      ed.selections = safeRestoreSelections;
+      if (safeRestoreSelections.length === 1) {
+        ed.revealRange(
+          new vscode.Range(
+            safeRestoreSelections[0].active,
+            safeRestoreSelections[0].active
+          ),
+          vscode.TextEditorRevealType.Default
+        );
+      }
+    }
     return;
   }
 
@@ -153,6 +195,38 @@ class HeadingFoldingProvider {
         ranges.push(
           new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region)
         );
+    }
+
+    // ``` フェンス折りたたみ
+    let fenceStart = -1;
+    for (let i = 0; i < document.lineCount; i++) {
+      const text = document.lineAt(i).text;
+      if (text.includes("```")) {
+        if (fenceStart < 0) {
+          fenceStart = i;
+        } else {
+          if (i > fenceStart) {
+            ranges.push(
+              new vscode.FoldingRange(
+                fenceStart,
+                i,
+                vscode.FoldingRangeKind.Region
+              )
+            );
+          }
+          fenceStart = -1;
+        }
+      }
+    }
+    if (fenceStart >= 0) {
+      // 末尾まで閉じないフェンスも折りたためるようにする
+      ranges.push(
+        new vscode.FoldingRange(
+          fenceStart,
+          document.lineCount - 1,
+          vscode.FoldingRangeKind.Region
+        )
+      );
     }
     return ranges;
   }

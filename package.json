@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -164,6 +164,14 @@
           "glossary": [
             "constant.language",
             "entity.name.tag"
+          ]
+        }
+      },
+      {
+        "scopes": {
+          "fencecomment": [
+            "comment",
+            "punctuation.definition.comment"
           ]
         }
       }
@@ -404,6 +412,7 @@
           "bracket": "#fd9bcc",
           "character": "#ff14e0",
           "glossary": "#ff0000",
+          "fencecomment": "#f0f0c0",
           "fwspace": {
             "underline": true,
             "foreground": "#ff0000"

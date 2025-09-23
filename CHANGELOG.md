@@ -2,6 +2,23 @@
 
 All notable changes to this extension are documented here.
 
+## [2.2.1] - 2025-09-24
+
+### 追加
+
+- **コードフェンスコメント機能**
+
+  - ``` で囲まれた複数行を「コメント」として扱い、手動で折りたたみ可能に。
+  - フェンス内部はハイライト対象外となり、既定では `#f0f0c0` の単色で表示。
+
+  - コメント色は `editor.semanticTokenColorCustomizations.rules.fencecomment` で任意に変更可能。
+  - 見出しの一括折りたたみ／展開（Ctrl+[）の対象外とし、手動折りたたみは残す仕様。
+  - 文字数・ページ/行計算からは除外。
+
+### 修正
+
+- 《》で囲まれたルビを文字数としてカウントしない。ページ/行計算からも除外。
+
 ## [2.2.0] - 2025-09-11
 
 ### 追加
@@ -79,7 +96,6 @@ All notable changes to this extension are documented here.
     - プレビューの描画・品詞ハイライトはエディタ保存時に反映される
     - 品詞着色は「選択行を中心に ±`maxLines` 行」のみを解析対象とする動的モードに変更（既定: 1000 行）
 
-
 ## [1.3.6] - 2025-08-27
 
 - 修正
@@ -101,7 +117,6 @@ All notable changes to this extension are documented here.
     - セマンティックトークン関連を `semantic.js` に分割
     - ステータスバー関連を `status_bar.js` に移動
     - 共通関数 `getHeadingLevel` を `utils.js` に切り出し
-
 
 ## [1.3.4] - 2025-08-24
 
@@ -182,7 +197,6 @@ All notable changes to this extension are documented here.
   - 合算文字数は同一フォルダ内の `.txt` または `.md` を対象とし、ファイル保存時に再計算
   - 設定 `posNote.aggregate.showCombinedChars` で ON/OFF を切り替え可能
 - README の機能を更新
-
 
 ## [1.1.0]
 

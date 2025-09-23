@@ -115,9 +115,50 @@ function countCharsNoLF(text) {
   ).length;
 }
 
+/**
+ * テキストを行配列に分解して、行頭の ``` で始まる行の“ペア”に挟まれた行を除去する。
+ * 未クローズ（奇数個）の場合は **無視**（= 除外しない）して誤爆を防ぐ。
+ * 返り値は、コードフェンス行自身も含めて除去した新しいテキスト。
+ */
+function stripClosedCodeFences(text) {
+  const src = String(text || "").split(/\r?\n/);
+  const fenceRe = /^\s*```/;
+  const fenceLines = [];
+  for (let i = 0; i < src.length; i++) {
+    if (fenceRe.test(src[i])) fenceLines.push(i);
+  }
+  if (fenceLines.length < 2) return src.join("\n");
+
+  // 奇数の場合は末尾の開始だけ無視
+  if (fenceLines.length % 2 === 1) fenceLines.pop();
+
+  // 除外ラインをマーク
+  const mask = new Array(src.length).fill(false);
+  for (let k = 0; k < fenceLines.length; k += 2) {
+    const s = fenceLines[k],
+      e = fenceLines[k + 1];
+    for (let i = s; i <= e; i++) mask[i] = true; // フェンス行自身も除外
+  }
+
+  const out = [];
+  for (let i = 0; i < src.length; i++) {
+    if (!mask[i]) out.push(src[i]);
+  }
+  return out.join("\n");
+}
+
 // 表示用：設定に応じて半角/全角スペースを除外
 function countCharsForDisplay(text, c) {
-  const arr = Array.from((text || "").replace(/\r\n/g, "\n"));
+  // 改行正規化
+  let t = (text || "").replace(/\r\n/g, "\n");
+
+  // コードフェンス除外（ペア成立のみ）
+  t = stripClosedCodeFences(t);
+
+  // 《...》括弧内を除去
+  t = t.replace(/《.*?》/g, "");
+
+  const arr = Array.from(t);
   if (c?.countSpaces) {
     // スペースも字として数えるが、# は常に除外
     return arr.filter((ch) => ch !== "\n" && ch !== "#").length;
@@ -146,7 +187,16 @@ function editorPrefixText(doc, selection) {
 
 // 禁則折返し
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
-  const lines = (text || "").replace(/\r\n/g, "\n").split("\n");
+  // 改行正規化
+  let t = (text || "").replace(/\r\n/g, "\n");
+
+  // コードフェンス除外（ペア成立のみ）
+  t = stripClosedCodeFences(t);
+
+  // 《...》括弧内を除去
+  t = t.replace(/《.*?》/g, "");
+
+  const lines = t.split("\n");
   const banned = new Set(kinsokuEnabled ? bannedChars : []);
   let rows = 0;
 

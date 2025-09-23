@@ -31,6 +31,7 @@ const tokenTypesArr = [
   "glossary",
   "fwspace",
   "heading",
+  "fencecomment",
 ];
 const tokenModsArr = ["proper", "prefix", "suffix"];
 
@@ -105,6 +106,45 @@ function isInsideAnySegment(start, end, segs) {
     if (start >= s && end <= e) return true;
   }
   return false;
+}
+
+/**
+ * ドキュメント全体から ``` ～ ``` のフェンス区間を収集（終端は行末まで）
+ * - 囲みはネスト非対応（一般的な Markdown と同様の単純規則）
+ * - フェンス行自体も「コメント扱い」に含める
+ * 返値: vscode.Range[] （行単位だが文字オフセットも適切に付与）
+ */
+function computeFenceRanges(doc) {
+  const ranges = [];
+  let inFence = false;
+  let fenceStartPos = null;
+
+  for (let i = 0; i < doc.lineCount; i++) {
+    const text = doc.lineAt(i).text;
+    // 行頭/行中問わず ``` を検出（単純化：3連バッククォートが含まれたらフェンストグル）
+    if (text.includes("```")) {
+      if (!inFence) {
+        inFence = true;
+        fenceStartPos = new vscode.Position(i, 0);
+      } else {
+        // フェンス終端。終端行の末尾まで含める
+        const endPos = new vscode.Position(i, text.length);
+        ranges.push(new vscode.Range(fenceStartPos, endPos));
+        inFence = false;
+        fenceStartPos = null;
+      }
+    }
+  }
+  // 末尾まで閉じられなかった場合はファイル末尾までをフェンス扱い
+  if (inFence && fenceStartPos) {
+    const lastLine = doc.lineCount - 1;
+    const endPos = new vscode.Position(
+      lastLine,
+      doc.lineAt(lastLine).text.length
+    );
+    ranges.push(new vscode.Range(fenceStartPos, endPos));
+  }
+  return ranges;
 }
 
 /** ドキュメント全体から全角括弧の Range を収集（エディタ用） */
@@ -426,10 +466,33 @@ class JapaneseSemanticProvider {
     const idxBracket = tokenTypesArr.indexOf("bracket");
     const idxChar = tokenTypesArr.indexOf("character");
     const idxGlossary = tokenTypesArr.indexOf("glossary");
+    const idxFence = tokenTypesArr.indexOf("fencecomment");
     /** @type {Map<number, Array<[number, number]>>} */
     const bracketSegsByLine = new Map();
     const bracketOverrideOn = !!c.bracketsOverrideEnabled;
 
+    // フェンスブロックの行ごとセグメント収集
+    /** @type {Map<number, Array<[number, number]>>} */
+    const fenceSegsByLine = new Map();
+    (() => {
+      const franges = computeFenceRanges(document); // ← 追加
+      for (const r of franges) {
+        const sL = r.start.line,
+          eL = r.end.line;
+        for (let ln = sL; ln <= eL; ln++) {
+          const lineText = document.lineAt(ln).text;
+          const sCh = ln === sL ? r.start.character : 0;
+          const eCh = ln === eL ? r.end.character : lineText.length;
+          if (eCh > sCh) {
+            const arr = fenceSegsByLine.get(ln) || [];
+            arr.push([sCh, eCh]);
+            fenceSegsByLine.set(ln, arr);
+          }
+        }
+      }
+    })();
+
+    // 括弧セグメント収集ブロック
     (() => {
       const pairs = computeFullwidthQuoteRanges(document);
       for (const r of pairs) {
@@ -472,52 +535,84 @@ class JapaneseSemanticProvider {
         }
       }
 
+      // ▼ (0) フェンスブロック：最優先で塗って、以降の処理を“その区間だけ”スキップ
+      const fenceSegs = fenceSegsByLine.get(line) || [];
+      // 辞書が存在しても、フェンス内は辞書やPOSを出さない（完全除外）
+      for (const [sCh, eCh] of fenceSegs) {
+        const len = eCh - sCh;
+        if (len > 0) builder.push(line, sCh, len, idxFence, 0);
+      }
+
+      // 以降の処理は「フェンスに重ならない残り部分」だけに適用する
+      const restForLine = (segments) =>
+        subtractMaskedIntervals([[0, text.length]], segments);
+      const nonFenceSpans = restForLine(fenceSegs);
+
       // ▼ (1) ローカル辞書マッチ（最優先）
       // 無い場合はスキップ（= 一切適用しない）
       const dictRanges =
         charWords.size || gloWords.size
           ? matchDictRanges(text, charWords, gloWords)
           : [];
-
-      // 事前に“辞書マスク”を作っておく（他トークンはここに重ならないようにする）
-      // push: character/glossary
-      for (const r of dictRanges) {
+      const dictRangesOutsideFence = [];
+      for (const [s, e] of nonFenceSpans) {
+        for (const r of dictRanges) {
+          const ss = Math.max(s, r.start),
+            ee = Math.min(e, r.end);
+          if (ee > ss)
+            dictRangesOutsideFence.push({ start: ss, end: ee, kind: r.kind });
+        }
+      }
+      for (const r of dictRangesOutsideFence) {
         const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
         builder.push(line, r.start, r.end - r.start, typeIdx, 0);
       }
 
-      // 全角スペース（辞書優先のため、重なる位置は出力しない）
+      const mask = dictRangesOutsideFence;
+      const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
+
+      // (fwspace)
       {
         const re = /　/g;
         let m;
         while ((m = re.exec(text)) !== null) {
           const s = m.index,
-            e = m.index + 1;
-          if (dictRanges.some((R) => !(e <= R.start || R.end <= s))) continue;
-          builder.push(line, s, 1, tokenTypesArr.indexOf("fwspace"), 0);
+            e = s + 1;
+          if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+            builder.push(line, s, 1, tokenTypesArr.indexOf("fwspace"), 0);
+          }
         }
       }
 
-      // ダッシュ（—, ―）も辞書優先でスキップ
+      // (ダッシュ)
       {
         const reDash = /[—―]/g;
         let m;
         while ((m = reDash.exec(text)) !== null) {
           const s = m.index,
-            e = m.index + m[0].length;
-          if (dictRanges.some((R) => !(e <= R.start || R.end <= s))) continue;
-          const typeIdxForDash = bracketOverrideOn
-            ? idxBracket
-            : tokenTypesArr.indexOf("symbol");
-          builder.push(line, s, e - s, typeIdxForDash, 0);
+            e = s + m[0].length;
+          if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+            const tIdx = bracketOverrideOn
+              ? idxBracket
+              : tokenTypesArr.indexOf("symbol");
+            builder.push(line, s, e - s, tIdx, 0);
+          }
         }
       }
 
-      // ▼ (2) 括弧セグメント（ON時）— ただし辞書マスクで“穴あき”にして塗る
+      // (括弧上書き)
       if (bracketOverrideOn) {
         const segs = bracketSegsByLine.get(line);
-        if (segs && segs.length) {
-          const rest = subtractMaskedIntervals(segs, dictRanges);
+        if (segs?.length) {
+          // フェンス外＆辞書外だけ塗る
+          const segsOutsideFence = subtractMaskedIntervals(
+            segs,
+            fenceSegs.map(([s, e]) => ({ start: s, end: e }))
+          );
+          const rest = subtractMaskedIntervals(
+            segsOutsideFence,
+            dictRangesOutsideFence
+          );
           for (const [sCh, eCh] of rest) {
             const len = eCh - sCh;
             if (len > 0) builder.push(line, sCh, len, idxBracket, 0);
@@ -525,24 +620,19 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
-      if (tokenizer && text.trim()) {
+      // (kuromoji 品詞) — フェンス外＆辞書外＆（括弧上書きONなら）括弧外
+      if (tokenizer && text.trim() && spansAfterDict.length) {
         const tokens = tokenizer.tokenize(text);
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const start = seg.start,
-            end = seg.end;
-          const length = end - start;
-
-          // 辞書マスクとの重なりチェック
-          if (dictRanges.some((R) => !(end <= R.start || R.end <= start)))
+            end = seg.end,
+            length = end - start;
+          if (!spansAfterDict.some(([S, E]) => start >= S && end <= E))
             continue;
-
-          // 括弧上書きがONなら、括弧区間はPOSを出さない（ただし辞書は既に出している）
           if (bracketOverrideOn) {
             const segs = bracketSegsByLine.get(line);
             if (isInsideAnySegment(start, end, segs)) continue;
           }
-
           const { typeIdx, mods } = mapKuromojiToSemantic(seg.tk);
           builder.push(line, start, length, typeIdx, mods);
         }
@@ -592,6 +682,59 @@ class JapaneseSemanticProvider {
  *   docUri?: import('vscode').Uri
  * }} [opts]
  */
+
+/**
+ * 与えられた素テキストを行単位に見て、^``` のペアで囲まれた行だけ true にするマスクを返す。
+ * 未クローズの ``` は無視（＝誤爆で全部塗らない）。
+ */
+function buildFenceLineMaskFromText(text) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const mask = new Array(lines.length).fill(false);
+  const fenceRe = /^\s*```/;
+  let open = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (!fenceRe.test(lines[i])) continue;
+    if (open < 0) {
+      open = i; // 開始
+    } else {
+      // 開始〜終了まで true
+      for (let j = open; j <= i; j++) mask[j] = true;
+      open = -1;
+    }
+  }
+  // 未クローズは無視（open>=0 でも何もしない）
+  return mask;
+}
+
+/**
+ * すでに品詞/見出し等でハイライト済みの HTML（<p>…</p> が行数ぶん並んでいる想定）
+ * に対して、コードフェンス該当行だけ <span class="pos-fencecomment">…</span> を内側に巻く。
+ * 他のハイライト span は**壊さない**。
+ */
+function applyFenceColorToParagraphHtml(html, text) {
+  if (!html) return html;
+  const blocks = html.match(/<p[\s\S]*?<\/p>/g);
+  if (!blocks) return html;
+
+  const mask = buildFenceLineMaskFromText(text);
+  if (!mask.length) return html;
+  // 行数不一致でも安全に：短い方に合わせる
+  const n = Math.min(mask.length, blocks.length);
+
+  for (let i = 0; i < n; i++) {
+    if (!mask[i]) continue;
+    // <p>…</p> の内側だけ包む
+    blocks[i] = blocks[i].replace(
+      /^<p([^>]*)>([\s\S]*?)<\/p>$/i,
+      (m, attrs, inner) =>
+        `<p${attrs}><span class="pos-fencecomment">${inner}</span></p>`
+    );
+  }
+  // 置換した配列を元の HTML に戻す
+  // もとの html が <p>連結文字列</p>… の単純連結なら join('') で一致する
+  return blocks.join("");
+}
+
 async function toPosHtml(text, context, opts = {}) {
   const {
     maxLines = 2000,
@@ -610,6 +753,54 @@ async function toPosHtml(text, context, opts = {}) {
   const c = vscode.workspace.getConfiguration("posNote");
   const bracketOverrideOn = !!c.get("semantic.bracketsOverride.enabled", true);
   const headingSemanticOn = !!c.get("headings.semantic.enabled", true);
+
+  // まず行配列とオフセットを用意（← ここを先に！）
+  const lines = String(text).split(/\r?\n/);
+  const lineOffsets = new Array(lines.length);
+  {
+    let off = 0;
+    for (let i = 0; i < lines.length; i++) {
+      lineOffsets[i] = off;
+      off += lines[i].length + 1;
+    }
+  }
+
+  // 2) テキスト全体のフェンス区間（絶対オフセット）
+  /** @type {Array<[number, number]>} */
+  const fencePairs = [];
+  {
+    let inFence = false,
+      startOff = 0,
+      off = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const hasFence = line.includes("```");
+      if (hasFence && !inFence) {
+        inFence = true;
+        startOff = off;
+      } else if (hasFence && inFence) {
+        fencePairs.push([startOff, off + line.length]);
+        inFence = false;
+      }
+      off += line.length + 1;
+    }
+    if (inFence) fencePairs.push([startOff, off]);
+  }
+
+  // 3) 各行にフェンスセグメントを割当（← lines/lineOffsets を使うブロックはここ）
+  /** @type {Map<number, Array<[number, number]>>} */
+  const fenceSegsByLine = new Map();
+  for (const [sAbs, eAbs] of fencePairs) {
+    for (let i = 0; i < lines.length; i++) {
+      const sCh = Math.max(0, sAbs - lineOffsets[i]);
+      const eCh = Math.min(lines[i].length, eAbs - lineOffsets[i]);
+      if (eCh > 0 && sCh < lines[i].length && eCh > sCh) {
+        const arr = fenceSegsByLine.get(i) || [];
+        arr.push([sCh, eCh]);
+        fenceSegsByLine.set(i, arr);
+      }
+    }
+  }
 
   // 全テキストの全角括弧ペア（[open, close+1)）
   /** @type {Array<[number, number]>} */
@@ -633,9 +824,6 @@ async function toPosHtml(text, context, opts = {}) {
     }
   }
 
-  // 行配列と先頭オフセット
-  const lines = String(text).split(/\r?\n/);
-  const lineOffsets = new Array(lines.length);
   {
     let off = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -726,6 +914,25 @@ async function toPosHtml(text, context, opts = {}) {
 
     const lineStart = lineOffsets[i];
 
+    // 行ループ内：まずフェンスを描画（最優先）
+    const fenceSegs = fenceSegsByLine.get(i) || [];
+    if (fenceSegs.length) {
+      // フェンスだけで構成されている行は、そのまま一気に作る
+      let cur = 0;
+      const chunks = [];
+      for (const [s, e] of fenceSegs) {
+        if (s > cur) chunks.push(escapeHtml(line.slice(cur, s))); // フェンス外(前)
+        const inner = escapeHtml(line.slice(s, e));
+        chunks.push(`<span class="${classPrefix}fencecomment">${inner}</span>`); // ← コメント色
+        cur = e;
+      }
+      if (cur < line.length) {
+        // 後続の残部には辞書/括弧/POS を適用（既存の処理を呼ぶ）— 以下の既存合成に自然合流
+      }
+      // この後の辞書/括弧/POS 生成では「フェンス外残部」だけに適用するよう
+      // subtractMaskedIntervals を使って分割済みの spans を使う（既存の実装に合わせて適用）
+    }
+
     // 行内 括弧区間
     /** @type {Array<[number, number]>} */ let segs = [];
     if (bracketOverrideOn && pairs.length) {
@@ -803,12 +1010,21 @@ async function toPosHtml(text, context, opts = {}) {
  * 未設定のトークンは出力しない（= 既定の style.css が効く）
  * @returns {string} CSS text
  */
+/**
+ * エディタ設定（editor.semanticTokenColorCustomizations.rules）を
+ * プレビュー用の CSS に反映。未指定トークンは出力しないが、
+ * fencecomment については未設定時に既定色 #f0f0c0 を適用する。
+ * @returns {string} CSS text
+ */
 function buildPreviewCssFromEditorRules() {
   try {
     const editorCfg = vscode.workspace.getConfiguration("editor");
     const custom = editorCfg.get("semanticTokenColorCustomizations") || {};
     const rules = custom.rules || {};
-    if (!rules || typeof rules !== "object") return "";
+    if (!rules || typeof rules !== "object") {
+      // ルール自体が無い場合でも fencecomment の既定は出す
+      return `.pos-fencecomment{color:#f0f0c0;}\n`;
+    }
 
     const mapSimple = (key, cls) => {
       const val = rules[key];
@@ -836,6 +1052,15 @@ function buildPreviewCssFromEditorRules() {
     css += mapSimple("bracket", "pos-bracket");
     css += mapSimple("heading", "pos-heading");
 
+    // fencecomment: ユーザー設定があればそれを、無ければ規定色を入れる
+    const fenceCss = mapSimple("fencecomment", "pos-fencecomment");
+    if (fenceCss) {
+      css += fenceCss;
+    } else {
+      css += `.pos-fencecomment{color:#f0f0c0;}\n`;
+    }
+
+    // fwspace（オブジェクト形式のみ対応）
     const fw = rules["fwspace"];
     if (fw && typeof fw === "object") {
       const parts = [];
@@ -847,7 +1072,8 @@ function buildPreviewCssFromEditorRules() {
     return css;
   } catch (e) {
     console.error("buildPreviewCssFromEditorRules failed:", e);
-    return "";
+    // エラー時でも fencecomment の規定色は入れておく
+    return `.pos-fencecomment{color:#f0f0c0;}\n`;
   }
 }
 
