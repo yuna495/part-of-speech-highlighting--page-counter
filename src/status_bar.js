@@ -118,6 +118,11 @@ function countCharsNoLF(text) {
   ).length;
 }
 
+// 3桁区切りフォーマッタ（日本語ロケール）
+function fmt(n) {
+  return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
+}
+
 /**
  * テキストを行配列に分解して、行頭の ``` で始まる行の“ペア”に挟まれた行を除去する。
  * 未クローズ（奇数個）の場合は **無視**（= 除外しない）して誤爆を防ぐ。
@@ -455,7 +460,9 @@ function updateStatusBar(editor) {
       currentNote: 1,
       lastLineInLastNote: 1,
     };
-    headPart = `${mm.currentNote}/${mm.totalNotes} -${mm.lastLineInLastNote}（${c.rowsPerNote}×${c.colsPerRow}）`;
+    headPart = `${fmt(mm.currentNote)} / ${fmt(mm.totalNotes)} -${fmt(
+      mm.lastLineInLastNote
+    )}（${fmt(c.rowsPerNote)}×${fmt(c.colsPerRow)}）`;
   }
 
   // 2) 字=選択文字数（未選択時は全体文字数）
@@ -471,11 +478,11 @@ function updateStatusBar(editor) {
 
     const shown = selCnt > 0 ? selCnt : baseTotal;
 
-    // ★追加：フォルダ合算の追記（設定ONかつ合算が算出できた場合）
+    // フォルダ合算の追記（設定ONかつ合算が算出できた場合）
     if (c.showFolderSum && _folderSumChars != null) {
-      selPart = `${shown}字/${_folderSumChars}`;
+      selPart = `${fmt(shown)}字 / ${fmt(_folderSumChars)}`;
     } else {
-      selPart = `${shown}字`;
+      selPart = `${fmt(shown)}字`;
     }
   }
 
@@ -484,7 +491,7 @@ function updateStatusBar(editor) {
   if (c.showDeltaFromHEAD && _deltaFromHEAD.value != null) {
     const d = _deltaFromHEAD.value;
     const sign = d > 0 ? "＋" : d < 0 ? "－" : "±";
-    deltaPart = ` ${sign}${Math.abs(d)}`;
+    deltaPart = ` ${sign}${fmt(Math.abs(d))}`;
   }
 
   // 4) 非表示判定
