@@ -1,6 +1,7 @@
 // sidebar_headings.js
 const vscode = require("vscode");
 const { getHeadingLevel } = require("./utils");
+const path = require("path");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */
 function stripHeadingMarkup(lineText) {
@@ -9,20 +10,38 @@ function stripHeadingMarkup(lineText) {
 
 /** 見出しアイコン（Codicon）。レベルに応じて変える例 */
 function iconForLevel(level) {
-  // お好みで入れ替え可（Codicon 名称）
+  const mediaPath = path.join(__dirname, "image");
   switch (level) {
     case 1:
-      return new vscode.ThemeIcon("circle-large-filled"); // H1
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading1L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading1D.png")),
+      }; // H1
     case 2:
-      return new vscode.ThemeIcon("circle"); // H2
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading2L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading2D.png")),
+      }; // H2
     case 3:
-      return new vscode.ThemeIcon("circle-small-filled"); // H3
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading3L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading3D.png")),
+      }; // H3
     case 4:
-      return new vscode.ThemeIcon("grabber"); // H4
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading4L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading4D.png")),
+      }; // H4
     case 5:
-      return new vscode.ThemeIcon("dash"); // H5
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading5L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading5D.png")),
+      }; // H5
     default:
-      return new vscode.ThemeIcon("ellipsis"); // H6 など
+      return {
+        light: vscode.Uri.file(path.join(mediaPath, "heading6L.png")),
+        dark: vscode.Uri.file(path.join(mediaPath, "heading6D.png")),
+      }; // H6
   }
 }
 

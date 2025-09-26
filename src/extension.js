@@ -18,6 +18,7 @@ const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
 const { registerHeadlineSupport } = require("./headline");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
+const { registerRubySupport } = require("./ruby");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
@@ -42,6 +43,7 @@ function cfg() {
     showSelectedChars: c.get("status.showSelectedChars", true),
     countSpaces: c.get("status.countSpaces", false),
     showDeltaFromHEAD: c.get("aggregate.showDeltaFromHEAD", true),
+    showFolderSum: c.get("aggregate.showFolderSum", true),
 
     // 原稿用紙風行×列
     rowsPerNote: c.get("Note.rowsPerNote", 20),
@@ -93,6 +95,8 @@ function activate(context) {
 
   // 見出し機能（外部モジュール）
   registerHeadlineSupport(context, { cfg, isTargetDoc, sb, semProvider });
+  // ルビ/傍点 機能（外部モジュール）
+  registerRubySupport(context);
 
   // --- 9-3) Commands
   context.subscriptions.push(

@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -217,6 +217,14 @@
       {
         "command": "posNote.combineMd",
         "title": "POS/Note: フォルダ内の .md を結合"
+      },
+      {
+        "command": "posNote.ruby.insertRuby",
+        "title": "POS/Note: 選択文字にルビを付ける（|選択《》）"
+      },
+      {
+        "command": "posNote.ruby.insertBouten",
+        "title": "POS/Note: 選択文字に傍点を付ける（|字《・》…）"
       }
     ],
     "menus": {
@@ -305,6 +313,11 @@
             "type": "boolean",
             "default": true,
             "description": "ステータスバーに Git の直近コミット（HEAD）からの文字数の増減（±）を表示する。"
+          },
+          "posNote.aggregate.showFolderSum": {
+            "type": "boolean",
+            "default": true,
+            "description": "『字』表示の後ろに、同フォルダ内の同拡張子（.txt/.md）「他ファイル合算文字数」を表示する（例: 128字/342）。"
           },
           "posNote.Note.rowsPerNote": {
             "type": "number",
@@ -431,6 +444,16 @@
         "command": "posNote.toggleFoldAllHeadings",
         "key": "ctrl+[",
         "when": "editorTextFocus && editorLangId == novel"
+      },
+      {
+        "command": "posNote.ruby.insertRuby",
+        "key": "ctrl+alt+r",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.ruby.insertBouten",
+        "key": "ctrl+alt+b",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       }
     ]
   },
