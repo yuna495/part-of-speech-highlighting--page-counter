@@ -102,7 +102,7 @@ workspace/
 
 ### ステータスバー {#statusbar}
 
-![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo3.png)
+![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo2.png)
 表示例：現在ページ/総ページ -最終ページの行 （ページの行/列）
         編集中ファイルの総文字数/フォルダ内同一ファイル総文字数 ±Git差分文字数
 
@@ -144,7 +144,7 @@ workspace/
      - 「POS/Note: フォルダ内の .md を結合」  
   3. フォルダ直下にある対象拡張子ファイルをファイル名順に結合し、同フォルダ直下へ出力  
 
-![Combine Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo2.png)
+![Combine Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo1.png)
 例：フォルダ右クリック時
 
 - **仕様**  
