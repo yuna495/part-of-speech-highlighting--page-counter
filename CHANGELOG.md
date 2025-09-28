@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented here.
 
+## [2.2.3]
+
+### 変更
+
+- READMEの画像追加、内部リンク実装
+
 ## [2.2.2] - 2025-09-27
 
 ### 追加
