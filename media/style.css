@@ -104,3 +104,41 @@ p.heading {
 p.active {
   background: var(--active-bg, rgba(150, 100, 0, 0.1));
 }
+
+/* コードフェンス（```～```）用ハイライト */
+.pos-fencecomment {
+  color: #f0f0c0; /* エディタの semanticTokenColorCustomizations と同じ */
+  font-style: italic; /* 任意：コメントっぽく斜体にする例 */
+}
+
+/* === ルビ（縦書き用）=== */
+ruby {
+  ruby-position: over; /* ← inter-character から over に変更 */
+  ruby-align: center;
+}
+rt {
+  font-size: 0.55em;
+  line-height: 1; /* 行高詰め */
+  opacity: 0.9;
+}
+
+/* === 傍点 ===
+   .bouten を付けた範囲に CSS 傍点を適用
+   （縦書きでは自然に右側に点が出ます。ブラウザ差異対策でベンダ接頭辞も） */
+.bouten {
+  text-emphasis: filled dot;
+  -webkit-text-emphasis: filled dot;
+  text-emphasis-position: over right;
+}
+
+/* 三点リーダ（…×N）を“縦書きの行の中央”に配置する */
+.ellipsis {
+  color: #fd9bcc;
+  display: inline-block;
+  width: 1em; /* 行幅1文字ぶんの箱 */
+  text-align: center; /* 縦書き行内での中央揃え */
+  letter-spacing: 0;
+  /* ★位置調整 */
+  position: relative;
+  right: -0.4em; /* ← 右にずらす。値は調整可能 */
+}

@@ -673,7 +673,10 @@ class JapaneseSemanticProvider {
 
       // 以降の処理は「フェンスに重ならない残り部分」だけに適用する
       const restForLine = (segments) =>
-        subtractMaskedIntervals([[0, text.length]], segments);
+        subtractMaskedIntervals(
+          [[0, text.length]],
+          segments.map(([s, e]) => ({ start: s, end: e }))
+        );
       const nonFenceSpans = restForLine(fenceSegs);
 
       // ▼ (1) ローカル辞書マッチ（最優先）
@@ -1009,7 +1012,8 @@ async function toPosHtml(text, context, opts = {}) {
     }
     const tail = s.slice(last);
     if (tail) out.push(tokenizedSpanHtml(tail));
-    return out.join("");
+    const html = out.join("");
+    return applyFenceColorToParagraphHtml(html, text);
   };
 
   // 行レンダリング（辞書→括弧→品詞）
@@ -1025,7 +1029,7 @@ async function toPosHtml(text, context, opts = {}) {
       continue;
     }
 
-    // 見出し一色
+    // 見出し一色（既存）
     const headLv =
       typeof headingDetector === "function" ? headingDetector(line) || 0 : 0;
     if (headingSemanticOn && headLv > 0) {
@@ -1036,7 +1040,7 @@ async function toPosHtml(text, context, opts = {}) {
       continue;
     }
 
-    // ウィンドウ外はプレーン
+    // ウィンドウ外はプレーン（既存）
     const inWindow = i >= winStart && i <= winEnd;
     if (!inWindow) {
       out.push(`<p data-line="${i}">${escapeHtml(line)}</p>`);
@@ -1045,40 +1049,40 @@ async function toPosHtml(text, context, opts = {}) {
 
     const lineStart = lineOffsets[i];
 
-    // 行ループ内：まずフェンスを描画（最優先）
-    const fenceSegs = fenceSegsByLine.get(i) || [];
-    if (fenceSegs.length) {
-      // フェンスだけで構成されている行は、そのまま一気に作る
+    // === ここからフェンス分割を厳密運用 ===
+    const fenceSegs = (fenceSegsByLine.get(i) || [])
+      .slice()
+      .sort((a, b) => a[0] - b[0]);
+
+    // 行を [非フェンス] と [フェンス] に分割した配列を作る
+    /** @type {Array<{s:number,e:number,isFence:boolean}>} */
+    const segments = [];
+    {
       let cur = 0;
-      const chunks = [];
       for (const [s, e] of fenceSegs) {
-        if (s > cur) chunks.push(escapeHtml(line.slice(cur, s))); // フェンス外(前)
-        const inner = escapeHtml(line.slice(s, e));
-        chunks.push(`<span class="${classPrefix}fencecomment">${inner}</span>`); // ← コメント色
+        if (cur < s) segments.push({ s: cur, e: s, isFence: false });
+        segments.push({ s, e, isFence: true });
         cur = e;
       }
-      if (cur < line.length) {
-        // 後続の残部には辞書/括弧/POS を適用（既存の処理を呼ぶ）— 以下の既存合成に自然合流
-      }
-      // この後の辞書/括弧/POS 生成では「フェンス外残部」だけに適用するよう
-      // subtractMaskedIntervals を使って分割済みの spans を使う（既存の実装に合わせて適用）
+      if (cur < line.length)
+        segments.push({ s: cur, e: line.length, isFence: false });
     }
 
-    // 行内 括弧区間
-    /** @type {Array<[number, number]>} */ let segs = [];
+    // 行内 括弧セグメント（既存ロジック）
+    /** @type {Array<[number, number]>} */ let parenSegs = [];
     if (bracketOverrideOn && pairs.length) {
       for (const [s, e] of pairs) {
         const sCh = Math.max(0, s - lineStart);
         const eCh = Math.min(line.length, e - lineStart);
         if (eCh > 0 && sCh < line.length && eCh > sCh)
-          segs.push(/** @type {[number, number]} */ ([sCh, eCh]));
+          parenSegs.push([sCh, eCh]);
       }
-      if (segs.length > 1) {
-        segs.sort((a, b) => a[0] - b[0]);
+      if (parenSegs.length > 1) {
+        parenSegs.sort((a, b) => a[0] - b[0]);
         const merged = /** @type {Array<[number, number]>} */ ([]);
-        let [cs, ce] = segs[0];
-        for (let k = 1; k < segs.length; k++) {
-          const [ns, ne] = segs[k];
+        let [cs, ce] = parenSegs[0];
+        for (let k = 1; k < parenSegs.length; k++) {
+          const [ns, ne] = parenSegs[k];
           if (ns <= ce) ce = Math.max(ce, ne);
           else {
             merged.push([cs, ce]);
@@ -1087,49 +1091,88 @@ async function toPosHtml(text, context, opts = {}) {
           }
         }
         merged.push([cs, ce]);
-        segs = merged;
+        parenSegs = merged;
       }
     }
 
-    // ▼ (1) 同フォルダ辞書マッチ（最優先）
+    // 同フォルダ辞書マッチ（既存）
     const dictRanges =
       charWords.size || gloWords.size
         ? matchDictRanges(line, charWords, gloWords)
         : [];
 
-    // ▼ (2) 括弧は、辞書に重ならない残部だけに適用
-    const bracketRest = bracketOverrideOn
-      ? subtractMaskedIntervals(segs, dictRanges)
-      : /** @type {Array<[number, number]>} */ ([]);
-
-    // ▼ (3) マークを結合して左→右へ生成
-    const marks = [];
-    for (const r of dictRanges)
-      marks.push({
-        s: r.start,
-        e: r.end,
-        cls: r.kind === "character" ? "character" : "glossary",
-      });
-    for (const [s, e] of bracketRest) marks.push({ s, e, cls: "bracket" });
-    marks.sort((a, b) => a.s - b.s);
-
-    let cur = 0;
+    // === ここから描画 ===
     const chunks = [];
-    for (const m of marks) {
-      if (m.s > cur) {
-        // “残り”はダッシュ分割＋品詞スパン
-        chunks.push(renderWithDash(line.slice(cur, m.s)));
+
+    for (const seg of segments) {
+      const segText = line.slice(seg.s, seg.e);
+
+      if (seg.isFence) {
+        // フェンス部分：コメント色のみ。辞書・括弧・POS は適用しない
+        const inner = escapeHtml(segText);
+        chunks.push(`<span class="${classPrefix}fencecomment">${inner}</span>`);
+        continue;
       }
-      const inner = escapeHtml(line.slice(m.s, m.e));
-      chunks.push(`<span class="${classPrefix}${m.cls}">${inner}</span>`);
-      cur = m.e;
+
+      // 非フェンス部分：辞書→括弧→POS の順で「この区間に限って」適用
+      // 1) この区間に入っている辞書マークを抽出
+      const dictMarks = [];
+      for (const r of dictRanges) {
+        const s = Math.max(seg.s, r.start);
+        const e = Math.min(seg.e, r.end);
+        if (e > s) {
+          dictMarks.push({
+            s,
+            e,
+            cls: r.kind === "character" ? "character" : "glossary",
+          });
+        }
+      }
+
+      // 2) 括弧（上書きON時）は辞書に重ならない残りだけ
+      let bracketMarks = [];
+      if (bracketOverrideOn && parenSegs.length) {
+        /** @type {Array<[number, number]>} */
+        const parenInSeg = parenSegs
+          .map(
+            ([s, e]) =>
+              /** @type {[number, number]} */ ([
+                Math.max(seg.s, s),
+                Math.min(seg.e, e),
+              ])
+          )
+          .filter(([s, e]) => e > s);
+
+        const dictMaskInSeg = dictMarks.map((m) => ({ start: m.s, end: m.e }));
+        const rest = subtractMaskedIntervals(parenInSeg, dictMaskInSeg);
+
+        bracketMarks = rest.map(([s, e]) => ({ s, e, cls: "bracket" }));
+      }
+
+      // 3) マーク（辞書 + 括弧）を左→右に統合
+      const marks = dictMarks.concat(bracketMarks).sort((a, b) => a.s - b.s);
+
+      // 4) マークの“間”を POS で塗る（既存関数を活用）
+      let cur = seg.s;
+      for (const m of marks) {
+        if (m.s > cur) {
+          const before = line.slice(cur, m.s);
+          chunks.push(renderWithDash(before)); // ← tokenizedSpanHtml 内で kuromoji 適用
+        }
+        const inner = escapeHtml(line.slice(m.s, m.e));
+        chunks.push(`<span class="${classPrefix}${m.cls}">${inner}</span>`);
+        cur = m.e;
+      }
+      if (cur < seg.e) {
+        chunks.push(renderWithDash(line.slice(cur, seg.e)));
+      }
     }
-    if (cur < line.length) chunks.push(renderWithDash(line.slice(cur)));
 
     out.push(`<p data-line="${i}">${chunks.join("")}</p>`);
   }
 
-  return out.join("");
+  const html = out.join("");
+  return html;
 }
 
 /* ========================================
