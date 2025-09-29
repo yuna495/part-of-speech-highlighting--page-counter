@@ -84,6 +84,25 @@ function extractEllipsisPlaceholders(input) {
   return { textWithPH, ellipsisHtmlList };
 }
 
+// === Dash placeholder extraction（「——」→占位） ===
+// 「——」（U+2014 × 2）を占位へ置換し、完成HTMLは配列に積む
+const DASH_RE = /—{2}/g; // EM DASH 2連
+const PHD = (i) => `\uE000DL${i}\uE001`; // 占位マーカー（DL）
+
+function extractDashPlaceholders(input) {
+  if (!input || typeof input !== "string") {
+    return { textWithPH: input || "", dashHtmlList: [] };
+  }
+  let idx = 0;
+  const dashHtmlList = [];
+  const textWithPH = input.replace(DASH_RE, () => {
+    const html = `<span class="dash">——</span>`;
+    dashHtmlList.push(html);
+    return PHD(idx++);
+  });
+  return { textWithPH, dashHtmlList };
+}
+
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
@@ -301,9 +320,12 @@ class PreviewPanel {
         // 2) 三点リーダーを占位化（ルビの後）
         const { textWithPH: withEllipsisPH, ellipsisHtmlList } =
           extractEllipsisPlaceholders(withRubyPH);
+        // 3) ダッシュ（——）を占位化
+        const { textWithPH: withDashPH, dashHtmlList } =
+          extractDashPlaceholders(withEllipsisPH);
 
         // Kuromoji には占位済みテキストを渡す（品詞タグとの競合回避）
-        textHtml = await toPosHtml(withEllipsisPH, this._context, {
+        textHtml = await toPosHtml(withDashPH, this._context, {
           maxLines, // 選択行を中心に、この行数だけ前後解析
           activeLine, // 選択行
           headingDetector,
@@ -317,6 +339,7 @@ class PreviewPanel {
         // ★ 追加：復元用 HTML を payload に同梱するため、外側スコープで保持
         var rubyHtmlListToSend = rubyHtmlList;
         var ellipsisHtmlListToSend = ellipsisHtmlList;
+        var dashHtmlListToSend = dashHtmlList;
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
@@ -324,6 +347,7 @@ class PreviewPanel {
         var tokenCss = "";
         var rubyHtmlListToSend = [];
         var ellipsisHtmlListToSend = [];
+        var dashHtmlListToSend = [];
       }
     }
 
@@ -351,6 +375,7 @@ class PreviewPanel {
         tokenCss,
         rubyHtmlList: rubyHtmlListToSend || [],
         ellipsisHtmlList: ellipsisHtmlListToSend || [],
+        dashHtmlList: dashHtmlListToSend || [],
       },
     });
   }

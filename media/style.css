@@ -142,3 +142,14 @@ rt {
   position: relative;
   right: -0.4em; /* ← 右にずらす。値は調整可能 */
 }
+
+.dash {
+  color: #fd9bcc;
+  display: inline-block;
+  width: 1em; /* 行幅1文字ぶんの箱 */
+  text-align: center; /* 縦書き行内での中央揃え */
+  letter-spacing: 0;
+  /* ★位置調整 */
+  position: relative;
+  right: -0.2em; /* ← 右にずらす。値は調整可能 */
+}

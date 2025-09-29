@@ -76,6 +76,7 @@
       activeBg = "rgba(255, 215, 0, 0.2)",
       rubyHtmlList = [],
       ellipsisHtmlList = [],
+      dashHtmlList = [],
     } = data || {};
 
     // 背景・色・CSS変数
@@ -95,14 +96,16 @@
       content.innerHTML = html;
     }
 
-    // ★ 追加：占位文字 → <ruby> に復元（品詞タグを残したまま置換）
+    // 占位文字
     if (
       (rubyHtmlList && rubyHtmlList.length) ||
-      (ellipsisHtmlList && ellipsisHtmlList.length)
+      (ellipsisHtmlList && ellipsisHtmlList.length) ||
+      (dashHtmlList && dashHtmlList.length)
     ) {
       restorePlaceholdersHtml(content, {
         RB: rubyHtmlList,
         EL: ellipsisHtmlList,
+        DL: dashHtmlList,
       });
     }
 
@@ -305,7 +308,7 @@
     // kind = RB or EL、index = 数字。間に任意のタグを挟んでもOK
     const PH_HTML_RE = new RegExp(
       OPEN +
-        "(?:<[^>]*>|[^<])*?(RB|EL)(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?" +
+        "(?:<[^>]*>|[^<])*?(RB|EL|DL)(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?" +
         CLOSE,
       "g"
     );
