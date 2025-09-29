@@ -74,6 +74,7 @@
       bgColor = "#111111",
       textColor = "#fafafa",
       activeBg = "rgba(255, 215, 0, 0.2)",
+      rubyHtmlList = [],
     } = data || {};
 
     // 背景・色・CSS変数
@@ -91,6 +92,11 @@
       // 旧来：プレーンテキストから <p data-line> を生成
       const html = paragraphsWithLine(text, offset, cursor, showCursor);
       content.innerHTML = html;
+    }
+
+    // ★ 追加：占位文字 → <ruby> に復元（品詞タグを残したまま置換）
+    if (Array.isArray(rubyHtmlList) && rubyHtmlList.length) {
+      restoreRubyPlaceholdersHtml(content, rubyHtmlList);
     }
 
     // p にフォント反映
@@ -125,6 +131,9 @@
       const off = Math.max(0, Math.min(offset, text.length));
       injected = text.slice(0, off) + safeCursor + text.slice(off);
     }
+
+    // ★ ここで一括変換：|基《よみ》 → <ruby>…
+    injected = transformRubyNotation(injected);
 
     const lines = injected.split("\n");
     const out = [];
@@ -218,6 +227,100 @@
     } else {
       tag.textContent = css;
     }
+  }
+
+  // === ルビ変換 ===
+  // |基《よみ》 を <ruby><rb>基</rb><rt>よみ</rt></ruby> に変換。
+  // 規則：
+  //  1) 読みに "・" が含まれる → "・" 区切りで per-char 対応
+  //  2) "・" が無く、基と読みの文字数が一致 → per-char 対応
+  //  3) それ以外 → 単語ルビ（ひとつの rt）
+  //
+  // 補足：Unicode サロゲートペア等に配慮して [...str] で配列化。
+  function transformRubyNotation(input) {
+    if (!input || typeof input !== "string") return input;
+
+    // |基《よみ》 の全件置換（最短一致）
+    const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+
+    // HTML エスケープしていない生テキストを受け取り、
+    // ルビ部分は HTML を吐き、非ルビ部分はそのまま（=既存の挙動と整合）
+    return input.replace(RUBY_RE, (_, base, reading) => {
+      const baseChars = [...base];
+      const hasSeparator = reading.includes("・");
+      const readingParts = hasSeparator ? reading.split("・") : [...reading];
+
+      // per-char 条件判定
+      const isPerChar = hasSeparator
+        ? true
+        : readingParts.length === baseChars.length;
+
+      // HTML エスケープ
+      const esc = (s) =>
+        s
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+
+      if (isPerChar) {
+        // 文字ごとに <rb><rt> を並べる（長さ不一致は不足分を空文字で埋め）
+        const out = [];
+        const n = baseChars.length;
+        for (let i = 0; i < n; i++) {
+          const rb = esc(baseChars[i]);
+          const rt = esc(readingParts[i] ?? "");
+          out.push(`<rb>${rb}</rb><rt>${rt}</rt>`);
+        }
+        return `<ruby class="rb-group">${out.join("")}</ruby>`;
+      } else {
+        // 単語ルビ
+        return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
+      }
+    });
+  }
+
+  // === 占位文字 → <ruby> 復元 ===
+  const PH_RE = /\uE000RB(\d+)\uE001/; // 占位に埋めたインデックスを回収
+
+  function htmlToNode(html) {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html.trim();
+    return tpl.content.firstChild;
+  }
+
+  // content 以下の**テキストノード**を探索し、占位だけのノードを <ruby> に置換。
+  // 占位が <span class="pos-..."> の中にあっても、親 <span> ごと置換して安全に復元する。
+  // === 占位 → <ruby> 復元（HTML 版：タグをまたいでも最短一致で置換） ===
+  // プレースホルダ： U+E000 ''  …  U+E001 ''
+  // 例）<span></span><span>RB</span><span>12</span><span></span> も一発でマッチさせる
+  function restoreRubyPlaceholdersHtml(root, rubyHtmlList) {
+    if (!root || !rubyHtmlList || !rubyHtmlList.length) return;
+
+    // 開始 '' と終了 '' のあいだに、任意のタグ/テキストが挟まっても OK
+    // 最短一致のため *? を使用。RB(\d+) もタグを跨ぐ可能性があるので、いったん
+    // タグを含むパターンで拾ってからインデックスを抽出します。
+    const OPEN = "\uE000"; // ''
+    const CLOSE = "\uE001"; // ''
+    // 例： … RB 123 …    （…の中に <span ...>..</span> 可）
+    const PH_HTML_RE = new RegExp(
+      OPEN +
+        "(?:<[^>]*>|[^<])*?RB(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?" +
+        CLOSE,
+      "g"
+    );
+
+    // p 要素ごとに置換（段落を跨いだ誤置換を避ける）
+    const paras = root.querySelectorAll("p");
+    paras.forEach((p) => {
+      let html = p.innerHTML;
+      // マッチ毎に、キャプチャしたインデックスで rubyHtml を差し込む
+      html = html.replace(PH_HTML_RE, (_whole, idxStr) => {
+        const idx = Number(idxStr);
+        const ruby = rubyHtmlList[idx];
+        return ruby ? ruby : ""; // 見つからなければ消す（露出防止）
+      });
+      p.innerHTML = html;
+    });
   }
 
   function escapeHtml(s) {

@@ -5,6 +5,52 @@
 const vscode = require("vscode");
 const fs = require("fs");
 
+// === Ruby placeholder extraction (占位化) ===
+const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+// 私用領域(U+E000〜)にインデックスを埋め込んだ占位マーカーを作る
+const PH = (i) => `\uE000RB${i}\uE001`;
+
+function extractRubyPlaceholders(input) {
+  if (!input || typeof input !== "string") {
+    return { textWithPH: input || "", rubyHtmlList: [] };
+  }
+  let idx = 0;
+  const rubyHtmlList = [];
+  const textWithPH = input.replace(RUBY_RE, (_, base, reading) => {
+    const html = generateRubyHtml(base, reading);
+    rubyHtmlList.push(html);
+    return PH(idx++);
+  });
+  return { textWithPH, rubyHtmlList };
+}
+
+// |基《よみ》 → <ruby>…> 生成規則：
+//  1) 読みに "・" がある → その区切りで**各文字対応**
+//  2) "・" が無く、基と読みの長さが等しい → **各文字対応**
+//  3) それ以外 → 単語ルビ（基語全体にひとつの rt）
+function generateRubyHtml(base, reading) {
+  const baseChars = [...base];
+  const hasSep = reading.includes("・");
+  const readingParts = hasSep ? reading.split("・") : [...reading];
+  const perChar = hasSep || readingParts.length === baseChars.length;
+
+  const esc = (s) =>
+    s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+  if (perChar) {
+    const n = baseChars.length;
+    const pairs = [];
+    for (let i = 0; i < n; i++) {
+      const rb = esc(baseChars[i]);
+      const rt = esc(readingParts[i] ?? "");
+      pairs.push(`<rb>${rb}</rb><rt>${rt}</rt>`);
+    }
+    return `<ruby class="rb-group">${pairs.join("")}</ruby>`;
+  } else {
+    return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
+  }
+}
+
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
@@ -216,7 +262,11 @@ class PreviewPanel {
             return 0;
           }
         };
-        textHtml = await toPosHtml(text, this._context, {
+        // ★ 追加：まずルビを占位化（本文中の | と 《 》 を消しておく）
+        const { textWithPH, rubyHtmlList } = extractRubyPlaceholders(text);
+
+        // Kuromoji には占位済みテキストを渡す（品詞タグを維持したまま置換可能に）
+        textHtml = await toPosHtml(textWithPH, this._context, {
           maxLines, // 選択行を中心に、この行数だけ前後解析
           activeLine, // 選択行
           headingDetector,
@@ -227,11 +277,14 @@ class PreviewPanel {
         // 追加：ユーザーの semanticTokenColorCustomizations.rules をプレビューCSSへ
         const { buildPreviewCssFromEditorRules } = require("./semantic");
         var tokenCss = buildPreviewCssFromEditorRules();
+        // ★ 追加：復元用 HTML を payload に同梱するため、外側スコープで保持
+        var rubyHtmlListToSend = rubyHtmlList;
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
         textHtml = "";
         var tokenCss = "";
+        var rubyHtmlListToSend = [];
       }
     }
 
@@ -257,6 +310,7 @@ class PreviewPanel {
         textColor,
         activeBg,
         tokenCss,
+        rubyHtmlList: rubyHtmlListToSend || [],
       },
     });
   }
