@@ -117,18 +117,9 @@ ruby {
   ruby-align: center;
 }
 rt {
-  font-size: 0.55em;
+  font-size: 0.5em;
   line-height: 1; /* 行高詰め */
   opacity: 0.9;
-}
-
-/* === 傍点 ===
-   .bouten を付けた範囲に CSS 傍点を適用
-   （縦書きでは自然に右側に点が出ます。ブラウザ差異対策でベンダ接頭辞も） */
-.bouten {
-  text-emphasis: filled dot;
-  -webkit-text-emphasis: filled dot;
-  text-emphasis-position: over right;
 }
 
 /* 三点リーダ（…×N）を“縦書きの行の中央”に配置する */

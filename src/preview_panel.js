@@ -77,7 +77,7 @@ function extractEllipsisPlaceholders(input) {
   let idx = 0;
   const ellipsisHtmlList = [];
   const textWithPH = input.replace(ELLIPSIS_RE, () => {
-    const html = `<span class="ellipsis">……</span>`;
+    const html = `<span class="ellipsis">…………</span>`;
     ellipsisHtmlList.push(html);
     return PHE(idx++);
   });
