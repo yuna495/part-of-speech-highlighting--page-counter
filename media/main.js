@@ -75,6 +75,7 @@
       textColor = "#fafafa",
       activeBg = "rgba(255, 215, 0, 0.2)",
       rubyHtmlList = [],
+      ellipsisHtmlList = [],
     } = data || {};
 
     // 背景・色・CSS変数
@@ -95,8 +96,14 @@
     }
 
     // ★ 追加：占位文字 → <ruby> に復元（品詞タグを残したまま置換）
-    if (Array.isArray(rubyHtmlList) && rubyHtmlList.length) {
-      restoreRubyPlaceholdersHtml(content, rubyHtmlList);
+    if (
+      (rubyHtmlList && rubyHtmlList.length) ||
+      (ellipsisHtmlList && ellipsisHtmlList.length)
+    ) {
+      restorePlaceholdersHtml(content, {
+        RB: rubyHtmlList,
+        EL: ellipsisHtmlList,
+      });
     }
 
     // p にフォント反映
@@ -288,36 +295,29 @@
     return tpl.content.firstChild;
   }
 
-  // content 以下の**テキストノード**を探索し、占位だけのノードを <ruby> に置換。
-  // 占位が <span class="pos-..."> の中にあっても、親 <span> ごと置換して安全に復元する。
-  // === 占位 → <ruby> 復元（HTML 版：タグをまたいでも最短一致で置換） ===
-  // プレースホルダ： U+E000 ''  …  U+E001 ''
-  // 例）<span></span><span>RB</span><span>12</span><span></span> も一発でマッチさせる
-  function restoreRubyPlaceholdersHtml(root, rubyHtmlList) {
-    if (!root || !rubyHtmlList || !rubyHtmlList.length) return;
+  // === 占位 → HTML 復元（タグを跨いでも最短一致で置換） ===
+  // プレースホルダ書式：  RB0 / EL3 など（OPEN=U+E000, CLOSE=U+E001）
+  function restorePlaceholdersHtml(root, lists) {
+    if (!root || !lists) return;
 
-    // 開始 '' と終了 '' のあいだに、任意のタグ/テキストが挟まっても OK
-    // 最短一致のため *? を使用。RB(\d+) もタグを跨ぐ可能性があるので、いったん
-    // タグを含むパターンで拾ってからインデックスを抽出します。
     const OPEN = "\uE000"; // ''
     const CLOSE = "\uE001"; // ''
-    // 例： … RB 123 …    （…の中に <span ...>..</span> 可）
+    // kind = RB or EL、index = 数字。間に任意のタグを挟んでもOK
     const PH_HTML_RE = new RegExp(
       OPEN +
-        "(?:<[^>]*>|[^<])*?RB(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?" +
+        "(?:<[^>]*>|[^<])*?(RB|EL)(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?" +
         CLOSE,
       "g"
     );
 
-    // p 要素ごとに置換（段落を跨いだ誤置換を避ける）
     const paras = root.querySelectorAll("p");
     paras.forEach((p) => {
       let html = p.innerHTML;
-      // マッチ毎に、キャプチャしたインデックスで rubyHtml を差し込む
-      html = html.replace(PH_HTML_RE, (_whole, idxStr) => {
+      html = html.replace(PH_HTML_RE, (_whole, kind, idxStr) => {
         const idx = Number(idxStr);
-        const ruby = rubyHtmlList[idx];
-        return ruby ? ruby : ""; // 見つからなければ消す（露出防止）
+        const list = lists[kind] || [];
+        const repl = list[idx];
+        return repl ? repl : "";
       });
       p.innerHTML = html;
     });

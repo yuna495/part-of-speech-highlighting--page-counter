@@ -65,6 +65,25 @@ function generateRubyHtml(base, reading) {
   }
 }
 
+// === Ellipsis placeholder extraction (「……」→占位) ===
+// 「……」(U+2026 × 2) を占位文字へ置換し、完成HTMLは配列に積む
+const ELLIPSIS_RE = /…{2}/g; // 三点リーダー2つ
+const PHE = (i) => `\uE000EL${i}\uE001`; // 占位マーカー（EL）
+
+function extractEllipsisPlaceholders(input) {
+  if (!input || typeof input !== "string") {
+    return { textWithPH: input || "", ellipsisHtmlList: [] };
+  }
+  let idx = 0;
+  const ellipsisHtmlList = [];
+  const textWithPH = input.replace(ELLIPSIS_RE, () => {
+    const html = `<span class="ellipsis">……</span>`;
+    ellipsisHtmlList.push(html);
+    return PHE(idx++);
+  });
+  return { textWithPH, ellipsisHtmlList };
+}
+
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
@@ -276,11 +295,15 @@ class PreviewPanel {
             return 0;
           }
         };
-        // ★ 追加：まずルビを占位化（本文中の | と 《 》 を消しておく）
-        const { textWithPH, rubyHtmlList } = extractRubyPlaceholders(text);
+        // 1) ルビを占位化
+        const { textWithPH: withRubyPH, rubyHtmlList } =
+          extractRubyPlaceholders(text);
+        // 2) 三点リーダーを占位化（ルビの後）
+        const { textWithPH: withEllipsisPH, ellipsisHtmlList } =
+          extractEllipsisPlaceholders(withRubyPH);
 
-        // Kuromoji には占位済みテキストを渡す（品詞タグを維持したまま置換可能に）
-        textHtml = await toPosHtml(textWithPH, this._context, {
+        // Kuromoji には占位済みテキストを渡す（品詞タグとの競合回避）
+        textHtml = await toPosHtml(withEllipsisPH, this._context, {
           maxLines, // 選択行を中心に、この行数だけ前後解析
           activeLine, // 選択行
           headingDetector,
@@ -293,12 +316,14 @@ class PreviewPanel {
         var tokenCss = buildPreviewCssFromEditorRules();
         // ★ 追加：復元用 HTML を payload に同梱するため、外側スコープで保持
         var rubyHtmlListToSend = rubyHtmlList;
+        var ellipsisHtmlListToSend = ellipsisHtmlList;
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
         textHtml = "";
         var tokenCss = "";
         var rubyHtmlListToSend = [];
+        var ellipsisHtmlListToSend = [];
       }
     }
 
@@ -325,6 +350,7 @@ class PreviewPanel {
         activeBg,
         tokenCss,
         rubyHtmlList: rubyHtmlListToSend || [],
+        ellipsisHtmlList: ellipsisHtmlListToSend || [],
       },
     });
   }
