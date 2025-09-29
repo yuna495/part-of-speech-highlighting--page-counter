@@ -28,14 +28,28 @@ function extractRubyPlaceholders(input) {
 //  1) 読みに "・" がある → その区切りで**各文字対応**
 //  2) "・" が無く、基と読みの長さが等しい → **各文字対応**
 //  3) それ以外 → 単語ルビ（基語全体にひとつの rt）
+//
+// 追加仕様：読みが「・」だけ（= 全部削ると空）なら、基文字数ぶん「・」を配る。
 function generateRubyHtml(base, reading) {
   const baseChars = [...base];
+  const esc = (s) =>
+    s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+  const onlyDots = reading.replace(/・/g, "") === "";
+  if (onlyDots) {
+    // 例: |文《・》, |天地《・・》 など
+    const pairs = [];
+    for (let i = 0; i < baseChars.length; i++) {
+      const rb = esc(baseChars[i]);
+      const rt = "・";
+      pairs.push(`<rb>${rb}</rb><rt>${rt}</rt>`);
+    }
+    return `<ruby class="rb-group">${pairs.join("")}</ruby>`;
+  }
+
   const hasSep = reading.includes("・");
   const readingParts = hasSep ? reading.split("・") : [...reading];
   const perChar = hasSep || readingParts.length === baseChars.length;
-
-  const esc = (s) =>
-    s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
   if (perChar) {
     const n = baseChars.length;

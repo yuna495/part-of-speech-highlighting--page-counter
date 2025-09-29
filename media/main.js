@@ -229,41 +229,42 @@
     }
   }
 
-  // === ルビ変換 ===
+  /// === ルビ変換 ===
   // |基《よみ》 を <ruby><rb>基</rb><rt>よみ</rt></ruby> に変換。
   // 規則：
-  //  1) 読みに "・" が含まれる → "・" 区切りで per-char 対応
-  //  2) "・" が無く、基と読みの文字数が一致 → per-char 対応
-  //  3) それ以外 → 単語ルビ（ひとつの rt）
+  //  1) 読みに "・" が含まれる → "・" 区切りで per-char
+  //  2) "・" が無く、基と読みの文字数が一致 → per-char
+  //  3) それ以外 → 単語ルビ
   //
-  // 補足：Unicode サロゲートペア等に配慮して [...str] で配列化。
+  // 追加仕様：読みが「・」だけなら、基文字数ぶん「・」を配る。
   function transformRubyNotation(input) {
     if (!input || typeof input !== "string") return input;
 
-    // |基《よみ》 の全件置換（最短一致）
     const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+    const esc = (s) =>
+      s
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
 
-    // HTML エスケープしていない生テキストを受け取り、
-    // ルビ部分は HTML を吐き、非ルビ部分はそのまま（=既存の挙動と整合）
     return input.replace(RUBY_RE, (_, base, reading) => {
       const baseChars = [...base];
+
+      // 追加：読みが「・」だけ
+      if (reading.replace(/・/g, "") === "") {
+        const out = [];
+        for (let i = 0; i < baseChars.length; i++) {
+          out.push(`<rb>${esc(baseChars[i])}</rb><rt>・</rt>`);
+        }
+        return `<ruby class="rb-group">${out.join("")}</ruby>`;
+      }
+
       const hasSeparator = reading.includes("・");
       const readingParts = hasSeparator ? reading.split("・") : [...reading];
-
-      // per-char 条件判定
-      const isPerChar = hasSeparator
-        ? true
-        : readingParts.length === baseChars.length;
-
-      // HTML エスケープ
-      const esc = (s) =>
-        s
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;");
+      const isPerChar =
+        hasSeparator || readingParts.length === baseChars.length;
 
       if (isPerChar) {
-        // 文字ごとに <rb><rt> を並べる（長さ不一致は不足分を空文字で埋め）
         const out = [];
         const n = baseChars.length;
         for (let i = 0; i < n; i++) {
@@ -273,7 +274,6 @@
         }
         return `<ruby class="rb-group">${out.join("")}</ruby>`;
       } else {
-        // 単語ルビ
         return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
       }
     });
