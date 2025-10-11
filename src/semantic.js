@@ -713,7 +713,7 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // (ダッシュ)
+      // (ダッシュ) ※括弧優先: 括弧内では強制色を出さない
       {
         const reDash = /[—―]/g;
         let m;
@@ -721,6 +721,10 @@ class JapaneseSemanticProvider {
           const s = m.index,
             e = s + m[0].length;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+            // ▲ 括弧内はスキップ（括弧色で統一したい）
+            const segs = bracketSegsByLine.get(line) || [];
+            const inBracket = isInsideAnySegment(s, e, segs);
+            if (inBracket) continue;
             const tIdx = bracketOverrideOn
               ? idxBracket
               : tokenTypesArr.indexOf("symbol");
@@ -733,7 +737,7 @@ class JapaneseSemanticProvider {
       if (bracketOverrideOn) {
         const segs = bracketSegsByLine.get(line);
         if (segs?.length) {
-          // フェンス外＆辞書外だけ塗る
+          // フェンス外だけに限定し、辞書は差し引かない（＝括弧内は全面 bracket）
           const segsOutsideFence = subtractMaskedIntervals(
             segs,
             fenceSegs.map(([s, e]) => ({ start: s, end: e }))

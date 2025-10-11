@@ -67,7 +67,7 @@ class HeadingNode extends vscode.TreeItem {
       arguments: [uri, line],
     };
     // レベルに応じてインデント風にパディング（任意）
-    this.label = `${"　".repeat(Math.max(0, level - 1))}${label}`;
+    this.label = `${" ".repeat(Math.max(0, level - 1))}${label}`;
     this.contextValue = "headingNode";
   }
 }

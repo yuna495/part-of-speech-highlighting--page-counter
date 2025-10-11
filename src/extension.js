@@ -17,6 +17,7 @@ const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
 const { registerHeadlineSupport } = require("./headline");
+const { registerHeadingSymbolProvider } = require("./headline_symbols");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
 
@@ -95,6 +96,8 @@ function activate(context) {
 
   // 見出し機能（外部モジュール）
   registerHeadlineSupport(context, { cfg, isTargetDoc, sb, semProvider });
+  // 見出しシンボル（アウトライン／パンくず／Sticky Scroll 用）
+  registerHeadingSymbolProvider(context);
   // ルビ/傍点 機能（外部モジュール）
   registerRubySupport(context);
 
