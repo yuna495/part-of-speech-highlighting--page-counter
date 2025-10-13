@@ -93,8 +93,14 @@ class HeadingSymbolProvider {
 
 /**
  * 見出しの「本文」＝次に現れる任意レベルの見出し直前まで
- * 各見出し本文の文字数と合計を返す
- * @returns {{ items: Array<{ line:number, level:number, title:string, range:vscode.Range, count:number }>, total:number }}
+ * 各見出し本文の文字数と【配下見出し群の合算】、総計を返す
+ * @returns {{
+ *   items: Array<{
+ *     line:number, level:number, title:string,
+ *     range:vscode.Range, count:number, childSum:number
+ *   }>,
+ *   total:number
+ * }}
  */
 function computeHeadingCharMetricsAnyLevel(document, c) {
   const items = [];
@@ -109,10 +115,9 @@ function computeHeadingCharMetricsAnyLevel(document, c) {
   }
   if (heads.length === 0) return { items: [], total: 0 };
 
+  // まず各見出しの「自分の本文 count」を計算
   for (let i = 0; i < heads.length; i++) {
     const { line: startLine, level, text } = heads[i];
-
-    // ★どのレベルの見出しでも区切る
     let endLine = max - 1;
     for (let j = i + 1; j < heads.length; j++) {
       endLine = heads[j].line - 1;
@@ -120,7 +125,6 @@ function computeHeadingCharMetricsAnyLevel(document, c) {
     }
     if (i === heads.length - 1) endLine = max - 1;
 
-    // 本文：見出し行“翌行”〜endLine
     const bodyStart = Math.min(startLine + 1, endLine);
     const range = new vscode.Range(
       bodyStart,
@@ -130,9 +134,35 @@ function computeHeadingCharMetricsAnyLevel(document, c) {
     );
     const bodyText = document.getText(range);
     const count = countCharsForDisplay(bodyText, c);
-
     const title = text.replace(/^#+\s*/, "").trim() || `Heading L${level}`;
-    items.push({ line: startLine, level, title, range, count });
+
+    items.push({ line: startLine, level, title, range, count, childSum: 0 });
+  }
+
+  // 次に「配下見出し群の合算 childSum」を後ろから積み上げ
+  // スタックで親子を形成しながら、子を親に加算していく
+  const stack = []; // 要素: { idx, level }
+  for (let i = 0; i < items.length; i++) {
+    const lv = items[i].level;
+    while (stack.length > 0 && stack[stack.length - 1].level >= lv) {
+      // 直前の同階層以上は閉じる（親確定）
+      const child = stack.pop();
+      // pop された child は既に childSum が完成しているはずなので、
+      // 親（いまのスタック末尾）に「child の自前 count + childSum」を加算
+      if (stack.length > 0) {
+        const parentIdx = stack[stack.length - 1].idx;
+        items[parentIdx].childSum +=
+          items[child.idx].count + items[child.idx].childSum;
+      }
+    }
+    stack.push({ idx: i, level: lv });
+  }
+  // スタックに残った分も同様に親へ畳み込む
+  while (stack.length > 1) {
+    const child = stack.pop();
+    const parentIdx = stack[stack.length - 1].idx;
+    items[parentIdx].childSum +=
+      items[child.idx].count + items[child.idx].childSum;
   }
 
   const total = items.reduce((a, b) => a + b.count, 0);

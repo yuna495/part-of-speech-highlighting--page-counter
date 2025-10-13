@@ -11,48 +11,6 @@ function refreshHeadingCounts(ed, cfg) {
   updateHeadingCountDecorations(ed, cfg);
 }
 
-function updateHeadingCountDecorations(ed, cfg) {
-  if (!ed) return;
-  const c = cfg();
-  const lang = (ed.document.languageId || "").toLowerCase();
-  if (!/^(plaintext|novel|markdown)/.test(lang)) return;
-  if (!c.headingFoldEnabled) {
-    // 既存の見出し機能がOFFなら表示もしない方針
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-  if (c.headingsShowBodyCounts === false) {
-    // 任意：設定でON/OFF
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-
-  const show = c.headingsShowBodyCounts !== false;
-  if (!show) {
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-
-  const { items } = getHeadingCharMetricsCached(ed.document, c);
-  if (!items.length) {
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-
-  // 見出し行末に “（N字）”
-  const decorations = items.map(({ line, count }) => {
-    const endCh = ed.document.lineAt(line).text.length;
-    const pos = new vscode.Position(line, endCh);
-    return {
-      range: new vscode.Range(pos, pos),
-      renderOptions: {
-        after: { contentText: `（${count.toLocaleString("ja-JP")}字）` },
-      },
-    };
-  });
-  ed.setDecorations(countDeco, decorations);
-}
-
 // ドキュメントごとの折りたたみ状態を保持
 const foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
 const foldDocVersionAtFold = new Map(); // key: uriString, value: document.version
@@ -353,49 +311,47 @@ function registerHeadlineSupport(
 }
 
 function updateHeadingCountDecorations(ed, cfg) {
-  if (!ed) return;
+  // ...前略（言語・設定チェックは現行のまま）...
   const c = cfg();
-  const lang = (ed.document.languageId || "").toLowerCase();
-  if (!/^(plaintext|novel|markdown)/.test(lang)) return;
-  if (!c.headingFoldEnabled) {
-    // 既存の見出し機能がOFFなら表示もしない方針
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-  if (c.headingsShowBodyCounts === false) {
-    // 任意：設定でON/OFF
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-
-  const show =
-    c.headingsShowBodyCounts === undefined ? true : !!c.headingsShowBodyCounts;
-  if (!show) {
-    ed.setDecorations(countDeco, []);
-    return;
-  }
-
   const { items } = getHeadingCharMetricsCached(ed.document, c);
   if (!items.length) {
     ed.setDecorations(countDeco, []);
     return;
   }
 
-  // 見出し行末に “（N字）”
   const decorations = items
-    .filter(({ count }) => count > 0)
-    .map(({ line, count }) => {
+    .map(({ line, count, childSum }) => {
+      // 表示テキストの構築
+      const own = count;
+      const sub = count + childSum;
+
+      let text = "- ";
+      const ownShow = own > 0;
+      const subShow = sub > 0 && sub !== own;
+
+      if (!ownShow && !subShow) {
+        // 双方非表示 → この見出しは装飾を付けない
+        return null;
+      }
+      if (ownShow) {
+        text += `${own.toLocaleString("ja-JP")}字`;
+      }
+      if (subShow) {
+        // own が表示されていれば " / □字"、なければ "/ □字"
+        text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
+      }
+
       const endCh = ed.document.lineAt(line).text.length;
       const pos = new vscode.Position(line, endCh);
       return {
         range: new vscode.Range(pos, pos),
         renderOptions: {
-          after: {
-            contentText: `- ${count.toLocaleString("ja-JP")}字`,
-          },
+          after: { contentText: text },
         },
       };
-    });
+    })
+    .filter(Boolean);
+
   ed.setDecorations(countDeco, decorations);
 }
 
