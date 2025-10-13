@@ -124,17 +124,16 @@ workspace/
 ```
 
 - **純作業量表示（v2.3.0）**
+![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo4.png)
   - 実際に入力・削除された文字数を合計して「純作業量」として表示。
   - ステータスバー上では当日の合計作業量をリアルタイム更新。
-  - マウスホバーで過去1週間の合計をポップアップ表示。
+  - マウスオーバーで過去1週間の合計をポップアップ表示。
   - ステータスバー項目をクリックすると「純作業量グラフ」を開く。
-![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo4.png)
 
 - **グラフビュー機能**
-- 日別の合計作業量＋入力/削除折れ線を同時表示。
-- 最大作業日および目標ラインを描画。
-- 折れ線は視認性向上のため 1.5 倍スケーリングで表示。
-- マーカー（●：入力 / ■：削除）で各日の実績を明示。
+  - 日別の合計作業量＋入力/削除折れ線を同時表示。
+  - マーカー（●：入力 / ■：削除）で各日の実績を明示。
+  - 最大作業日および目標ラインを描画。
 
 ### プレビュー（v2.0.0） {#preview}
 

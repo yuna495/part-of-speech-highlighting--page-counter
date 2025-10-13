@@ -308,9 +308,14 @@
             "default": true,
             "description": "ステータスバーに『純作業量（入力/貼り付け/削除の合計・改行）』を表示し、ホバーで過去7日合計を表示する。"
           },
+          "posNote.workload.timeZone": {
+            "type": "string",
+            "default": "system",
+            "description": "作業量の日付集計に用いるタイムゾーン。'system' なら OS のタイムゾーンを使用。IANA TZ（例: Asia/Tokyo, America/Los_Angeles）を指定して固定も可。"
+          },
           "posNote.workload.dailyTarget": {
             "type": "number",
-            "default": 2000,
+            "default": 10000,
             "minimum": 0,
             "description": "純作業量の1日目標値。グラフに赤い水平ラインとして表示する。"
           },

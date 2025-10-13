@@ -18,6 +18,8 @@ let _context = null;
 // ドキュメントごとの「直前テキスト」スナップショット
 // 変更レンジは「変更前ドキュメント基準」なので、これで削除文字を正確取得できる
 const _prevText = new Map(); // key: doc.uri.toString() -> string
+let _lastDateKey = null;
+let _midnightTimer = null;
 
 // ==== デモ切替フラグ ====
 // デモ用の架空データを返したい期間だけ true にしてください。
@@ -32,14 +34,13 @@ function buildDemoHistory(days = 30) {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const key = toJstDateStr(d);
+    const key = toTzDateKey(d, cfg().timeZone); // ★修正：正しいキー名で作成
 
-    // 視覚的に起伏が出るように、日付インデックスから決定的に算出
-    // 例：週の谷間は控えめ、週末は多め
+    // 視覚的に起伏が出るダミー生成
     const dow = d.getDay(); // 0:日〜6:土
-    const base = 1200 + (dow === 0 || dow === 6 ? 1800 : 400 * ((i % 3) - 1)); // 週末↑ 平日ゆるく
-    const add = Math.max(0, Math.round(base * 0.7)); // 入力
-    const del = Math.max(0, Math.round(base * 0.3)); // 削除
+    const base = 1200 + (dow === 0 || dow === 6 ? 1800 : 400 * ((i % 3) - 1));
+    const add = Math.max(0, Math.round(base * 0.7));
+    const del = Math.max(0, Math.round(base * 0.3));
     const total = add + del;
 
     out[key] = { total, add, del };
@@ -54,16 +55,39 @@ function countCharsWithNewline(text) {
   const normalized = String(text).replace(/\r\n/g, "\n");
   return Array.from(normalized).length;
 }
-function toJstDateStr(d = new Date()) {
-  // VS Code は環境依存だが、明示的にJSTに補正（+09:00）
-  const tzOffsetMin = d.getTimezoneOffset(); // 分（JSTなら -540 が多い）
-  const wantOffset = -9 * 60; // JST
-  const delta = (wantOffset - tzOffsetMin) * 60000;
-  const j = new Date(d.getTime() + delta);
-  const y = j.getUTCFullYear();
-  const m = String(j.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(j.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+// --- タイムゾーン対応：日付キー作成（YYYY-MM-DD） ---
+const _dtfCache = new Map(); // timeZone -> Intl.DateTimeFormat
+
+function getDateKeyFormatter(timeZone) {
+  const tz = timeZone && timeZone !== "system" ? timeZone : undefined; // undefined = OS既定
+  if (!tz) {
+    // ★system（OS既定TZ）の場合は毎回新規生成（OSのTZ変更に即追従）
+    return new Intl.DateTimeFormat("ja-JP-u-ca-gregory", {
+      timeZone: undefined,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  }
+  // ここから先は IANA 指定のみキャッシュ
+  if (_dtfCache.has(tz)) return _dtfCache.get(tz);
+  const fmt = new Intl.DateTimeFormat("ja-JP-u-ca-gregory", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  _dtfCache.set(tz, fmt);
+  return fmt;
+}
+
+function toTzDateKey(d = new Date(), timeZone = "system") {
+  const fmt = getDateKeyFormatter(timeZone);
+  const parts = fmt.formatToParts(d);
+  const y = parts.find((p) => p.type === "year").value;
+  const m = parts.find((p) => p.type === "month").value;
+  const day = parts.find((p) => p.type === "day").value;
+  return `${y}-${m}-${day}`; // YYYY-MM-DD
 }
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
@@ -139,7 +163,7 @@ function updateStatusBarText(c) {
     return;
   }
 
-  const today = toJstDateStr();
+  const today = toTzDateKey(new Date(), c.timeZone);
   const hist = getHistory(_context);
   const h = hist[today];
   const todaySum = typeof h === "number" ? h : h?.total || 0;
@@ -150,13 +174,13 @@ function updateStatusBarText(c) {
   sb.show();
 }
 function buildHoverTooltip(hist) {
-  // 過去7日（本日含む）合計と内訳
+  const c = cfg();
   let total7 = 0;
   const lines = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const key = toJstDateStr(d);
+    const key = toTzDateKey(d, c.timeZone);
     const raw = hist[key];
     const vTotal = typeof raw === "number" ? raw : raw?.total || 0;
     total7 += vTotal;
@@ -167,6 +191,7 @@ function buildHoverTooltip(hist) {
 
 // ---- メイン：変更処理 ----
 function handleDocChange(e, c) {
+  checkDateRollover();
   if (!c.workloadEnabled) return;
 
   const doc = e.document;
@@ -193,7 +218,7 @@ function handleDocChange(e, c) {
   const delta = added + removed; // 「純作業量」= 入力 + 削除
   if (delta > 0) {
     const hist = getHistory(_context);
-    const key = toJstDateStr();
+    const key = toTzDateKey(new Date(), cfg().timeZone);
     const cur = hist[key];
     // 後方互換：数値なら {total,add,del} に昇格
     let rec =
@@ -214,6 +239,25 @@ function handleDocChange(e, c) {
 
   // 表示更新
   updateStatusBarText(c);
+}
+
+// 日付越え検知＆初期化
+function checkDateRollover() {
+  if (!_context) return;
+  const nowKey = toTzDateKey(new Date(), cfg().timeZone);
+
+  if (_lastDateKey && nowKey === _lastDateKey) return;
+
+  _lastDateKey = nowKey;
+  setSessionSum(0);
+
+  const hist = getHistory(_context);
+  const cur = hist[nowKey];
+  if (cur == null) {
+    hist[nowKey] = { total: 0, add: 0, del: 0 };
+    saveHistory(_context, hist);
+  }
+  updateStatusBarText(cfg());
 }
 
 // ---- 公開API ----
@@ -244,6 +288,22 @@ function initWorkload(context, helpers) {
     })
   );
 
+  // ミッドナイト監視開始（30秒おき）
+  _lastDateKey = toTzDateKey(new Date(), cfg().timeZone);
+  _midnightTimer = setInterval(() => {
+    checkDateRollover();
+  }, 30 * 1000);
+
+  // dispose 時に止める（context にぶら下げる）
+  context.subscriptions.push({
+    dispose() {
+      if (_midnightTimer) {
+        clearInterval(_midnightTimer);
+        _midnightTimer = null;
+      }
+    },
+  });
+
   // 初期表示
   updateStatusBarText(cfg());
 
@@ -255,6 +315,8 @@ function initWorkload(context, helpers) {
       showWorkloadGraph(context);
     })
   );
+
+  checkDateRollover();
 
   return {
     onConfigChanged(editor) {
@@ -269,7 +331,8 @@ function cfg() {
   return {
     // 既存の isTargetDoc を使うため helpers からだけ受け取る
     workloadEnabled: c.get("workload.enabled", true),
-    dailyTarget: c.get("workload.dailyTarget", 2000),
+    dailyTarget: c.get("workload.dailyTarget", 10000),
+    timeZone: c.get("workload.timeZone", "system"),
   };
 }
 
@@ -293,11 +356,12 @@ function showWorkloadGraph(context) {
 }
 
 function buildLastNDays(hist, n) {
+  const c = cfg();
   const arr = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const key = toJstDateStr(d);
+    const key = toTzDateKey(d, c.timeZone);
     const raw = hist[key];
     if (typeof raw === "number") {
       arr.push({ date: key, total: raw, add: 0, del: 0 });
@@ -311,29 +375,22 @@ function buildLastNDays(hist, n) {
       });
     }
   }
-  return arr; // 左が古い日、右が本日（棒は右へ新しくなる）
+  return arr;
 }
 
-function getGraphHtml(webview, days, targetValue = 2000) {
+function getGraphHtml(webview, days, targetValue = 10000) {
   // Data
   const total = days.reduce((a, b) => a + (b.total || 0), 0);
   const maxTotal = Math.max(0, ...days.map((d) => d.total || 0));
   const maxAdd = Math.max(0, ...days.map((d) => d.add || 0));
   const maxDel = Math.max(0, ...days.map((d) => d.del || 0));
-  // 折れ線は視認性のため 1.5倍で描画するので、スケールも 1.5倍分を考慮
-  const LINE_SCALE = 1.5;
-  const rawMax = Math.max(
-    1,
-    targetValue,
-    maxTotal,
-    maxAdd * LINE_SCALE,
-    maxDel * LINE_SCALE
-  );
-  const TICK_STEP = 1000; // ★固定：1000字ごと
+  const rawMax = Math.max(1, targetValue, maxTotal, maxAdd, maxDel);
+  // 目標値の1/5刻みにグリッドを引く（最低100刻み）
+  const TICK_STEP = Math.max(100, Math.round(targetValue / 5));
   const chartMax = Math.max(
     TICK_STEP,
     Math.ceil(rawMax / TICK_STEP) * TICK_STEP
-  ); // ★上端を1000の倍数に切り上げ
+  );
   const csp = `
     default-src 'none';
     img-src ${webview.cspSource} data:;
@@ -397,8 +454,8 @@ function getGraphHtml(webview, days, targetValue = 2000) {
       <span><span class="swatch target"></span>目標ライン（${targetValue.toLocaleString(
         "ja-JP"
       )}字/日）</span>
-      <span><span class="swatch lineAdd"></span>入力（折れ線 ×1.5）</span>
-      <span><span class="swatch lineDel"></span>削除（折れ線 ×1.5）</span>
+      <span><span class="swatch lineAdd"></span>入力（折れ線）</span>
+      <span><span class="swatch lineDel"></span>削除（折れ線）</span>
     </div>
     <div class="chart">
       <svg viewBox="0 0 1000 600" preserveAspectRatio="none" id="chartSvg" aria-label="純作業量棒グラフ"></svg>
@@ -411,8 +468,7 @@ function getGraphHtml(webview, days, targetValue = 2000) {
     const DAYS = ${JSON.stringify(days)};
     const chartMax = ${chartMax};       // 切り上げ後の上端
     const targetValue = ${targetValue}; // 同上
-    const TICK_STEP = 1000;              // ★固定：1000字ごと
-    const LINE_SCALE = 1.5;               // ★折れ線は視認性向上のため 1.5倍表示
+    const TICK_STEP = ${TICK_STEP};     // 目標値の1/5刻み（最低100）
 
     const svg = document.getElementById('chartSvg');
     const W = 1000, H = 600, PAD = 28;
@@ -432,7 +488,7 @@ function getGraphHtml(webview, days, targetValue = 2000) {
 
     // 棒
     const n = DAYS.length;
-    const gap = 2; // 棒間隔(px換算)
+    const gap = 3; // 棒間隔(px換算)
     const barW = innerW / n;
     // 最大日のバー（total 基準）
     const maxIndex = DAYS.reduce((mi, d, i) => ((d.total||0) > (DAYS[mi].total||0) ? i : mi), 0);
@@ -458,7 +514,7 @@ function getGraphHtml(webview, days, targetValue = 2000) {
       const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
       r.setAttribute('x', x);
       r.setAttribute('y', y);
-      r.setAttribute('width', Math.max(1, barW - gap));
+      r.setAttribute('width', Math.max(1, barW - gap * 3));
       r.setAttribute('height', Math.max(0, h));
       r.setAttribute(
        'fill',
@@ -482,9 +538,8 @@ function getGraphHtml(webview, days, targetValue = 2000) {
       const pts = [];
       for (let i=0;i<n;i++){
         const d = DAYS[i];
-        // 折れ線は視認性のため 1.5倍で描画（棒・ツールチップは実値のまま）
         const base = (selector === 'add') ? (d.add||0) : (d.del||0);
-        const v = base * LINE_SCALE; // 1.5倍
+        const v = base;
         const x = PAD + (barW * i + (barW - gap)/2 + gap*0.5); // 棒の中央
         const y = PAD + (innerH - (v / chartMax) * (innerH - 1));
         pts.push(x + ',' + y);
@@ -495,14 +550,14 @@ function getGraphHtml(webview, days, targetValue = 2000) {
     polyAdd.setAttribute('points', linePoints('add'));
     polyAdd.setAttribute('fill','none');
     polyAdd.setAttribute('stroke', '#00ff55');
-    polyAdd.setAttribute('stroke-width','2');
+    polyAdd.setAttribute('stroke-width','6');
     svg.appendChild(polyAdd);
 
     const polyDel = document.createElementNS('http://www.w3.org/2000/svg','polyline');
     polyDel.setAttribute('points', linePoints('del'));
     polyDel.setAttribute('fill','none');
     polyDel.setAttribute('stroke', '#ff00ff');
-    polyDel.setAttribute('stroke-width','2');
+    polyDel.setAttribute('stroke-width','6');
     svg.appendChild(polyDel); // ★追加：削除系列の折れ線を描画
 
     // ---- 折れ線の頂点マーカー（入力=●、削除=■ / 値0は表示しない）----
@@ -511,11 +566,11 @@ function getGraphHtml(webview, days, targetValue = 2000) {
       const xCenter = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
       // 入力（add）…値>0のみ円マーカー
       if ((d.add||0) > 0) {
-        const yAdd = PAD + (innerH - ((d.add * LINE_SCALE) / chartMax) * (innerH - 1));
+        const yAdd = PAD + (innerH - (d.add / chartMax) * (innerH - 1));
         const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
         c.setAttribute('cx', xCenter);
         c.setAttribute('cy', yAdd);
-        c.setAttribute('r', 3);
+        c.setAttribute('r', 8);
         c.setAttribute('fill', '#00ff55');
         c.setAttribute('stroke', '#00000088');
         c.setAttribute('stroke-width', '1');
@@ -523,8 +578,8 @@ function getGraphHtml(webview, days, targetValue = 2000) {
       }
       // 削除（del）…値>0のみ四角マーカー
       if ((d.del||0) > 0) {
-        const yDel = PAD + (innerH - ((d.del * LINE_SCALE) / chartMax) * (innerH - 1));
-        const s = 6; // 一辺
+        const yDel = PAD + (innerH - (d.del / chartMax) * (innerH - 1));
+        const s = 16; // 一辺
         const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
         r.setAttribute('x', xCenter - s/2);
         r.setAttribute('y', yDel - s/2);
