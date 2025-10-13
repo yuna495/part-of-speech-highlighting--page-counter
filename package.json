@@ -225,6 +225,10 @@
       {
         "command": "posNote.ruby.insertBouten",
         "title": "POS/Note: 選択文字に傍点を付ける（|字《・》…）"
+      },
+      {
+        "command": "posNote.workload.showGraph",
+        "title": "POS/Note: 純作業量グラフを表示"
       }
     ],
     "menus": {
@@ -303,6 +307,12 @@
             "type": "boolean",
             "default": true,
             "description": "ステータスバーに『純作業量（入力/貼り付け/削除の合計・改行）』を表示し、ホバーで過去7日合計を表示する。"
+          },
+          "posNote.workload.dailyTarget": {
+            "type": "number",
+            "default": 2000,
+            "minimum": 0,
+            "description": "純作業量の1日目標値。グラフに赤い水平ラインとして表示する。"
           },
           "posNote.enabledNote": {
             "type": "boolean",

@@ -89,6 +89,8 @@ function ensureStatusBar(context) {
     1 // 既存のページ/字より少し優先度高めに左寄せ
   );
   context.subscriptions.push(_statusBarItem);
+  // ステータスバーをクリックしたらグラフを開く
+  _statusBarItem.command = "posNote.workload.showGraph";
   return _statusBarItem;
 }
 function updateStatusBarText(c) {
@@ -195,6 +197,15 @@ function initWorkload(context, helpers) {
   // 初期表示
   updateStatusBarText(cfg());
 
+  // グラフ表示コマンド（表示用のみ）
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.workload.showGraph", async () => {
+      const c = cfg();
+      if (!c.workloadEnabled) return; // OFFなら何もしない
+      showWorkloadGraph(context);
+    })
+  );
+
   return {
     onConfigChanged(editor) {
       updateStatusBarText(cfg());
@@ -208,7 +219,206 @@ function cfg() {
   return {
     // 既存の isTargetDoc を使うため helpers からだけ受け取る
     workloadEnabled: c.get("workload.enabled", true),
+    dailyTarget: c.get("workload.dailyTarget", 2000),
   };
+}
+
+// ---- グラフ表示（Webview） ----
+function showWorkloadGraph(context) {
+  const panel = vscode.window.createWebviewPanel(
+    "posNoteWorkloadGraph",
+    "純作業量（過去30日）",
+    vscode.ViewColumn.Beside,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+    }
+  );
+
+  const hist = getHistory(context);
+  const days = buildLastNDays(hist, 30); // [{date:'YYYY-MM-DD', value:number}, ...] 右端が本日
+
+  const { dailyTarget } = cfg();
+  panel.webview.html = getGraphHtml(panel.webview, days, dailyTarget);
+}
+
+function buildLastNDays(hist, n) {
+  const arr = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = toJstDateStr(d);
+    arr.push({ date: key, value: hist[key] || 0 });
+  }
+  return arr; // 左が古い日、右が本日（棒は右へ新しくなる）
+}
+
+function getGraphHtml(webview, days, targetValue = 2000) {
+  // Data
+  const total = days.reduce((a, b) => a + b.value, 0);
+  const maxDay = Math.max(0, ...days.map((d) => d.value));
+  const rawMax = Math.max(1, maxDay, targetValue); // 目標値もスケールに反映
+  const TICK_STEP = 1000; // ★固定：1000字ごと
+  const chartMax = Math.max(
+    TICK_STEP,
+    Math.ceil(rawMax / TICK_STEP) * TICK_STEP
+  ); // ★上端を1000の倍数に切り上げ
+  const csp = `
+    default-src 'none';
+    img-src ${webview.cspSource} data:;
+    script-src 'unsafe-inline' ${webview.cspSource};
+    style-src 'unsafe-inline' ${webview.cspSource};
+  `;
+
+  // 軽量な SVG 棒グラフを自前描画（CDN不要）
+  // 配色は VS Code テーマに馴染むように CSS 変数で調整
+  return `<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>純作業量（過去30日）</title>
+  <style>
+    :root {
+      --fg: var(--vscode-editor-foreground, #ddd);
+      --bg: var(--vscode-editor-background, #1e1e1e);
+      --axis: var(--vscode-editorLineNumber-foreground, #888);
+      --bar: var(--vscode-charts-blue, #4da3ff);
+      --bar-max: var(--vscode-charts-yellow, #ffd166);
+      --target: var(--vscode-charts-red, #ff5555);
+      --grid: #4448;
+      --accent: var(--vscode-textLink-foreground, #58a6ff);
+    }
+    body { margin: 0; font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans JP', sans-serif; color: var(--fg); background: var(--bg); }
+    header { padding: 12px 16px; border-bottom: 1px solid #ffffff12; }
+    header h1 { font-size: 14px; margin: 0 0 4px 0; }
+    header .meta { color: var(--axis); }
+    .wrap { padding: 10px 16px 16px; }
+    .legend { display:flex; gap:16px; align-items:center; margin: 6px 0 12px; color: var(--axis); }
+    .swatch { width:10px; height:10px; border-radius: 2px; display:inline-block; margin-right:6px; vertical-align: -1px; }
+    .swatch.bar { background: var(--bar); }
+    .swatch.max { background: var(--bar-max); }
+    .swatch.target { background: var(--target); }
+    .chart { width: 100%; height: 240px; border-left:1px solid var(--axis); border-bottom:1px solid var(--axis); position: relative; }
+    svg { width: 100%; height: 100%; display:block; }
+    .xlabels { display:flex; justify-content:space-between; margin-top:6px; color: var(--axis); font-size: 11px; }
+    .hint { margin-top: 8px; color: var(--axis); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>純作業量（過去30日）</h1>
+    <div class="meta">合計: <b>${total.toLocaleString(
+      "ja-JP"
+    )}</b> ／ 最大日: <b>${maxDay.toLocaleString("ja-JP")}</b></div>
+  </header>
+  <div class="wrap">
+    <div class="legend">
+      <span><span class="swatch bar"></span>日別作業量</span>
+      <span><span class="swatch max"></span>最大日のバー</span>
+      <span><span class="swatch target"></span>目標ライン（${targetValue.toLocaleString(
+        "ja-JP"
+      )}字/日）</span>
+    </div>
+    <div class="chart">
+      <svg viewBox="0 0 1000 300" preserveAspectRatio="none" id="chartSvg" aria-label="純作業量棒グラフ"></svg>
+    </div>
+    <div class="xlabels" id="xlabels"></div>
+    <div class="hint">右端が本日。バーにマウスを置くと数値を表示します。</div>
+  </div>
+
+  <script>
+    const DAYS = ${JSON.stringify(days)};
+    const chartMax = ${chartMax};       // 切り上げ後の上端
+    const targetValue = ${targetValue}; // 同上
+    const TICK_STEP = 1000;              // ★固定：1000字ごと
+
+    const svg = document.getElementById('chartSvg');
+    const W = 1000, H = 300, PAD = 28;
+    const innerW = W - PAD*2, innerH = H - PAD*2;
+
+    // 背景グリッド（1000字ごと）＋ 左軸の数値ラベル
+    for (let v = 0; v <= chartMax; v += TICK_STEP) {
+      const y = PAD + (innerH - (v / chartMax) * (innerH - 1));
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', PAD);
+      line.setAttribute('x2', W - PAD);
+      line.setAttribute('y1', y);
+      line.setAttribute('y2', y);
+      line.setAttribute('stroke', getCss('--grid','#4448'));
+      svg.appendChild(line);
+    }
+
+    // 棒
+    const n = DAYS.length;
+    const gap = 2; // 棒間隔(px換算)
+    const barW = innerW / n;
+    const maxIndex = DAYS.reduce((mi, d, i) => d.value > DAYS[mi].value ? i : mi, 0);
+    const tooltip = makeTooltip();
+
+    // ---- ターゲット水平線 ----
+    const ty = PAD + (innerH - (targetValue / chartMax) * (innerH - 1));
+    const tline = document.createElementNS('http://www.w3.org/2000/svg','line');
+    tline.setAttribute('x1', PAD);
+    tline.setAttribute('x2', W - PAD);
+    tline.setAttribute('y1', ty);
+    tline.setAttribute('y2', ty);
+    tline.setAttribute('stroke', getCss('--target','#ff5555'));
+    tline.setAttribute('stroke-width', 1.5);
+    tline.setAttribute('stroke-dasharray', '6,4');
+    svg.appendChild(tline);
+
+    // ---- 棒 ----
+    DAYS.forEach((d, i) => {
+      const h = chartMax ? (d.value / chartMax) * (innerH - 1) : 0;
+      const x = PAD + barW * i + gap * 0.5;
+      const y = PAD + (innerH - h);
+      const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x', x);
+      r.setAttribute('y', y);
+      r.setAttribute('width', Math.max(1, barW - gap));
+      r.setAttribute('height', Math.max(0, h));
+      r.setAttribute('fill', i===maxIndex ? getCss('--bar-max','#ffd166') : getCss('--bar','#4da3ff'));
+      r.style.cursor = 'default';
+      r.addEventListener('mousemove', (ev) => {
+        tooltip.show(ev.clientX, ev.clientY, \`\${d.date}: \${d.value.toLocaleString('ja-JP')}\`);
+      });
+      r.addEventListener('mouseleave', () => tooltip.hide());
+      svg.appendChild(r);
+    });
+
+    // X 軸ラベル（左端/中央/右端のみ）
+    const xl = document.getElementById('xlabels');
+    const left = DAYS[0]?.date ?? '';
+    const mid = DAYS[Math.floor(n/2)]?.date ?? '';
+    const right = DAYS[n-1]?.date ?? '';
+    xl.innerHTML = \`<span>\${left}</span><span>\${mid}</span><span>\${right}</span>\`;
+
+    function getCss(name, fallback) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    }
+    function makeTooltip(){
+      const el = document.createElement('div');
+      el.style.position = 'fixed';
+      el.style.padding = '4px 8px';
+      el.style.fontSize = '11px';
+      el.style.background = 'rgba(0,0,0,.8)';
+      el.style.color = '#fff';
+      el.style.borderRadius = '4px';
+      el.style.pointerEvents = 'none';
+      el.style.transform = 'translate(12px, 12px)';
+      el.style.zIndex = 10000;
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      return {
+        show(x,y,text){ el.textContent = text; el.style.left = x+'px'; el.style.top = y+'px'; el.style.display='block'; },
+        hide(){ el.style.display='none'; }
+      }
+    }
+  </script>
+</body>
+</html>`;
 }
 
 module.exports = { initWorkload };
