@@ -701,14 +701,16 @@ class JapaneseSemanticProvider {
       const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
 
       // (fwspace)
+      const fwspaceRanges = [];
       {
-        const re = /　/g;
+        const re = /[ 　]/g;
         let m;
         while ((m = re.exec(text)) !== null) {
           const s = m.index,
             e = s + 1;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
             builder.push(line, s, 1, tokenTypesArr.indexOf("fwspace"), 0);
+            fwspaceRanges.push([s, e]); //括弧上書きから外すためのマスク
           }
         }
       }
@@ -733,18 +735,21 @@ class JapaneseSemanticProvider {
         }
       }
 
-      // (括弧上書き)
+      // (括弧上書き)：辞書 + fwspace を差し引く
       if (bracketOverrideOn) {
         const segs = bracketSegsByLine.get(line);
         if (segs?.length) {
-          // フェンス外だけに限定し、辞書は差し引かない（＝括弧内は全面 bracket）
           const segsOutsideFence = subtractMaskedIntervals(
             segs,
             fenceSegs.map(([s, e]) => ({ start: s, end: e }))
           );
+          // ★追加：fwspace も括弧上書きから除外
+          const maskForBracket = dictRangesOutsideFence.concat(
+            fwspaceRanges.map(([s, e]) => ({ start: s, end: e }))
+          );
           const rest = subtractMaskedIntervals(
             segsOutsideFence,
-            dictRangesOutsideFence
+            maskForBracket
           );
           for (const [sCh, eCh] of rest) {
             const len = eCh - sCh;

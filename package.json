@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -299,6 +299,11 @@
       {
         "title": "POS & Note - ステータスバー",
         "properties": {
+          "posNote.workload.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "ステータスバーに『純作業量（入力/貼り付け/削除の合計・改行）』を表示し、ホバーで過去7日合計を表示する。"
+          },
           "posNote.enabledNote": {
             "type": "boolean",
             "default": true,

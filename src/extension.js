@@ -11,6 +11,7 @@
 // ===== 1) Imports =====
 const vscode = require("vscode");
 const { initStatusBar, getBannedStart } = require("./status_bar");
+const { initWorkload } = require("./workload");
 const { initHeadingSidebar } = require("./sidebar_headings");
 const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
@@ -24,6 +25,7 @@ const { registerRubySupport } = require("./ruby");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
+let _workload = null;
 
 // ===== 4) Config Helper =====
 function cfg() {
@@ -87,6 +89,7 @@ function isTargetDoc(doc, c) {
 function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
+  _workload = initWorkload(context, { cfg, isTargetDoc });
   initHeadingSidebar(context, { cfg, isTargetDoc });
   initMinimapHighlight(context, { cfg, isTargetDoc });
 
@@ -233,6 +236,7 @@ function activate(context) {
       const ed = vscode.window.activeTextEditor;
       refreshHeadingCounts(ed, cfg);
       if (ed) sb.onConfigChanged(ed);
+      if (_workload && _workload.onConfigChanged) _workload.onConfigChanged(ed);
       if (semProvider && semProvider.fireDidChange) {
         semProvider.fireDidChange();
       }
