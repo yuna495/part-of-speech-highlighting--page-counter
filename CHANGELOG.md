@@ -2,6 +2,13 @@
 
 All notable changes to this extension are documented here.
 
+## [2.2.5]
+
+### 追加
+
+- 「#」による見出し行に、次の見出しまでの文字数を表示。（計算方法は総文字数計算と同じ。）
+  - 表示オプション付き（ON/OFF）。
+
 ## [2.2.4] - 2025/10/11
 
 ### 修正

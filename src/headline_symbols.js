@@ -1,7 +1,7 @@
 // headline_symbols.js
 // # 見出し → DocumentSymbol を提供して、アウトライン／パンくず／Sticky Scroll を有効化
 const vscode = require("vscode");
-const { getHeadingLevel } = require("./utils");
+const { getHeadingLevel, countCharsForDisplay } = require("./utils");
 
 /**
  * 行番号から、その見出しブロックの end 行（次の同格以下の見出し直前）を求める
@@ -70,7 +70,7 @@ class HeadingSymbolProvider {
       const sym = new vscode.DocumentSymbol(
         title,
         "", // detail は空に（必要なら文字数など入れても可）
-        vscode.SymbolKind.Section,
+        vscode.SymbolKind.Namespace,
         range,
         selectionRange
       );
@@ -89,6 +89,68 @@ class HeadingSymbolProvider {
 
     return syms;
   }
+}
+
+/**
+ * 見出しの「本文」＝次に現れる任意レベルの見出し直前まで
+ * 各見出し本文の文字数と合計を返す
+ * @returns {{ items: Array<{ line:number, level:number, title:string, range:vscode.Range, count:number }>, total:number }}
+ */
+function computeHeadingCharMetricsAnyLevel(document, c) {
+  const items = [];
+  const max = document.lineCount;
+
+  // 見出し一覧
+  const heads = [];
+  for (let i = 0; i < max; i++) {
+    const text = document.lineAt(i).text;
+    const level = getHeadingLevel(text);
+    if (level > 0) heads.push({ line: i, level, text });
+  }
+  if (heads.length === 0) return { items: [], total: 0 };
+
+  for (let i = 0; i < heads.length; i++) {
+    const { line: startLine, level, text } = heads[i];
+
+    // ★どのレベルの見出しでも区切る
+    let endLine = max - 1;
+    for (let j = i + 1; j < heads.length; j++) {
+      endLine = heads[j].line - 1;
+      break;
+    }
+    if (i === heads.length - 1) endLine = max - 1;
+
+    // 本文：見出し行“翌行”〜endLine
+    const bodyStart = Math.min(startLine + 1, endLine);
+    const range = new vscode.Range(
+      bodyStart,
+      0,
+      endLine,
+      document.lineAt(endLine).text.length
+    );
+    const bodyText = document.getText(range);
+    const count = countCharsForDisplay(bodyText, c);
+
+    const title = text.replace(/^#+\s*/, "").trim() || `Heading L${level}`;
+    items.push({ line: startLine, level, title, range, count });
+  }
+
+  const total = items.reduce((a, b) => a + b.count, 0);
+  return { items, total };
+}
+
+// ==== 共有キャッシュ ====
+const _headingMetricsCache = new WeakMap();
+// WeakMap<TextDocument, { version:number, result:{items,total} }>
+
+function getHeadingCharMetricsCached(document, c) {
+  const ver = document.version;
+  const hit = _headingMetricsCache.get(document);
+  if (hit && hit.version === ver) return hit.result;
+
+  const res = computeHeadingCharMetricsAnyLevel(document, c); // 既存ロジックを使う
+  _headingMetricsCache.set(document, { version: ver, result: res });
+  return res;
 }
 
 /**
@@ -112,4 +174,8 @@ function registerHeadingSymbolProvider(context) {
   );
 }
 
-module.exports = { registerHeadingSymbolProvider };
+module.exports = {
+  registerHeadingSymbolProvider,
+  getHeadingCharMetricsCached,
+  computeHeadingCharMetricsAnyLevel,
+};

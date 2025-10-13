@@ -16,7 +16,8 @@ const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
-const { registerHeadlineSupport } = require("./headline");
+const { registerHeadlineSupport, refreshHeadingCounts } = require("./headline");
+
 const { registerHeadingSymbolProvider } = require("./headline_symbols");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
@@ -58,6 +59,7 @@ function cfg() {
     headingFoldEnabled: c.get("headings.folding.enabled", true),
     headingSemanticEnabled: c.get("headings.semantic.enabled", true),
     headingFoldMinLevel: c.get("headings.foldMinLevel", 2),
+    headingsShowBodyCounts: c.get("headings.showBodyCounts", true),
 
     // 括弧内ハイライトのトグル
     bracketsOverrideEnabled: c.get("semantic.bracketsOverride.enabled", true),
@@ -101,6 +103,12 @@ function activate(context) {
   // ルビ/傍点 機能（外部モジュール）
   registerRubySupport(context);
 
+  async function safeRegisterCommand(context, id, fn) {
+    const cmds = await vscode.commands.getCommands(true); // すべてのコマンドID
+    if (cmds.includes(id)) return; // 既に存在 → 登録しない
+    context.subscriptions.push(vscode.commands.registerCommand(id, fn));
+  }
+
   // --- 9-3) Commands
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.refreshPos", () =>
@@ -126,6 +134,11 @@ function activate(context) {
       return combineMdInFolder(resourceUri);
     })
   );
+
+  safeRegisterCommand(context, "posNote.headings.refresh", () => {
+    const ed = vscode.window.activeTextEditor;
+    if (ed) refreshHeadingCounts(ed, cfg);
+  });
 
   // --- 9-4) Providers
   const semanticSelector = [
@@ -169,7 +182,7 @@ function activate(context) {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
         sb.recomputeOnSaveIfNeeded(doc);
-        vscode.commands.executeCommand("posNote.headings.refresh");
+        refreshHeadingCounts(ed, cfg);
         // プレビューの再描画（保存時のみ）
         PreviewPanel.update();
       }
@@ -179,6 +192,7 @@ function activate(context) {
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (!ed) return;
       sb.onActiveEditorChanged(ed);
+      refreshHeadingCounts(ed, cfg);
 
       // 直参照で統一（再 require はしない）
       const cp = PreviewPanel.currentPanel;
@@ -217,6 +231,7 @@ function activate(context) {
       )
         return;
       const ed = vscode.window.activeTextEditor;
+      refreshHeadingCounts(ed, cfg);
       if (ed) sb.onConfigChanged(ed);
       if (semProvider && semProvider.fireDidChange) {
         semProvider.fireDidChange();

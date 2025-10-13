@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.2.3",
+  "version": "2.2.5",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -275,12 +275,17 @@
         }
       },
       {
-        "title": "POS & Note - 見出し折りたたみ",
+        "title": "POS & Note - 見出し機能",
         "properties": {
           "posNote.headings.folding.enabled": {
             "type": "boolean",
             "default": true,
             "description": ".txt/novel で # 見出しを Markdown と同様に折りたたみ可能にする。"
+          },
+          "posNote.headings.showBodyCounts": {
+            "type": "boolean",
+            "default": true,
+            "description": "各見出しの末尾に『- 〇字』を表示する。falseで非表示。"
           },
           "posNote.headings.foldMinLevel": {
             "type": "number",

@@ -7,7 +7,13 @@ const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
 
-const { getHeadingLevel } = require("./utils");
+const {
+  getHeadingLevel,
+  stripClosedCodeFences,
+  stripHeadingLines,
+  countCharsForDisplay,
+} = require("./utils");
+const { getHeadingCharMetricsCached } = require("./headline_symbols");
 
 // ------- 内部 state -------
 let _statusBarItem = null;
@@ -123,83 +129,6 @@ function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
 
-/**
- * テキストを行配列に分解して、行頭の ``` で始まる行の“ペア”に挟まれた行を除去する。
- * 未クローズ（奇数個）の場合は **無視**（= 除外しない）して誤爆を防ぐ。
- * 返り値は、コードフェンス行自身も含めて除去した新しいテキスト。
- */
-function stripClosedCodeFences(text) {
-  const src = String(text || "").split(/\r?\n/);
-  const fenceRe = /^\s*```/;
-  const fenceLines = [];
-  for (let i = 0; i < src.length; i++) {
-    if (fenceRe.test(src[i])) fenceLines.push(i);
-  }
-  if (fenceLines.length < 2) return src.join("\n");
-
-  // 奇数の場合は末尾の開始だけ無視
-  if (fenceLines.length % 2 === 1) fenceLines.pop();
-
-  // 除外ラインをマーク
-  const mask = new Array(src.length).fill(false);
-  for (let k = 0; k < fenceLines.length; k += 2) {
-    const s = fenceLines[k],
-      e = fenceLines[k + 1];
-    for (let i = s; i <= e; i++) mask[i] = true; // フェンス行自身も除外
-  }
-
-  const out = [];
-  for (let i = 0; i < src.length; i++) {
-    if (!mask[i]) out.push(src[i]);
-  }
-  return out.join("\n");
-}
-
-// 見出し行（# で始まり getHeadingLevel(...) > 0 の行）を丸ごと除外
-function stripHeadingLines(text) {
-  const src = String(text || "").split(/\r?\n/);
-  const kept = [];
-  for (const ln of src) {
-    // getHeadingLevel は 0=見出しでない、>0=見出し
-    if (getHeadingLevel(ln) === 0) kept.push(ln);
-  }
-  return kept.join("\n");
-}
-
-// 表示用：設定に応じて半角/全角スペースを除外
-function countCharsForDisplay(text, c) {
-  // 改行正規化
-  let t = (text || "").replace(/\r\n/g, "\n");
-
-  // コードフェンス除外（ペア成立のみ）
-  t = stripClosedCodeFences(t);
-
-  // 見出し行を丸ごと除外（未選択時・選択時・合算の全てで統一）
-  t = stripHeadingLines(t);
-
-  // 《...》括弧内を除去
-  t = t.replace(/《.*?》/g, "");
-
-  const arr = Array.from(t);
-  if (c?.countSpaces) {
-    // スペースも字として数えるが、「#」 「|」 「｜」 は常に除外
-    return arr.filter(
-      (ch) => ch !== "\n" && ch !== "#" && ch !== "|" && ch !== "｜"
-    ).length;
-  } else {
-    // スペースは除外（半角/全角）、さらに 「#」 「|」 「｜」 も除外
-    return arr.filter(
-      (ch) =>
-        ch !== "\n" &&
-        ch !== " " &&
-        ch !== "　" &&
-        ch !== "#" &&
-        ch !== "|" &&
-        ch !== "｜"
-    ).length;
-  }
-}
-
 function countSelectedCharsForDisplay(doc, selections, c) {
   let sum = 0;
   for (const sel of selections) {
@@ -260,11 +189,10 @@ function computeNoteMetrics(doc, c, selection) {
   // 全文（CRLF→LF 正規化）
   const fullText = doc.getText().replace(/\r\n/g, "\n");
 
-  // 1) 総文字数：見出し行を除外して数える
-  const allLines = fullText.split("\n");
-  const nonHeadingLines = allLines.filter((ln) => getHeadingLevel(ln) === 0);
-  const textNoHeadings = nonHeadingLines.join("\n");
-  const totalChars = countCharsForDisplay(textNoHeadings, c); // ← 字は見出し除外＋スペース設定に従う
+  // 共有ロジックに一本化（キャッシュ付き）
+  const { items, total } = getHeadingCharMetricsCached(doc, c);
+  const totalChars =
+    items.length > 0 ? total : countCharsForDisplay(fullText, c);
 
   // 2) ページ/行：従来どおり「全文」で計算（見出しを含む）
   const totalWrappedRows = wrappedRowsForText(
