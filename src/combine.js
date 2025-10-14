@@ -12,6 +12,7 @@ const decoder = new TextDecoder("utf-8", { fatal: false });
 
 /**
  * 指定フォルダ直下の指定拡張子ファイルをファイル名昇順で取得
+ * @returns {Promise<string[]>} 連結に使用するファイル名の配列
  */
 async function listFilesByExt(folderUri, ext /* ".txt" など */) {
   const entries = await vscode.workspace.fs.readDirectory(folderUri);
@@ -30,6 +31,7 @@ async function listFilesByExt(folderUri, ext /* ".txt" など */) {
  * テキストを結合用に正規化:
  * - 改行コードを \n に統一
  * - 末尾に改行が無ければ付与
+ * こうすることで複数ファイルを連結した際の段落崩れを防ぐ
  */
 function normalizeTextForConcat(text) {
   const unified = text.replace(/\r\n?/g, "\n");
@@ -38,6 +40,7 @@ function normalizeTextForConcat(text) {
 
 /**
  * フォルダにファイルを書き出す際、重複したら (1), (2)... を付けて回避
+ * 既存ファイルを上書きしないよう安全側に振る
  */
 async function resolveCollisionFilename(
   folderUri,
@@ -66,6 +69,7 @@ async function resolveCollisionFilename(
 
 /**
  * 中核: 結合処理
+ * 実際の読み込み・正規化・書き出しを一括で面倒見る
  */
 async function combineByExtension(folderUri, ext, outBaseName) {
   if (!folderUri) {
@@ -120,6 +124,7 @@ async function combineByExtension(folderUri, ext, outBaseName) {
 
 /**
  * 公開 API: .txt / .md 専用
+ * 右クリックメニューから呼ばれたときに拡張子別の結合を実行する
  */
 async function combineTxtInFolder(folderUri) {
   return combineByExtension(folderUri, ".txt", "combined");

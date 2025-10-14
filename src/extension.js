@@ -28,6 +28,7 @@ let _sb = null; // status_bar の公開API（activateで初期化）
 let _workload = null;
 
 // ===== 4) Config Helper =====
+// 拡張設定を都度読み込んで機能ごとのフラグや値をまとめて返す
 function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
@@ -72,6 +73,7 @@ function cfg() {
 }
 
 // 対象ドキュメントか？
+// この拡張の対象とするドキュメントかを判定する
 function isTargetDoc(doc, c) {
   if (!doc) return false;
   if (!c.applyToTxtOnly) return true;
@@ -86,6 +88,7 @@ function isTargetDoc(doc, c) {
 }
 
 // ===== 9) activate / deactivate =====
+// 拡張機能のメイン初期化。各モジュールの登録とイベント配線を担う
 function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
@@ -106,6 +109,7 @@ function activate(context) {
   // ルビ/傍点 機能（外部モジュール）
   registerRubySupport(context);
 
+  // 既存コマンドと衝突しないよう事前確認してから登録するヘルパー
   async function safeRegisterCommand(context, id, fn) {
     const cmds = await vscode.commands.getCommands(true); // すべてのコマンドID
     if (cmds.includes(id)) return; // 既に存在 → 登録しない
@@ -244,6 +248,7 @@ function activate(context) {
   );
 }
 
+// プレビューWebviewが残らないよう終了時に明示破棄する
 function deactivate() {
   if (PreviewPanel.currentPanel) {
     PreviewPanel.currentPanel.dispose();

@@ -11,6 +11,7 @@ function getHeadingLevel(lineText) {
 }
 
 /** ``` フェンスの“閉じたペア”に挟まれた行（フェンス行自体も）を除去 */
+// 文字数カウントやプレビューの対象からコードブロックを外すための前処理
 function stripClosedCodeFences(text) {
   const src = String(text || "").split(/\r?\n/);
   const fenceRe = /^\s*```/;
@@ -33,6 +34,7 @@ function stripClosedCodeFences(text) {
 }
 
 /** 見出し行（#…）を丸ごと除外 */
+// 字数カウントに本文のみを反映させる
 function stripHeadingLines(text) {
   const src = String(text || "").split(/\r?\n/);
   const kept = [];
@@ -41,6 +43,7 @@ function stripHeadingLines(text) {
 }
 
 /** ステータス/見出し表示で共通の“字数”カウント */
+// スペースの扱いなど設定に合わせて文字数を求める
 function countCharsForDisplay(text, c) {
   let t = (text || "").replace(/\r\n/g, "\n");
   t = stripClosedCodeFences(t); // フェンス除外

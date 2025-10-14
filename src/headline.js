@@ -7,6 +7,7 @@ const countDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: "0 0 0 0.75em" },
 });
 
+// アクティブエディタの見出し文字数装飾を更新する外部公開関数
 function refreshHeadingCounts(ed, cfg) {
   updateHeadingCountDecorations(ed, cfg);
 }
@@ -16,6 +17,7 @@ const foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折
 const foldDocVersionAtFold = new Map(); // key: uriString, value: document.version
 
 // 現在行が「見出し level>=minLevel の本文」に含まれていれば、その見出し行番号を返す
+// 折りたたみ復元時にカーソル位置を安全に戻すための計算
 function findEnclosingHeadingLineFor(doc, line, minLevel) {
   let hLine = -1,
     hLevel = 0;
@@ -39,6 +41,7 @@ function findEnclosingHeadingLineFor(doc, line, minLevel) {
 }
 
 // 見出しレベルが minLevel 以上の見出し「行番号」リスト
+// 全折/展開の対象行をまとめて選択するために使用
 function collectHeadingLinesByMinLevel(document, minLevel) {
   const lines = [];
   for (let i = 0; i < document.lineCount; i++) {
@@ -50,6 +53,7 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
 }
 
 // 見出しの “全折/全展開” トグル（.txt / novel）
+// コマンド: 見出しを一括で折りたたむ／展開する
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -168,6 +172,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
 }
 
 // FoldingRangeProvider（対象：plaintext / novel。Markdown は VS Code 既定に委譲）
+// FoldingRangeProvider: .txt/.novel で VS Code に見出し折りたたみ範囲を提供する
 class HeadingFoldingProvider {
   constructor(cfg) {
     this._cfg = cfg;
@@ -249,6 +254,7 @@ function registerHeadlineSupport(
   context,
   { cfg, isTargetDoc, sb, semProvider }
 ) {
+  // 見出し関連のコマンドやイベントをまとめて登録する初期化処理
   // 1) コマンド
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
@@ -310,6 +316,7 @@ function registerHeadlineSupport(
   }
 }
 
+// 見出し末尾に表示する字数デコレーションを算出して適用する
 function updateHeadingCountDecorations(ed, cfg) {
   // ...前略（言語・設定チェックは現行のまま）...
   const c = cfg();

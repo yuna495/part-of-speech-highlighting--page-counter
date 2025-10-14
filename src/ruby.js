@@ -7,6 +7,7 @@ const vscode = require("vscode");
  *   - 非空白文字: `|{c}《・》`
  *   - 空白（半/全角・改行など）はそのまま温存
  *   - サロゲート/絵文字なども Array.from により「1字」として扱う
+ * @returns {string} 変換後のテキスト
  */
 function toBouten(text) {
   const chars = Array.from(text || "");
@@ -25,8 +26,9 @@ function toBouten(text) {
  * 複数選択に対応した置換と、置換後のカーソル移動。
  * @param {vscode.TextEditor} editor
  * @param {(text:string)=>{ replaced:string, caretOffset:number|null }} perSelection
- *  - perSelection は各選択テキストに対する置換結果と、
- *    選択開始位置からの「キャレットを置く相対オフセット」（nullなら末尾）を返す。
+  *  - perSelection は各選択テキストに対する置換結果と、
+  *    選択開始位置からの「キャレットを置く相対オフセット」（nullなら末尾）を返す。
+ * 選択範囲ごとに置換とカーソル移動をまとめて実行するユーティリティ
  */
 async function replaceSelectionsWithCarets(editor, perSelection) {
   const doc = editor.document;
@@ -132,6 +134,7 @@ async function insertBouten(editor) {
   });
 }
 
+// ルビ／傍点関連のコマンドを VS Code に登録する
 function registerRubySupport(context) {
   context.subscriptions.push(
     vscode.commands.registerTextEditorCommand(

@@ -3,6 +3,7 @@ const vscode = require("vscode");
 const { getHeadingLevel } = require("./utils");
 
 /** 見出しレベルごとに別デコレーション（ミニマップ前景色） */
+// レベルごとに異なる色を割り当てて可視化するための設定を生成する
 function makeDecorationTypes() {
   // テーマに馴染みやすい無彩色寄りのコントラスト配色（必要なら自由に差し替え）
   const colors = [
@@ -27,6 +28,7 @@ function makeDecorationTypes() {
 }
 
 /** 現在のエディタから見出し行の Range を抽出（レベル別） */
+// H1〜H6 で配列を分け、デコレーションにそのまま渡せる形にする
 function collectHeadingRanges(editor) {
   const doc = editor.document;
   const byLevel = [[], [], [], [], [], []]; // H1..H6
@@ -43,6 +45,7 @@ function collectHeadingRanges(editor) {
 }
 
 /** ミニマップ反映 */
+// 収集した行範囲をそれぞれのデコレーションに適用してハイライトする
 function applyMinimapDecorations(editor, decoTypes) {
   const byLevel = collectHeadingRanges(editor);
   for (let i = 0; i < decoTypes.length; i++) {
@@ -59,6 +62,7 @@ function initMinimapHighlight(context, helpers) {
   const deco = makeDecorationTypes();
 
   function refreshIfTarget(ed) {
+    // 適用対象ファイルのみミニマップを更新する
     if (!ed) return;
     const c = helpers.cfg();
     if (!helpers.isTargetDoc(ed.document, c)) return;
