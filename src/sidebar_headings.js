@@ -4,11 +4,13 @@ const { getHeadingLevel } = require("./utils");
 const path = require("path");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */
+// TreeView で表示しやすいように見出し記号を剥がす
 function stripHeadingMarkup(lineText) {
   return lineText.replace(/^ {0,3}#{1,6}\s+/, "").trim();
 }
 
 /** 見出しアイコン（Codicon）。レベルに応じて変える例 */
+// media/ 以下に用意した画像をレベル別に使い分ける
 function iconForLevel(level) {
   const mediaPath = path.join(__dirname, "image");
   switch (level) {
@@ -73,6 +75,7 @@ class HeadingNode extends vscode.TreeItem {
 }
 
 /** 見出しツリーのデータ提供 */
+// TreeDataProvider を実装してサイドバーへ見出し一覧を供給する
 class HeadingsProvider {
   /**
    * @param {{cfg:()=>any, isTargetDoc:(doc:any,c:any)=>boolean}} helpers
@@ -84,6 +87,7 @@ class HeadingsProvider {
     this._items = [];
   }
 
+  // 外部から呼び出されると TreeView を再描画する
   refresh() {
     this._onDidChangeTreeData.fire(undefined);
   }
@@ -94,6 +98,7 @@ class HeadingsProvider {
     return this._collectHeadingsOfActiveEditor();
   }
 
+  // VS Code に渡す TreeItem をそのまま返す
   getTreeItem(element) {
     return element;
   }
@@ -123,6 +128,7 @@ class HeadingsProvider {
 }
 
 /** コマンド：見出し位置へ移動し、行を表示 */
+// コマンド: TreeView から選択した見出しへジャンプする
 async function revealHeading(uri, line) {
   // アクティブエディタが同一文書でない場合は開く
   let editor = vscode.window.activeTextEditor;
@@ -143,6 +149,7 @@ async function revealHeading(uri, line) {
  * @param {vscode.ExtensionContext} context
  * @param {{cfg:()=>any, isTargetDoc:(doc:any,c:any)=>boolean}} helpers
  */
+// サイドバー TreeView を初期化し、イベントやコマンドを登録する
 function initHeadingSidebar(context, helpers) {
   const provider = new HeadingsProvider(helpers);
 

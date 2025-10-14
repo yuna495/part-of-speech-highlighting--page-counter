@@ -29,6 +29,7 @@ const DEMO_MODE = false;
 // ---- デモ用履歴を組み立てる ----
 // 直近30日（本日含む）をキー YYYY-MM-DD で作成
 // total = add + del で整合を取る
+// デモモードで使う架空の作業履歴を生成する
 function buildDemoHistory(days = 30) {
   const out = {};
   for (let i = days - 1; i >= 0; i--) {
@@ -49,6 +50,7 @@ function buildDemoHistory(days = 30) {
 }
 
 // ---- util ----
+// 改行を 1 文字として数えながら入力／削除量を算出する
 function countCharsWithNewline(text) {
   if (!text) return 0;
   // CRLF を LF に正規化してからコードポイント数を数える（\r\n を 1 として扱う）
@@ -58,6 +60,7 @@ function countCharsWithNewline(text) {
 // --- タイムゾーン対応：日付キー作成（YYYY-MM-DD） ---
 const _dtfCache = new Map(); // timeZone -> Intl.DateTimeFormat
 
+// タイムゾーンごとの DateTimeFormat をキャッシュして再利用する
 function getDateKeyFormatter(timeZone) {
   const tz = timeZone && timeZone !== "system" ? timeZone : undefined; // undefined = OS既定
   if (!tz) {
@@ -81,6 +84,7 @@ function getDateKeyFormatter(timeZone) {
   return fmt;
 }
 
+// 指定タイムゾーンの日付を YYYY-MM-DD 文字列に変換する
 function toTzDateKey(d = new Date(), timeZone = "system") {
   const fmt = getDateKeyFormatter(timeZone);
   const parts = fmt.formatToParts(d);
@@ -89,9 +93,11 @@ function toTzDateKey(d = new Date(), timeZone = "system") {
   const day = parts.find((p) => p.type === "day").value;
   return `${y}-${m}-${day}`; // YYYY-MM-DD
 }
+// 作業量を3桁区切りで表示する
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
+// 永続化された作業履歴（またはデモデータ）を取得する
 function getHistory(context) {
   if (DEMO_MODE) {
     // 架空データを返す（30日分）
@@ -101,6 +107,7 @@ function getHistory(context) {
   const obj = context.globalState.get(KEY_HISTORY);
   return obj && typeof obj === "object" ? { ...obj } : {};
 }
+// 作業履歴を globalState に保存する
 async function saveHistory(context, hist) {
   if (DEMO_MODE) {
     // デモ中は実データを汚さない
@@ -108,20 +115,25 @@ async function saveHistory(context, hist) {
   }
   await context.globalState.update(KEY_HISTORY, hist);
 }
+// 当日セッション内の作業量合計をメモリから取得
 function getSessionSum() {
   return _context?.workspaceState.get(KEY_TODAY_SESSION) || 0;
 }
+// 当日セッション内の作業量合計を更新
 function setSessionSum(n) {
   if (_context) _context.workspaceState.update(KEY_TODAY_SESSION, n);
 }
+// ドキュメントの直前本文スナップショットを取得
 function getPrevTextFor(doc) {
   const k = doc.uri.toString();
   return _prevText.get(k);
 }
+// ドキュメントの直前本文スナップショットを保存
 function setPrevTextFor(doc, text) {
   const k = doc.uri.toString();
   _prevText.set(k, text);
 }
+// 変更前テキストと Position から絶対オフセットを算出する
 function positionToOffset(prevText, pos) {
   // pos: { line, character }（変更前ドキュメント基準）
   // 改行は \n と仮定（CRLF でも VSCode の Position は行/桁論理で扱える）
@@ -135,6 +147,7 @@ function positionToOffset(prevText, pos) {
   off += pos.character;
   return off;
 }
+// 変更前テキストから指定範囲の文字列を切り出す
 function substringByRange(prevText, range) {
   // range: { start: Position, end: Position }（いずれも変更前ドキュメント基準）
   const s = positionToOffset(prevText, range.start);
@@ -143,6 +156,7 @@ function substringByRange(prevText, range) {
 }
 
 // ---- ステータスバー ----
+// 作業量表示用のステータスバー項目を lazily 作成する
 function ensureStatusBar(context) {
   if (_statusBarItem) return _statusBarItem;
   _statusBarItem = vscode.window.createStatusBarItem(
@@ -154,6 +168,7 @@ function ensureStatusBar(context) {
   _statusBarItem.command = "posNote.workload.showGraph";
   return _statusBarItem;
 }
+// 当日作業量を取得してステータスバーへ反映する
 function updateStatusBarText(c) {
   const sb = _statusBarItem;
   if (!sb) return;
@@ -173,6 +188,7 @@ function updateStatusBarText(c) {
   sb.tooltip = buildHoverTooltip(hist);
   sb.show();
 }
+// 過去7日分の作業量を集計し、ホバーツールチップ文字列を作る
 function buildHoverTooltip(hist) {
   const c = cfg();
   let total7 = 0;
@@ -190,6 +206,7 @@ function buildHoverTooltip(hist) {
 }
 
 // ---- メイン：変更処理 ----
+// テキスト変更イベントを解析し、入力・削除量を履歴へ積み上げる
 function handleDocChange(e, c) {
   checkDateRollover();
   if (!c.workloadEnabled) return;
@@ -242,6 +259,7 @@ function handleDocChange(e, c) {
 }
 
 // 日付越え検知＆初期化
+// 日付が変わったらセッションをリセットし、新しい日次レコードを用意する
 function checkDateRollover() {
   if (!_context) return;
   const nowKey = toTzDateKey(new Date(), cfg().timeZone);
@@ -261,6 +279,7 @@ function checkDateRollover() {
 }
 
 // ---- 公開API ----
+// 作業量トラッカーの初期化。イベント購読とステータスバー登録を行う
 function initWorkload(context, helpers) {
   _context = context;
   _helpers = helpers;
@@ -326,6 +345,7 @@ function initWorkload(context, helpers) {
 }
 
 // cfg を helpers から参照（extension.js と同形）
+// workload 関連の設定値をまとめて取得する
 function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
@@ -337,6 +357,7 @@ function cfg() {
 }
 
 // ---- グラフ表示（Webview） ----
+// 30日分の作業量グラフを Webview で表示する
 function showWorkloadGraph(context) {
   const panel = vscode.window.createWebviewPanel(
     "posNoteWorkloadGraph",
@@ -355,6 +376,7 @@ function showWorkloadGraph(context) {
   panel.webview.html = getGraphHtml(panel.webview, days, dailyTarget);
 }
 
+// 履歴から直近 n 日分のデータを抽出し、欠損日は0で補完する
 function buildLastNDays(hist, n) {
   const c = cfg();
   const arr = [];
@@ -378,6 +400,7 @@ function buildLastNDays(hist, n) {
   return arr;
 }
 
+// Webview に表示する SVG グラフの HTML 全体を組み立てる
 function getGraphHtml(webview, days, targetValue = 10000) {
   // Data
   const total = days.reduce((a, b) => a + (b.total || 0), 0);

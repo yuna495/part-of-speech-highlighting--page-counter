@@ -66,6 +66,7 @@ const DEFAULT_BANNED_START = [
   "ッ",
 ];
 
+// 設定から禁則文字リストを取得し、未設定なら既定値を返す
 function getBannedStart() {
   const config = vscode.workspace.getConfiguration("posNote");
   const userValue = config.get("kinsoku.bannedStart");
@@ -75,6 +76,7 @@ function getBannedStart() {
 }
 
 // ------- 公開APIの初期化 -------
+// ステータスバー表示の初期化と公開APIの作成
 function initStatusBar(context, helpers) {
   _helpers = helpers;
 
@@ -118,6 +120,7 @@ function initStatusBar(context, helpers) {
 }
 
 // ------- 低レベル util -------
+// 改行を除いた文字数を Array.from ベースで数える
 function countCharsNoLF(text) {
   return Array.from((text || "").replace(/\r\n/g, "\n")).filter(
     (ch) => ch !== "\n"
@@ -125,10 +128,12 @@ function countCharsNoLF(text) {
 }
 
 // 3桁区切りフォーマッタ（日本語ロケール）
+// 3桁区切りで整形するフォーマッタ（日本語ロケール）
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
 
+// 選択範囲それぞれの文字数を合算し、表示ルールに沿ってカウントする
 function countSelectedCharsForDisplay(doc, selections, c) {
   let sum = 0;
   for (const sel of selections) {
@@ -137,6 +142,7 @@ function countSelectedCharsForDisplay(doc, selections, c) {
   return sum;
 }
 
+// ドキュメント先頭から選択位置までのテキストを取得する
 function editorPrefixText(doc, selection) {
   if (!selection) return "";
   const start = new vscode.Position(0, 0);
@@ -145,6 +151,7 @@ function editorPrefixText(doc, selection) {
 }
 
 // 禁則折返し
+// 原稿用紙風の折り返し行数を禁則処理込みで算出する
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   // 改行正規化
   let t = (text || "").replace(/\r\n/g, "\n");
@@ -185,6 +192,7 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
 }
 
 // 原稿用紙風メトリクス
+// 総文字数やページ番号など原稿用紙メトリクスをまとめて計算する
 function computeNoteMetrics(doc, c, selection) {
   // 全文（CRLF→LF 正規化）
   const fullText = doc.getText().replace(/\r\n/g, "\n");
@@ -229,6 +237,7 @@ function computeNoteMetrics(doc, c, selection) {
 }
 
 // Git ルート
+// 現在ファイルから親ディレクトリを辿り、最初に見つかった .git を返す
 function findGitRoot(startDir) {
   try {
     let dir = startDir;
@@ -240,6 +249,7 @@ function findGitRoot(startDir) {
   return null;
 }
 // HEAD のファイル内容
+// HEAD 時点のファイル内容を git show で取得する
 function readFileAtHEAD(gitRoot, relPath) {
   try {
     const r = cp.spawnSync("git", ["-C", gitRoot, "show", `HEAD:${relPath}`], {
@@ -251,6 +261,7 @@ function readFileAtHEAD(gitRoot, relPath) {
   return null;
 }
 // 現在/HEAD（編集中ファイル単体）
+// HEAD と現在編集中ファイルの文字数差分を得るため HEAD 側文字数を計算
 function _computeFileCharsAtHEAD(editor) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
@@ -265,12 +276,14 @@ function _computeFileCharsAtHEAD(editor) {
 
   return { key: fsPath, value: countCharsNoLF(content) };
 }
+// 現在編集中ファイルの文字数を取得
 function _computeFileCharsCurrent(editor) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
   if (!fsPath) return { key: null, value: null };
   return { key: fsPath, value: countCharsNoLF(doc.getText()) };
 }
+// HEAD と現在の文字数差を再計算して内部キャッシュに保持する
 function _recomputeFileDelta(editor) {
   const head = _computeFileCharsAtHEAD(editor);
   const curr = _computeFileCharsCurrent(editor);
@@ -285,6 +298,7 @@ function _recomputeFileDelta(editor) {
 
 // ------- ★追加：同フォルダ・同拡張子（他ファイル）合算 -------
 // 同フォルダ・同拡張子の合算（★編集中ファイルも含む。未保存の変更も反映）
+// 同フォルダ・同拡張子のファイルを巡回して総文字数を合算する
 function computeFolderSumChars(editor, c) {
   try {
     const doc = editor?.document;
@@ -334,6 +348,7 @@ function computeFolderSumChars(editor, c) {
   }
 }
 
+// 表示対象かつ設定ONの場合にフォルダ合算文字数を更新する
 function recomputeFolderSum(editor) {
   const { cfg, isTargetDoc } = _helpers;
   if (!editor) {
@@ -353,6 +368,7 @@ function recomputeFolderSum(editor) {
 }
 
 // ------- メイン処理（公開APIで呼ばれる） -------
+// ステータスバー表示に必要なメトリクスを再計算しキャッシュする
 function recomputeAndCacheMetrics(editor) {
   const { cfg, isTargetDoc } = _helpers;
   if (!editor) {
@@ -367,6 +383,7 @@ function recomputeAndCacheMetrics(editor) {
   _metrics = computeNoteMetrics(editor.document, c, editor.selection);
 }
 
+// 現在のメトリクスに基づいてステータスバー文字列を更新・表示する
 function updateStatusBar(editor) {
   const { cfg, isTargetDoc } = _helpers;
   const c = cfg();
@@ -459,6 +476,7 @@ function updateStatusBar(editor) {
   _statusBarItem.show();
 }
 
+// 入力の度に連続して再計算しすぎないよう、更新処理をディレイさせる
 function scheduleUpdate(editor) {
   const { cfg } = _helpers;
   const c = cfg();
@@ -475,6 +493,7 @@ function scheduleUpdate(editor) {
 }
 
 // ------- events hooks -------
+// 保存時に最新情報へ更新する（対象ファイルのみ）
 function recomputeOnSaveIfNeeded(savedDoc) {
   const ed = vscode.window.activeTextEditor;
   if (!ed || savedDoc !== ed.document) return;
@@ -483,6 +502,7 @@ function recomputeOnSaveIfNeeded(savedDoc) {
   recomputeFolderSum(ed);
   updateStatusBar(ed);
 }
+// アクティブエディタが切り替わったときに差分や合算をリフレッシュ
 function onActiveEditorChanged(ed) {
   if (!ed) return;
   _recomputeFileDelta(ed);
@@ -490,11 +510,13 @@ function onActiveEditorChanged(ed) {
   recomputeFolderSum(ed);
   scheduleUpdate(ed);
 }
+// 選択変更に応じて文字数・ページ情報を更新
 function onSelectionChanged(editor) {
   // 選択だけでは合算は再計算しない（重いI/Oを避ける）
   recomputeAndCacheMetrics(editor);
   updateStatusBar(editor);
 }
+// 設定変更を反映し、必要な再計算を行う
 function onConfigChanged(editor) {
   recomputeAndCacheMetrics(editor);
   recomputeFolderSum(editor); // （設定変更に追随）
@@ -502,6 +524,7 @@ function onConfigChanged(editor) {
 }
 
 // ------- commands -------
+// コマンド: ステータスバーの内容を即時再計算する
 async function cmdRefreshPos() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -509,6 +532,7 @@ async function cmdRefreshPos() {
   recomputeFolderSum(ed);
   updateStatusBar(ed);
 }
+// コマンド: 原稿用紙表示のON/OFFを切り替える
 async function cmdToggleNote() {
   _enabledNote = !_enabledNote;
   updateStatusBar(vscode.window.activeTextEditor);
@@ -516,6 +540,7 @@ async function cmdToggleNote() {
     `ページカウンタ: ${_enabledNote ? "有効化" : "無効化"}`
   );
 }
+// コマンド: 原稿用紙の行数・列数をインタラクティブに変更する
 async function cmdSetNoteSize() {
   const { cfg } = _helpers;
   const c = cfg();

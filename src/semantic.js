@@ -69,6 +69,7 @@ let tokenizer = null;
  * 拡張直下の dict/ を使って kuromoji を初期化
  * 見つからない場合はエラーメッセージを出して return（呼び側の try/catch でフォールバック）
  * @param {vscode.ExtensionContext} context
+ * Node 上で一度だけビルドし、以降はキャッシュされた tokenizer を使い回す
  */
 async function ensureTokenizer(context) {
   if (tokenizer) return;
@@ -92,6 +93,7 @@ async function ensureTokenizer(context) {
  * ====================================== */
 
 /** HTML エスケープ（最小限） */
+// プレビューやツールチップ内での XSS を避けるため最低限の文字を置換する
 function _escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -102,6 +104,7 @@ function _escapeHtml(s) {
 /**
  * 文書の見出しブロックを (# の連なりで) 粗く特定する。
  * 戻り値: [{ start: 見出し行, end: ブロック終端行(含む) }, ...]
+ * 折りたたみ推定などで基礎データとして使用
  */
 function _computeHeadingBlocks(document) {
   const blocks = [];
@@ -129,6 +132,7 @@ function _computeHeadingBlocks(document) {
  *    折りたたみ候補の範囲と heading ブロックが重なる → 折りたたみ中と判定
  *
  * 戻り値: 除外すべき行区間 [{ from, to } ...] （両端とも行番号・含む）
+ * Semantic Token の計算を省いて高速化する目的
  */
 async function _getCollapsedHeadingRanges(document) {
   const editor = vscode.window.visibleTextEditors.find(
@@ -187,6 +191,7 @@ async function _getCollapsedHeadingRanges(document) {
 }
 
 /** 区間配列をマージ（[{from,to}...] -> 非重複に） */
+// 折りたたみ判定で重複した区間を1本にまとめる
 function _mergeRanges(ranges) {
   if (!ranges.length) return [];
   const sorted = ranges.slice().sort((a, b) => a.from - b.from);
@@ -204,6 +209,7 @@ function _mergeRanges(ranges) {
 }
 
 /** 括弧セグメント内判定 */
+// 指定した開始・終了がどれかの括弧区間に完全に含まれているか調べる
 function isInsideAnySegment(start, end, segs) {
   if (!segs || segs.length === 0) return false;
   for (const [s, e] of segs) {
@@ -217,6 +223,7 @@ function isInsideAnySegment(start, end, segs) {
  * - 囲みはネスト非対応（一般的な Markdown と同様の単純規則）
  * - フェンス行自体も「コメント扱い」に含める
  * 返値: vscode.Range[] （行単位だが文字オフセットも適切に付与）
+ * Semantic Token の除外対象を決めるために利用
  */
 function computeFenceRanges(doc) {
   const ranges = [];
@@ -252,6 +259,7 @@ function computeFenceRanges(doc) {
 }
 
 /** ドキュメント全体から全角括弧の Range を収集（エディタ用） */
+// 括弧の開きと閉じを対応付け、ハイライト上書きに使う
 function computeFullwidthQuoteRanges(doc) {
   const text = doc.getText();
   const ranges = [];
@@ -279,6 +287,7 @@ function computeFullwidthQuoteRanges(doc) {
 }
 
 /** kuromoji の品詞 → semantic token type へ変換 */
+// 品詞名からセマンティックトークン種別と修飾ビットを導く
 function mapKuromojiToSemantic(tk) {
   const pos = tk.pos || "";
   const pos1 = tk.pos_detail_1 || "";
@@ -302,6 +311,7 @@ function mapKuromojiToSemantic(tk) {
 }
 
 /** 1行テキストと kuromoji トークン列から、表層形のオフセットを列挙 */
+// yield で (開始, 終了, トークン) を順に返すジェネレータ
 function* enumerateTokenOffsets(lineText, tokens) {
   let cur = 0;
   for (const tk of tokens) {
@@ -319,6 +329,7 @@ function* enumerateTokenOffsets(lineText, tokens) {
  * ====================================== */
 
 // JSON: 配列形式 / 連想形式 / 文字列配列の全対応で {words:Set<string>} を返す
+// 作品ごとの人物・用語辞書を柔軟に読み込むためのヘルパー
 async function loadWordsFromJsonFile(filePath, charMode /*true=characters*/) {
   try {
     const txt = await fs.promises.readFile(filePath, "utf8");
@@ -420,6 +431,7 @@ async function loadLocalDictForDoc(docUri) {
  * 行テキストから、辞書語の**非重複**マッチを抽出
  * - 最長一致優先 → 重複領域は先取で確定
  * - 返値: [{start, end, kind:"character"|"glossary"}]
+ * 品詞ハイライトよりも優先して強調するための区間情報
  */
 function matchDictRanges(lineText, charsSet, glosSet) {
   const res = [];
@@ -468,6 +480,7 @@ function matchDictRanges(lineText, charsSet, glosSet) {
  * @param {Array<[number, number]>} A
  * @param {{start:number, end:number}[]} mask
  * @returns {Array<[number, number]>}
+ * フェンスや辞書に覆われた部分を除いた残り区間を計算する
  */
 function subtractMaskedIntervals(A, mask) {
   if (!A || A.length === 0) return [];
@@ -508,6 +521,7 @@ function subtractMaskedIntervals(A, mask) {
 /* ========================================
  * 6) エディタ側 Semantic Provider
  * ====================================== */
+// VS Code の SemanticTokensProvider を実装し、品詞ハイライトを供給する
 class JapaneseSemanticProvider {
   /**
    * @param {vscode.ExtensionContext} context
@@ -537,15 +551,18 @@ class JapaneseSemanticProvider {
     );
   }
 
+  // VS Code に渡す SemanticTokensLegend を返す
   _legend() {
     return semanticLegend;
   }
 
+  // 外部から呼び出し、セマンティックトークンの再発行を促す
   fireDidChange() {
     this._onDidChangeSemanticTokens.fire();
   }
 
   // semantic.js 内 JapaneseSemanticProvider クラス
+  // 指定範囲のテキストを解析し、セマンティックトークンデータを構築する本体
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
 
@@ -784,6 +801,7 @@ class JapaneseSemanticProvider {
     return builder.build();
   }
 
+  // ドキュメント全体のセマンティックトークンを生成
   async provideDocumentSemanticTokens(document, token) {
     if (token?.isCancellationRequested) {
       return new vscode.SemanticTokens(new Uint32Array());
@@ -797,6 +815,7 @@ class JapaneseSemanticProvider {
     return this._buildTokens(document, fullRange, token);
   }
 
+  // ドキュメントの一部範囲のみセマンティックトークンを生成
   async provideDocumentRangeSemanticTokens(document, range, token) {
     if (token?.isCancellationRequested) {
       return new vscode.SemanticTokens(new Uint32Array());
@@ -829,6 +848,7 @@ class JapaneseSemanticProvider {
 /**
  * 与えられた素テキストを行単位に見て、^``` のペアで囲まれた行だけ true にするマスクを返す。
  * 未クローズの ``` は無視（＝誤爆で全部塗らない）。
+ * プレビュー側でコードフェンスをまとめて別色に塗るための下準備
  */
 function buildFenceLineMaskFromText(text) {
   const lines = String(text ?? "").split(/\r?\n/);
@@ -853,6 +873,7 @@ function buildFenceLineMaskFromText(text) {
  * すでに品詞/見出し等でハイライト済みの HTML（<p>…</p> が行数ぶん並んでいる想定）
  * に対して、コードフェンス該当行だけ <span class="pos-fencecomment">…</span> を内側に巻く。
  * 他のハイライト span は**壊さない**。
+ * 既存の行単位 HTML を尊重しながらフェンス色だけ追加する
  */
 function applyFenceColorToParagraphHtml(html, text) {
   if (!html) return html;
@@ -1199,6 +1220,7 @@ async function toPosHtml(text, context, opts = {}) {
  * fencecomment については未設定時に既定色 #f0f0c0 を適用する。
  * @returns {string} CSS text
  */
+// エディタのセマンティックトークン配色設定をプレビュー CSS に落とし込む
 function buildPreviewCssFromEditorRules() {
   try {
     const editorCfg = vscode.workspace.getConfiguration("editor");

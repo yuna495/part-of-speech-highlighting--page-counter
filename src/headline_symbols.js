@@ -5,6 +5,7 @@ const { getHeadingLevel, countCharsForDisplay } = require("./utils");
 
 /**
  * 行番号から、その見出しブロックの end 行（次の同格以下の見出し直前）を求める
+ * シンボル範囲を正しく切り出すための下請け計算
  */
 function findHeadingBlockEnd(document, startLine, startLevel) {
   const max = document.lineCount;
@@ -23,6 +24,7 @@ function findHeadingBlockEnd(document, startLine, startLevel) {
  * - Markdown は VS Code 既定があるため対象外（衝突回避）
  */
 class HeadingSymbolProvider {
+  // DocumentSymbolProvider インターフェースの実装本体
   provideDocumentSymbols(document, token) {
     if (token?.isCancellationRequested) return [];
 
@@ -94,6 +96,7 @@ class HeadingSymbolProvider {
 /**
  * 見出しの「本文」＝次に現れる任意レベルの見出し直前まで
  * 各見出し本文の文字数と【配下見出し群の合算】、総計を返す
+ * 文字数メトリクスを共有し、ステータスバーやデコレーションに活用する
  * @returns {{
  *   items: Array<{
  *     line:number, level:number, title:string,
@@ -173,6 +176,7 @@ function computeHeadingCharMetricsAnyLevel(document, c) {
 const _headingMetricsCache = new WeakMap();
 // WeakMap<TextDocument, { version:number, result:{items,total} }>
 
+// TextDocument とバージョンをキーに見出し文字数の計算結果をキャッシュする
 function getHeadingCharMetricsCached(document, c) {
   const ver = document.version;
   const hit = _headingMetricsCache.get(document);
@@ -185,6 +189,7 @@ function getHeadingCharMetricsCached(document, c) {
 
 /**
  * Provider 登録
+ * アウトライン・パンくず・Sticky Scroll などに見出しを供給する
  */
 function registerHeadingSymbolProvider(context) {
   const selector = [

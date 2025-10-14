@@ -28,6 +28,7 @@ const _caretCacheByUri = new Map(); // uri -> { pos, leftChar, rightChar }
 let _deletingPair = false; // 再入防止
 
 // --- Language Configuration（最軽量の本丸）---
+// VS Code の言語設定に全角括弧の組み合わせを登録し、標準の自動補完へ委譲する
 function registerAutoClosingPairs(context) {
   const pairs = Array.from(FW_BRACKET_MAP.entries()).map(([open, close]) => ({
     open,
@@ -46,6 +47,7 @@ function registerAutoClosingPairs(context) {
 }
 
 // --- Caret Cache Helper ---
+// キャレット周辺の文字を記録して Backspace 処理時に参照できるようにする
 function updateCaretCache(editor) {
   try {
     if (!editor) return;
@@ -78,6 +80,7 @@ function updateCaretCache(editor) {
 }
 
 // --- Backspace Pair-Delete（軽量版：全文キャッシュ不要）---
+// Backspace で開き括弧を消したときに対応する閉じ括弧もまとめて削除する
 function maybeDeleteClosingOnBackspaceLite(e, opts = {}) {
   const { cfg, isTargetDoc } = opts; // ← ここで安全に展開
   try {
@@ -137,6 +140,7 @@ function maybeDeleteClosingOnBackspaceLite(e, opts = {}) {
  * @param {{ cfg?: Function, isTargetDoc?: Function }} [options]
  */
 function registerBracketSupport(context, { cfg, isTargetDoc } = {}) {
+  // VS Code への構成登録とイベントフックをまとめてセットアップする窓口
   // 1) VS Code の言語設定で補完を委譲（最軽量）
   registerAutoClosingPairs(context);
 

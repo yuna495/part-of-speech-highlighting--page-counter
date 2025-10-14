@@ -10,6 +10,7 @@ const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
 // 私用領域(U+E000〜)にインデックスを埋め込んだ占位マーカーを作る
 const PH = (i) => `\uE000RB${i}\uE001`;
 
+// テキストからルビ表記を抜き出して占位マーカーとHTML片に分離する
 function extractRubyPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", rubyHtmlList: [] };
@@ -30,6 +31,7 @@ function extractRubyPlaceholders(input) {
 //  3) それ以外 → 単語ルビ（基語全体にひとつの rt）
 //
 // 追加仕様：読みが「・」だけ（= 全部削ると空）なら、基文字数ぶん「・」を配る。
+// ルビ表記の仕様に合わせて <ruby> 要素のHTML断片を組み立てる
 function generateRubyHtml(base, reading) {
   const baseChars = [...base];
   const esc = (s) =>
@@ -70,6 +72,7 @@ function generateRubyHtml(base, reading) {
 const ELLIPSIS_RE = /…{2}/g; // 三点リーダー2つ
 const PHE = (i) => `\uE000EL${i}\uE001`; // 占位マーカー（EL）
 
+// 三点リーダー2連を検出し、Webviewに差し戻すためのHTMLと置換文字を生成する
 function extractEllipsisPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", ellipsisHtmlList: [] };
@@ -89,6 +92,7 @@ function extractEllipsisPlaceholders(input) {
 const DASH_RE = /—{2}/g; // EM DASH 2連
 const PHD = (i) => `\uE000DL${i}\uE001`; // 占位マーカー（DL）
 
+// ダッシュ2連を占位マーカーへ差し替え、完成HTMLを控える
 function extractDashPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", dashHtmlList: [] };
@@ -103,11 +107,13 @@ function extractDashPlaceholders(input) {
   return { textWithPH, dashHtmlList };
 }
 
+// Webview を使った縦書きプレビューのライフサイクルを管理するクラス
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
 
   constructor(panel, extensionUri, editor, context) {
+    // WebviewPanel とエディタの参照を保持し、イベントを購読する
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._editor = editor;
@@ -179,6 +185,7 @@ class PreviewPanel {
     this._update(true);
   }
 
+  // コマンドから呼ばれ、プレビューパネルを開くか既存パネルを再利用する
   static show(extensionUri, context) {
     const column = vscode.window.activeTextEditor
       ? vscode.ViewColumn.Two
@@ -210,6 +217,7 @@ class PreviewPanel {
     );
   }
 
+  // VS Code 再起動後の Webview 復元で呼ばれ、状態を再構築する
   static revive(panel, extensionUri, editor, context) {
     PreviewPanel.currentPanel = new PreviewPanel(
       panel,
@@ -219,6 +227,7 @@ class PreviewPanel {
     );
   }
 
+  // Webview が閉じられたときの後片付け。購読を解除する
   dispose() {
     PreviewPanel.currentPanel = undefined;
     this._panel.dispose();
@@ -228,11 +237,13 @@ class PreviewPanel {
     }
   }
 
+  // 外部から明示的に最新状態へ更新したいときに呼ぶ
   static update() {
     if (this.currentPanel) this.currentPanel._update();
   }
 
   // 軽量ハイライト更新（テキストは再送しない）
+  // アクティブ行の位置だけをWebviewへ伝え、軽量にハイライトを移動する
   static highlight(line) {
     const p = this.currentPanel;
     if (!p || !p._panel) return;
@@ -252,6 +263,7 @@ class PreviewPanel {
   }
 
   // preview_panel.js 内
+  // プレビューデータを組み立てて Webview へ送信する中核処理
   async _update(isFirst = false) {
     this._panel.title = "posNote Preview";
 
@@ -380,6 +392,7 @@ class PreviewPanel {
     });
   }
 
+  // index.html を読み込み、CSP やリソース URI を埋め込んだ HTML を返す
   _getHtmlForWebview() {
     const webview = this._panel.webview;
     const mediaRoot = vscode.Uri.joinPath(this._extensionUri, "media");
@@ -406,6 +419,7 @@ class PreviewPanel {
 }
 
 // ===== util =====
+// 指定行へエディタフォーカスとスクロールを移動させる
 async function focusEditorAndJump(editor, line) {
   const doc = editor.document;
   const clamped = Math.max(0, Math.min(line, doc.lineCount - 1));
@@ -417,6 +431,7 @@ async function focusEditorAndJump(editor, line) {
   );
 }
 
+// Webview の CSP に利用するランダムな nonce を生成
 function getNonce() {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -427,6 +442,7 @@ function getNonce() {
   return nonce;
 }
 
+// 数値設定を安全な範囲に収めるヘルパー
 function clampNumber(n, min, max) {
   if (typeof n !== "number" || Number.isNaN(n)) return min;
   return Math.min(max, Math.max(min, n));
