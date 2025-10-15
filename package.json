@@ -229,6 +229,14 @@
       {
         "command": "posNote.workload.showGraph",
         "title": "POS/Note: 純作業量グラフを表示"
+      },
+      {
+        "command": "posNote.workload.deleteOldest",
+        "title": "POS/Note: 作業量ログ 最も古い日付を削除"
+      },
+      {
+        "command": "posNote.workload.clearAll",
+        "title": "POS/Note: 作業量ログ 全て削除"
       }
     ],
     "menus": {

@@ -15,11 +15,15 @@ const KEY_TODAY_SESSION = "posNote.workload.session"; // セッション内合�
 let _statusBarItem = null;
 let _helpers = null; // { cfg, isTargetDoc }
 let _context = null;
+
 // ドキュメントごとの「直前テキスト」スナップショット
 // 変更レンジは「変更前ドキュメント基準」なので、これで削除文字を正確取得できる
 const _prevText = new Map(); // key: doc.uri.toString() -> string
 let _lastDateKey = null;
 let _midnightTimer = null;
+
+// グラフWebviewを再利用するための参照
+let _graphPanel = null;
 
 // ==== デモ切替フラグ ====
 // デモ用の架空データを返したい期間だけ true にしてください。
@@ -112,6 +116,12 @@ async function saveHistory(context, hist) {
   if (DEMO_MODE) {
     // デモ中は実データを汚さない
     return;
+  }
+  const LIMIT_DAYS = 30; // 保存上限（例: 30日）
+  const keys = Object.keys(hist).sort();
+  if (keys.length > LIMIT_DAYS) {
+    const excess = keys.length - LIMIT_DAYS;
+    for (let i = 0; i < excess; i++) delete hist[keys[i]];
   }
   await context.globalState.update(KEY_HISTORY, hist);
 }
@@ -278,6 +288,37 @@ function checkDateRollover() {
   updateStatusBarText(cfg());
 }
 
+// 最も古い日付のレコードを1件削除
+async function deleteOldestHistory(context) {
+  const hist = getHistory(context);
+  const keys = Object.keys(hist).sort(); // YYYY-MM-DD なので文字列ソートで日付順
+  if (keys.length === 0) {
+    vscode.window.showInformationMessage("作業量ログは空です");
+    return;
+  }
+  const oldest = keys[0];
+  delete hist[oldest];
+  await context.globalState.update(KEY_HISTORY, hist); // 直接反映
+  // UI更新
+  updateStatusBarText(cfg());
+  refreshGraphIfAny(context);
+  vscode.window.showInformationMessage(`削除: ${oldest}`);
+}
+
+// 全消去
+async function clearAllHistory(context) {
+  await context.globalState.update(KEY_HISTORY, {}); // 全クリア
+  // 今日の空レコードを用意しておくと表示が安定
+  const todayKey = toTzDateKey(new Date(), cfg().timeZone);
+  const h0 = {};
+  h0[todayKey] = { total: 0, add: 0, del: 0 };
+  await context.globalState.update(KEY_HISTORY, h0);
+  // UI更新
+  updateStatusBarText(cfg());
+  refreshGraphIfAny(context);
+  vscode.window.showInformationMessage("作業量ログを全て削除しました");
+}
+
 // ---- 公開API ----
 // 作業量トラッカーの初期化。イベント購読とステータスバー登録を行う
 function initWorkload(context, helpers) {
@@ -335,6 +376,33 @@ function initWorkload(context, helpers) {
     })
   );
 
+  // 最古1件削除
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "posNote.workload.deleteOldest",
+      async () => {
+        const pick = await vscode.window.showWarningMessage(
+          "最も古い日付の作業量を1件削除します。よろしいですか",
+          { modal: true },
+          "削除"
+        );
+        if (pick === "削除") await deleteOldestHistory(context);
+      }
+    )
+  );
+
+  // 全削除
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.workload.clearAll", async () => {
+      const pick = await vscode.window.showWarningMessage(
+        "作業量ログを全て削除します。元に戻せません。よろしいですか",
+        { modal: true },
+        "全削除"
+      );
+      if (pick === "全削除") await clearAllHistory(context);
+    })
+  );
+
   checkDateRollover();
 
   return {
@@ -357,23 +425,46 @@ function cfg() {
 }
 
 // ---- グラフ表示（Webview） ----
-// 30日分の作業量グラフを Webview で表示する
+// 30日分の作業量グラフを Webview で表示する（既存パネルがあれば再利用）
 function showWorkloadGraph(context) {
-  const panel = vscode.window.createWebviewPanel(
+  const makeHtml = () => {
+    const hist = getHistory(context);
+    const days = buildLastNDays(hist, 30);
+    const { dailyTarget } = cfg();
+    return getGraphHtml(_graphPanel.webview, days, dailyTarget);
+  };
+
+  if (_graphPanel) {
+    _graphPanel.webview.html = makeHtml();
+    _graphPanel.reveal(vscode.ViewColumn.Beside);
+    return;
+  }
+
+  _graphPanel = vscode.window.createWebviewPanel(
     "posNoteWorkloadGraph",
     "純作業量（過去30日）",
     vscode.ViewColumn.Beside,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-    }
+    { enableScripts: true, retainContextWhenHidden: true }
   );
+  _graphPanel.webview.html = makeHtml();
 
-  const hist = getHistory(context);
-  const days = buildLastNDays(hist, 30); // [{date:'YYYY-MM-DD', value:number}, ...] 右端が本日
+  _graphPanel.onDidDispose(() => {
+    _graphPanel = null;
+  });
+}
 
-  const { dailyTarget } = cfg();
-  panel.webview.html = getGraphHtml(panel.webview, days, dailyTarget);
+// 追加: 既存パネルがあれば中身だけ再描画
+function refreshGraphIfAny(context) {
+  if (_graphPanel) {
+    const hist = getHistory(context);
+    const days = buildLastNDays(hist, 30);
+    const { dailyTarget } = cfg();
+    _graphPanel.webview.html = getGraphHtml(
+      _graphPanel.webview,
+      days,
+      dailyTarget
+    );
+  }
 }
 
 // 履歴から直近 n 日分のデータを抽出し、欠損日は0で補完する
