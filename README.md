@@ -136,6 +136,16 @@ workspace/
   - マーカー（●：入力 / ■：削除）で各日の実績を明示。
   - 最大作業日および目標ラインを描画。
 
+- 入力ディレイ設定
+setting.jsonにて、変更可能。数値はデフォルト値。
+
+```json
+{
+  "posNote.workload.imeGuardMsNormal": 0,      // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate": 800   // 変換（2文字以上増減する場合）
+}
+```
+
 ### プレビュー（v2.0.0） {#preview}
 
 - エディタ右上の 📖 アイコンで縦書きプレビューを開く
@@ -265,7 +275,9 @@ workspace/
   "posNote.kinsoku.bannedStart": [
     "」","）","『","』","》","】","。","、",
     "’","”","！","？","…","—","―"
-  ]
+  ],
+  "posNote.workload.imeGuardMsNormal": 0,      // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate": 800   // 変換（2文字以上増減する場合）
 }
 ```
 

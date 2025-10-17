@@ -92,7 +92,7 @@ function isTargetDoc(doc, c) {
 function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
-  _workload = initWorkload(context, { cfg, isTargetDoc });
+  _workload = initWorkload(context);
   initHeadingSidebar(context, { cfg, isTargetDoc });
   initMinimapHighlight(context, { cfg, isTargetDoc });
 
@@ -177,11 +177,37 @@ function activate(context) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       const ed = vscode.window.activeTextEditor;
       if (!ed || e.document !== ed.document) return;
-
       const c = cfg();
 
-      // ステータスバー更新
-      sb.scheduleUpdate(ed);
+      // 1) テキストを一度だけ取得
+      const txt = e.document.getText().replace(/\r\n/g, "\n");
+
+      // 2) 作業量用の「全文字長」（改行は1字扱い）
+      const rawLen = Array.from(txt).length; // workload.js の countCharsWithNewline と整合
+
+      // ★候補巡回らしさの軽量判定
+      // 置換のみ ＋ 長さ純差が小さい変化が続いているかを見る
+      const imeLike =
+        e.contentChanges.length > 0 &&
+        // 「置換」だけを見る（削除 or 追加単独は対象外）
+        e.contentChanges.every(
+          (ch) => ch.rangeLength > 0 && ch.text.length > 0
+        ) &&
+        // 一回の変更で長さの純差が ±2 以上なら IME らしいとみなす
+        e.contentChanges.some(
+          (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
+        );
+
+      // 3) ステータスバー用の「表示ルール文字数」
+      const { countCharsForDisplay } = require("./utils");
+      const shownLen = countCharsForDisplay(txt, c);
+
+      // 4) 作業量へフィード（doc.getText() させない）
+      const { applyExternalLen } = require("./workload");
+      applyExternalLen(e.document.uri.toString(), rawLen, { imeLike }); // ★IME中は1000ms待機へ
+
+      // 5) ステータスバーへフィード（再計算させない）
+      sb.scheduleUpdateWithPrecount(ed, shownLen);
     }),
 
     // 保存：即時確定計算（Git差分/見出しビュー）

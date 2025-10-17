@@ -23,7 +23,8 @@ let _enabledNote = true; // ページ情報表示のON/OFF（トグル用）
 let _metrics = null; // computeNoteMetrics の結果（キャッシュ）
 let _deltaFromHEAD = { key: null, value: null }; // ファイル単体の±
 let _helpers = null; // { cfg, isTargetDoc }
-let _folderSumChars = null; // ★追加：同フォルダ・同拡張子（他ファイル）合算文字数
+let _folderSumChars = null; // 同フォルダ・同拡張子（他ファイル）合算文字数
+let _precountTotalForThisTick = null; // 一時的に受け取る表示用総文字数
 
 // デフォルトの禁則文字（行頭禁止）
 const DEFAULT_BANNED_START = [
@@ -73,6 +74,11 @@ function getBannedStart() {
   return Array.isArray(userValue) && userValue.length > 0
     ? userValue
     : DEFAULT_BANNED_START;
+}
+
+function scheduleUpdateWithPrecount(editor, shownLen) {
+  _precountTotalForThisTick = shownLen;
+  scheduleUpdate(editor);
 }
 
 // ------- 公開APIの初期化 -------
@@ -418,8 +424,11 @@ function updateStatusBar(editor) {
       : [editor.selection];
     const selCnt = countSelectedCharsForDisplay(editor.document, selections, c);
     const baseTotal =
+      _precountTotalForThisTick ??
       _metrics?.totalChars ??
       countCharsForDisplay(editor.document.getText(), c);
+    _precountTotalForThisTick = null; // 使い捨て
+    countCharsForDisplay(editor.document.getText(), c);
 
     const shown = selCnt > 0 ? selCnt : baseTotal;
 
@@ -580,4 +589,4 @@ async function cmdSetNoteSize() {
   );
 }
 
-module.exports = { initStatusBar, getBannedStart };
+module.exports = { initStatusBar, getBannedStart, scheduleUpdateWithPrecount };
