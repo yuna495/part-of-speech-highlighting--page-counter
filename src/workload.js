@@ -16,6 +16,13 @@ let _statusBarItem = null;
 let _helpers = null; // { cfg, isTargetDoc }
 let _context = null;
 
+// 直前フラッシュ時点の「確定長」を覚える
+// key: doc.uri.toString() -> number
+const _baselineLenByDoc = new Map();
+
+// タイマーだけを持つ簡易ペンディング
+const _pendingByDoc = new Map(); // key -> { timer: NodeJS.Timeout | null }
+
 // ドキュメントごとの「直前テキスト」スナップショット
 // 変更レンジは「変更前ドキュメント基準」なので、これで削除文字を正確取得できる
 const _prevText = new Map(); // key: doc.uri.toString() -> string
@@ -215,6 +222,73 @@ function buildHoverTooltip(hist) {
   return `過去7日合計: ${fmt(total7)}\n` + lines.join("\n");
 }
 
+function flushPending(docUri, c) {
+  const p = _pendingByDoc.get(docUri);
+  if (!p) return;
+  _pendingByDoc.delete(docUri);
+
+  // 対象ドキュメント取得
+  const doc = vscode.workspace.textDocuments.find(
+    (d) => d.uri.toString() === docUri
+  );
+  if (!doc) {
+    updateStatusBarText(c);
+    return;
+  }
+
+  // 現在長と基準長
+  const curLen = countCharsWithNewline(doc.getText());
+  const baseLen = _baselineLenByDoc.get(docUri) ?? curLen;
+
+  // モード分岐
+  let delta = 0;
+  if (c.mode === "signedLen") {
+    delta = curLen - baseLen; // 符号付き増減
+  } else {
+    // 互換: 既存モードは従来の見做し
+    const gross = Math.abs(curLen - baseLen) * 2; // 置換を作業量2と見做すなら
+    const net = Math.abs(curLen - baseLen);
+    delta = c.mode === "net" ? net : gross;
+  }
+
+  // 基準を更新（次回バッチの起点）
+  _baselineLenByDoc.set(docUri, curLen);
+
+  if (delta !== 0) {
+    const hist = getHistory(_context);
+    const key = toTzDateKey(new Date(), c.timeZone);
+    const cur = hist[key];
+
+    // 後方互換
+    let rec =
+      typeof cur === "number"
+        ? { total: cur, add: 0, del: 0 }
+        : cur && typeof cur === "object"
+        ? { ...cur }
+        : { total: 0, add: 0, del: 0 };
+
+    // 参考までに add/del も符号で反映
+    if (c.mode === "signedLen") {
+      if (delta > 0) rec.add += delta;
+      else rec.del += -delta;
+      rec.total += delta; // 符号付きでそのまま積む
+    } else {
+      rec.total += delta;
+    }
+
+    hist[key] = rec;
+    saveHistory(_context, hist);
+  }
+
+  const minDelta = 1; // ±1 文字の揺れは無視したい場合
+  if (Math.abs(delta) <= minDelta) {
+    updateStatusBarText(c);
+    return;
+  }
+
+  updateStatusBarText(c);
+}
+
 // ---- メイン：変更処理 ----
 // テキスト変更イベントを解析し、入力・削除量を履歴へ積み上げる
 function handleDocChange(e, c) {
@@ -225,47 +299,17 @@ function handleDocChange(e, c) {
   const { isTargetDoc } = _helpers;
   if (!isTargetDoc(doc, c)) return;
 
-  // 変更前スナップショット（なければ初回取得）
-  let prev = getPrevTextFor(doc);
-  if (prev == null) prev = doc.getText(); // 初回は差分を取れないので 0 加算扱い
-  let added = 0;
-  let removed = 0;
-
-  // contentChanges は「変更前ドキュメント座標」で与えられる
-  for (const ch of e.contentChanges) {
-    const oldText = substringByRange(prev, ch.range);
-    removed += countCharsWithNewline(oldText);
-    added += countCharsWithNewline(ch.text);
-    // prev にこの変更を適用していく（次の change の基準を更新）
-    const s = positionToOffset(prev, ch.range.start);
-    const eoff = positionToOffset(prev, ch.range.end);
-    prev = prev.slice(0, s) + ch.text + prev.slice(eoff);
+  // 初回は基準長をセット
+  const k = doc.uri.toString();
+  if (!_baselineLenByDoc.has(k)) {
+    _baselineLenByDoc.set(k, countCharsWithNewline(doc.getText()));
   }
 
-  const delta = added + removed; // 「純作業量」= 入力 + 削除
-  if (delta > 0) {
-    const hist = getHistory(_context);
-    const key = toTzDateKey(new Date(), cfg().timeZone);
-    const cur = hist[key];
-    // 後方互換：数値なら {total,add,del} に昇格
-    let rec =
-      typeof cur === "number"
-        ? { total: cur, add: 0, del: 0 }
-        : cur && typeof cur === "object"
-        ? { ...cur }
-        : { total: 0, add: 0, del: 0 };
-    rec.add += added;
-    rec.del += removed;
-    rec.total += delta;
-    hist[key] = rec;
-    saveHistory(_context, hist); // 非同期保存
-  }
-
-  // 次回のために、最新本文をキャッシュ
-  setPrevTextFor(doc, doc.getText());
-
-  // 表示更新
-  updateStatusBarText(c);
+  // 連続変更を束ねてフラッシュ
+  const prev = _pendingByDoc.get(k);
+  if (prev && prev.timer) clearTimeout(prev.timer);
+  const timer = setTimeout(() => flushPending(k, c), c.collapseWindowMs);
+  _pendingByDoc.set(k, { timer });
 }
 
 // 日付越え検知＆初期化
@@ -331,6 +375,10 @@ function initWorkload(context, helpers) {
   const ed = vscode.window.activeTextEditor;
   if (ed && ed.document) {
     setPrevTextFor(ed.document, ed.document.getText());
+    _baselineLenByDoc.set(
+      ed.document.uri.toString(),
+      countCharsWithNewline(ed.document.getText())
+    );
   }
 
   // イベント購読
@@ -417,10 +465,13 @@ function initWorkload(context, helpers) {
 function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
-    // 既存の isTargetDoc を使うため helpers からだけ受け取る
     workloadEnabled: c.get("workload.enabled", true),
     dailyTarget: c.get("workload.dailyTarget", 10000),
     timeZone: c.get("workload.timeZone", "system"),
+    // 既存: "gross" | "net"
+    // 追加: "signedLen" = ファイル長の増減を符号付きでそのまま加算
+    mode: c.get("workload.mode", "net"),
+    collapseWindowMs: c.get("workload.collapseWindowMs", 500),
   };
 }
 
