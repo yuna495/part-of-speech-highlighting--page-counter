@@ -126,6 +126,7 @@ workspace/
 
 - **純作業量表示（v2.3.0）**
 ![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo4.png)
+表示例：[左：円環グラフ、右：棒グラフ]
   - 実際に入力・削除された文字数を合計して「純作業量」として表示。
   - ステータスバー上では当日の合計作業量をリアルタイム更新。
   - マウスオーバーで過去1週間の合計をポップアップ表示。
@@ -142,7 +143,8 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 ```json
 {
   "posNote.workload.imeGuardMsNormal": 0,      // 通常入力ディレイ
-  "posNote.workload.imeGuardMsCandidate": 800   // 変換（2文字以上増減する場合）
+  "posNote.workload.imeGuardMsCandidate": 800,   // 変換（2文字以上増減する場合）
+  "posNote.workload.graphStyle": "radial" // グラフスタイル（"bar"|"radial"）
 }
 ```
 
@@ -166,7 +168,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
      - 「POS/Note: フォルダ内の .md を結合」  
   3. フォルダ直下にある対象拡張子ファイルをファイル名順に結合し、同フォルダ直下へ出力  
 
-![Combine Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo1.png)
+![Combine Screen shot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo1.png)
 例：フォルダ右クリック時
 
 - **仕様**  
@@ -265,7 +267,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
         "foreground": "#ff0000"
       },
       "heading": "#ff14e0" ,     // 見出しカラー
-      "fencecomment": "#f0f0c0", // ```コードフェンスカラー
+      "fencecomment": "#f0f0c0", // ```コードフェンスカラー```
     }
   },
   "posNote.semantic.enabled": true,
@@ -276,8 +278,10 @@ setting.jsonにて、変更可能。数値はデフォルト値。
     "」","）","『","』","》","】","。","、",
     "’","”","！","？","…","—","―"
   ],
-  "posNote.workload.imeGuardMsNormal": 0,      // 通常入力ディレイ
-  "posNote.workload.imeGuardMsCandidate": 800   // 変換（2文字以上増減する場合）
+  "posNote.workload.dailyTarget": 5000, // 一日の作業量目標
+  "posNote.workload.imeGuardMsNormal": 0, // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate": 800, // 変換（2文字以上増減する場合）
+  "posNote.workload.graphStyle": "radial"
 }
 ```
 
