@@ -18,6 +18,7 @@ All notable changes to this extension are documented here.
 
 - 全角スペースの下線ハイライトに、半角スペースも適応。
 - 括弧内のスペースもハイライトされるよう修正。
+- 見出しの一括折りたたみ、一括展開トグルを「.md」にも対応。
 
 ## [2.2.5] - 2025/10/13
 

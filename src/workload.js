@@ -1061,7 +1061,10 @@ function initWorkload(context) {
 
   return {
     onConfigChanged() {
-      updateStatusBarText(cfg());
+      const c = cfg();
+      updateStatusBarText(c);
+      // 設定変更で既存パネルを即再描画（graphStyle や dailyTarget を反映）
+      refreshGraphIfAny(_context);
     },
   };
 }

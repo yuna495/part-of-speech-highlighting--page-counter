@@ -309,7 +309,7 @@
         }
       },
       {
-        "title": "POS & Note - ステータスバー",
+        "title": "POS & Note - 純作業量",
         "properties": {
           "posNote.workload.enabled": {
             "type": "boolean",
@@ -327,6 +327,20 @@
             "minimum": 0,
             "description": "純作業量の1日目標値。グラフに赤い水平ラインとして表示する。"
           },
+          "posNote.workload.graphStyle": {
+            "type": "string",
+            "enum": [
+              "bar",
+              "radial"
+            ],
+            "default": "radial",
+            "description": "作業量グラフの表示スタイル。\"bar\" または \"radial\"。"
+          }
+        }
+      },
+      {
+        "title": "POS & Note - ステータスバー",
+        "properties": {
           "posNote.enabledNote": {
             "type": "boolean",
             "default": true,
@@ -471,12 +485,7 @@
       {
         "command": "posNote.toggleFoldAllHeadings",
         "key": "ctrl+[",
-        "when": "editorTextFocus && editorLangId == plaintext"
-      },
-      {
-        "command": "posNote.toggleFoldAllHeadings",
-        "key": "ctrl+[",
-        "when": "editorTextFocus && editorLangId == novel"
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
       },
       {
         "command": "posNote.ruby.insertRuby",

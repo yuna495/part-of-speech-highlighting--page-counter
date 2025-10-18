@@ -52,7 +52,7 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
   return lines;
 }
 
-// 見出しの “全折/全展開” トグル（.txt / novel）
+// 見出しの “全折/全展開” トグル
 // コマンド: 見出しを一括で折りたたむ／展開する
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const ed = vscode.window.activeTextEditor;
@@ -60,9 +60,9 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
 
   const c = cfg();
   const lang = (ed.document.languageId || "").toLowerCase();
-  if (!(lang === "plaintext" || lang === "novel")) {
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown")) {
     vscode.window.showInformationMessage(
-      "このトグルは .txt / novel でのみ有効です"
+      "このトグルは .txt / novel / .md でのみ有効です"
     );
     return;
   }
