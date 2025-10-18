@@ -34,7 +34,7 @@ const vscode = require("vscode");
 const KEY_HISTORY = "posNote.workload.history"; // globalState 格納キー
 
 // デモ切替（true で架空履歴を返す。開発用）
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 /* ------------------------------ 内部状態 ------------------------------ */
 // VS Code 拡張コンテキストと UI
