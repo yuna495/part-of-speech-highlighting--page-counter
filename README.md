@@ -142,11 +142,16 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 ```json
 {
-  "posNote.workload.imeGuardMsNormal": 0,      // 通常入力ディレイ
-  "posNote.workload.imeGuardMsCandidate": 800,   // 変換（2文字以上増減する場合）
+  "posNote.workload.dailyTarget": 5000, // 一日の作業量目標
+  "posNote.workload.imeGuardMsNormal": 50,      // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate": 800,   // 変換遅延（2文字以上増減する場合）
   "posNote.workload.graphStyle": "radial" // グラフスタイル（"bar"|"radial"）
 }
 ```
+
+- コマンドにて、作業量履歴消去可能
+  - "posNote.workload.deleteOldest" : 作業量ログの最も古い日付を削除。
+  - "posNote.workload.clearAll" : 作業量ログの全てを削除。
 
 ### プレビュー（v2.0.0） {#preview}
 
@@ -279,7 +284,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
     "’","”","！","？","…","—","―"
   ],
   "posNote.workload.dailyTarget": 5000, // 一日の作業量目標
-  "posNote.workload.imeGuardMsNormal": 0, // 通常入力ディレイ
+  "posNote.workload.imeGuardMsNormal": 50, // 通常入力ディレイ
   "posNote.workload.imeGuardMsCandidate": 800, // 変換（2文字以上増減する場合）
   "posNote.workload.graphStyle": "radial"
 }

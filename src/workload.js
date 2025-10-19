@@ -61,12 +61,12 @@ function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
     workloadEnabled: c.get("workload.enabled", true),
-    dailyTarget: c.get("workload.dailyTarget", 10000),
+    dailyTarget: c.get("workload.dailyTarget", 2000),
     timeZone: c.get("workload.timeZone", "system"),
     // "gross" | "net" | "signedLen"
     mode: c.get("workload.mode", "net"),
     // 通常編集の確定待ち（0 なら即確定）
-    imeGuardMsNormal: c.get("workload.imeGuardMsNormal", 0),
+    imeGuardMsNormal: c.get("workload.imeGuardMsNormal", 50),
     // 候補巡回らしい変更の確定待ち
     // 旧 imeGuardMs が設定されていればそれをデフォルトに利用
     imeGuardMsCandidate: c.get(
@@ -699,10 +699,10 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
   </header>
   <div class="wrap">
     <div class="legend">
-      <span><span class="sw total"></span>total（基底扇）</span>
+      <span><span class="sw total"></span>合計（基底扇）</span>
       <span><span class="sw max"></span>最大日の扇</span>
-      <span><span class="sw add"></span>add 6°</span>
-      <span><span class="sw del"></span>del 6°</span>
+      <span><span class="sw add"></span>入力</span>
+      <span><span class="sw del"></span>削除</span>
       <span><span class="sw target"></span>目標ライン（${targetValue.toLocaleString(
         "ja-JP"
       )}）</span>
