@@ -237,6 +237,14 @@
       {
         "command": "posNote.workload.clearAll",
         "title": "POS/Note: 作業量ログ 全て削除"
+      },
+      {
+        "command": "posNote.convert.toKanji",
+        "title": "POS/Note: かな→漢字（かすか/わずか → 微か/僅か）"
+      },
+      {
+        "command": "posNote.convert.toKana",
+        "title": "POS/Note: 漢字→かな（微か/僅か → かすか/わずか）"
       }
     ],
     "menus": {
@@ -495,6 +503,17 @@
       {
         "command": "posNote.ruby.insertBouten",
         "key": "ctrl+alt+b",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.convert.toKanji",
+        "key": "ctrl+.",
+        "mac": "cmd+.",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.convert.toKana",
+        "key": "alt+.",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       }
     ]

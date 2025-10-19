@@ -22,6 +22,7 @@ const { registerHeadlineSupport, refreshHeadingCounts } = require("./headline");
 const { registerHeadingSymbolProvider } = require("./headline_symbols");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
+const { registerConversionCommands } = require("./conversion");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
@@ -141,6 +142,8 @@ function activate(context) {
       return combineMdInFolder(resourceUri);
     })
   );
+  // 置換コマンド（かな↔漢字）
+  registerConversionCommands(context, { isTargetDoc });
 
   safeRegisterCommand(context, "posNote.headings.refresh", () => {
     const ed = vscode.window.activeTextEditor;
