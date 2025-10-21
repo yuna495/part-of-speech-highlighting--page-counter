@@ -43,9 +43,14 @@
     "views": {
       "posNote": [
         {
-          "icon": "./image/posnote_activitybar_icon.png",
           "id": "posNoteHeadings",
-          "name": "見出し（POS/Note）"
+          "name": "見出し",
+          "icon": "./image/posnote_activitybar_icon.png"
+        },
+        {
+          "id": "novelUtilities",
+          "name": "各種ファイル",
+          "icon": "./image/novel_activitybar_icon.png"
         }
       ]
     },
@@ -245,9 +250,64 @@
       {
         "command": "posNote.convert.toKana",
         "title": "POS/Note: 漢字→かな（微か/僅か → かすか/わずか）"
+      },
+      {
+        "command": "posNote.createNewNovel",
+        "title": "POS/Note: 新しい小説を作成",
+        "icon": "$(add)"
+      },
+      {
+        "command": "posNote.revealView",
+        "title": "POS/Note: ビューを表示"
+      },
+      {
+        "command": "posNote.openResource",
+        "title": "POS/Note: ファイル/フォルダを開く"
+      },
+      {
+        "command": "posNote.newFileAt",
+        "title": "新規ファイル作成",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "posNote.newFolderAt",
+        "title": "新規フォルダ作成",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "posNote.cutPath",
+        "title": "切り取り",
+        "icon": "$(scissors)"
+      },
+      {
+        "command": "posNote.copyPath",
+        "title": "コピー",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "posNote.pasteHere",
+        "title": "貼り付け",
+        "icon": "$(paste)"
+      },
+      {
+        "command": "posNote.deleteResource",
+        "title": "削除",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "posNote.revealInOS",
+        "title": "外部エクスプローラーで表示",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "posNote.createNewNovel",
+          "when": "view == novelUtilities",
+          "group": "navigation@1"
+        }
+      ],
       "editor/title": [
         {
           "command": "posNote.Preview.open",
@@ -265,6 +325,78 @@
           "command": "posNote.combineMd",
           "group": "navigation@51",
           "when": "explorerResourceIsFolder == true"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "posNote.newFileAt",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "navigation@1"
+        },
+        {
+          "command": "posNote.newFolderAt",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "navigation@2"
+        },
+        {
+          "command": "posNote.cutPath",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "2_cutcopy@1"
+        },
+        {
+          "command": "posNote.copyPath",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "2_cutcopy@2"
+        },
+        {
+          "command": "posNote.pasteHere",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "2_cutcopy@3"
+        },
+        {
+          "command": "posNote.pasteHere",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "2_cutcopy@3"
+        },
+        {
+          "command": "posNote.deleteResource",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "3_delete@1"
+        },
+        {
+          "command": "posNote.revealInOS",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "4_external@1"
+        },
+        {
+          "command": "posNote.newFileAt",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "navigation@1"
+        },
+        {
+          "command": "posNote.newFolderAt",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "navigation@2"
+        },
+        {
+          "command": "posNote.cutPath",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "2_cutcopy@1"
+        },
+        {
+          "command": "posNote.copyPath",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "2_cutcopy@2"
+        },
+        {
+          "command": "posNote.deleteResource",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "3_delete@1"
+        },
+        {
+          "command": "posNote.revealInOS",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "4_external@1"
         }
       ]
     },

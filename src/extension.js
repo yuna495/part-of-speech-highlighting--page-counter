@@ -13,6 +13,7 @@ const vscode = require("vscode");
 const { initStatusBar, getBannedStart } = require("./status_bar");
 const { initWorkload } = require("./workload");
 const { initHeadingSidebar } = require("./sidebar_headings");
+const { initSidebarUtilities } = require("./sidebar_util");
 const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
@@ -96,6 +97,7 @@ function activate(context) {
   _workload = initWorkload(context);
   initHeadingSidebar(context, { cfg, isTargetDoc });
   initMinimapHighlight(context, { cfg, isTargetDoc });
+  initSidebarUtilities(context);
 
   // --- 9-2) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });
