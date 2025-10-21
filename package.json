@@ -49,7 +49,7 @@
         },
         {
           "id": "novelUtilities",
-          "name": "各種ファイル",
+          "name": "各種操作・ファイル",
           "icon": "./image/novel_activitybar_icon.png"
         }
       ]
@@ -298,6 +298,16 @@
         "command": "posNote.revealInOS",
         "title": "外部エクスプローラーで表示",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "posNote.combineTxtAt",
+        "title": "POS/Note: このフォルダの .txt を結合",
+        "icon": "$(merge)"
+      },
+      {
+        "command": "posNote.combineMdAt",
+        "title": "POS/Note: このフォルダの .md を結合",
+        "icon": "$(merge)"
       }
     ],
     "menus": {
@@ -397,6 +407,16 @@
           "command": "posNote.revealInOS",
           "when": "view == novelUtilities && viewItem == noveltools.file",
           "group": "4_external@1"
+        },
+        {
+          "command": "posNote.combineTxtAt",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "navigation@50"
+        },
+        {
+          "command": "posNote.combineMdAt",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "navigation@51"
         }
       ]
     },

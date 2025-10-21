@@ -395,15 +395,18 @@ function updateStatusBar(editor) {
   const c = cfg();
   if (!_statusBarItem) return;
 
-  // 対象外は非表示（ページ情報OFFでも ±/字 は独立表示したい）
-  if (!editor || !isTargetDoc(editor.document, c)) {
+  // エディタが無いときは隠す
+  if (!editor) {
     _statusBarItem.hide();
     return;
   }
 
-  // 1) ページ情報（enabledNote）
+  // 「小説対象の文書か」を先に判定
+  const targetDoc = isTargetDoc(editor.document, c);
+
+  // 1) ページ情報は「対象文書かつ有効時のみ」
   let headPart = "";
-  if (c.enabledNote && _enabledNote) {
+  if (targetDoc && c.enabledNote && _enabledNote) {
     const mm = _metrics ?? {
       totalChars: 0,
       totalWrappedRows: 0,
@@ -416,31 +419,34 @@ function updateStatusBar(editor) {
     )}（${fmt(c.rowsPerNote)}×${fmt(c.colsPerRow)}）`;
   }
 
-  // 2) 字=選択文字数（未選択時は全体文字数）
+  // 2) 字=選択文字数（未選択時は全体）…拡張子を問わず常に可
   let selPart = "";
   if (c.showSelectedChars) {
     const selections = editor.selections?.length
       ? editor.selections
       : [editor.selection];
+
+    // 「表示ルールでの字数」…対象外でも countCharsForDisplay を使う
     const selCnt = countSelectedCharsForDisplay(editor.document, selections, c);
+
+    // 対象外では _metrics が null になり得るので安全にフォールバック
     const baseTotal =
       _precountTotalForThisTick ??
       _metrics?.totalChars ??
       countCharsForDisplay(editor.document.getText(), c);
-    _precountTotalForThisTick = null; // 使い捨て
-    countCharsForDisplay(editor.document.getText(), c);
+    _precountTotalForThisTick = null;
 
     const shown = selCnt > 0 ? selCnt : baseTotal;
 
-    // フォルダ合算の追記（設定ONかつ合算が算出できた場合）
-    if (c.showFolderSum && _folderSumChars != null) {
+    // 同フォルダ合算は従来どおり「対象文書時のみ」
+    if (targetDoc && c.showFolderSum && _folderSumChars != null) {
       selPart = `${fmt(shown)}字 / ${fmt(_folderSumChars)}`;
     } else {
       selPart = `${fmt(shown)}字`;
     }
   }
 
-  // 3) ±=HEAD 差分
+  // 3) ±=HEAD 差分…拡張子を問わず常に可（取得できた場合のみ）
   let deltaPart = "";
   if (c.showDeltaFromHEAD && _deltaFromHEAD.value != null) {
     const d = _deltaFromHEAD.value;
@@ -448,7 +454,7 @@ function updateStatusBar(editor) {
     deltaPart = ` ${sign}${fmt(Math.abs(d))}`;
   }
 
-  // 4) 非表示判定
+  // 4) いずれも空なら隠す（例: 全表示オフ）
   if (!headPart && !selPart && !deltaPart) {
     _statusBarItem.hide();
     return;
@@ -463,23 +469,19 @@ function updateStatusBar(editor) {
 
   // 6) ツールチップ
   const tips = [];
-  if (c.enabledNote && _enabledNote)
+  if (headPart)
     tips.push("選択位置/全体ページ｜行=最終文字が最後のページの何行目か");
   if (c.showSelectedChars)
     tips.push(
-      c.showFolderSum
+      targetDoc && c.showFolderSum
         ? "字=選択文字数（改行除外）※未選択時は全体文字数／同フォルダ同拡張子 合算（編集中ファイルを含む）"
         : "字=選択文字数（改行除外）※未選択時は全体文字数"
     );
   if (c.showDeltaFromHEAD) tips.push("±=HEAD(直近コミット)からの増減");
   _statusBarItem.tooltip = tips.join("｜");
 
-  // 7) クリック時コマンド
-  if (headPart) {
-    _statusBarItem.command = "posNote.setNoteSize";
-  } else {
-    _statusBarItem.command = undefined;
-  }
+  // 7) クリックコマンドはページ情報があるときのみ
+  _statusBarItem.command = headPart ? "posNote.setNoteSize" : undefined;
 
   // 8) 表示
   _statusBarItem.show();

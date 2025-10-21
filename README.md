@@ -7,9 +7,13 @@
   - 括弧内ハイライトの ON/OFF 切り替え
   - [辞書登録による別途ハイライト](#dictionary)
 
-- [ページカウンタ（原稿用紙風、行頭禁則あり）](#statusbar)
-  - ステータスバーで文字数・コミット差分を表示
-- 純作業量表示
+- [サイドバー機能](#sidebar)
+  - 見出しの一覧、作業ファイルの同階層フォルダ情報表示
+
+- [ステータスバー機能](#statusbar)
+  - ページカウンタ（原稿用紙風、行頭禁則あり）
+  - 文字数・コミット差分を表示
+  - 純作業量表示
 
 - [縦書きプレビュー機能](#preview)
 
@@ -17,9 +21,10 @@
 
 - [語句変換機能](#conversion)
 
-- [見出しビュー／ミニマップ強調／折りたたみ制御／コードフェンスによるコメント(.txt)](#headline)
+- [見出し機能](#headline)
+  - ミニマップ強調／折りたたみ制御／コードフェンスによるコメント(.txt)
 
-- [全角括弧の入力支援（自動補完・Backspace連動）](#bracket)
+- [入力支援](#support)
   - 開き括弧変換確定時、閉じ括弧補完
   - 小説家になろう方式によるルビ・傍点入力支援（カクヨムにおいても適用されます）
 
@@ -29,7 +34,7 @@
 
 ## デモ
 
-![Demo Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo.png)
+![Demo Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_main.png)
 
 例：ダークテーマによる実際の使用例
 
@@ -103,9 +108,59 @@ workspace/
 
 ```
 
+### サイドバー機能（v2.3.0） {#sidebar}
+
+![Sidebar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_sidebar.png)
+
+- **概要**  
+  サイドバーに「POS/Note」専用のツリービューを追加。
+  ワークスペース内で作業中のフォルダを一覧・操作できます。
+
+- **主な機能**
+  - **見出しビュー（v1.3.3）**  
+    - サイドバーに見出しを一覧表示、クリックでジャンプ
+  - **「新しい小説を作成」ボタン**
+    クリックすると、雛形フォルダ *NewNovel* を作成。
+    `plot/` サブフォルダ、`characters.json`、`conversion.json` などを自動生成します。
+  - **結合ボタン（.txt / .md）**
+    ビュー上部の「親フォルダの .txt を結合」「親フォルダの .md を結合」ボタンをクリックすると、アクティブファイルのあるフォルダ直下のファイルを結合します。
+  - **フォルダ右クリックメニュー**
+    サイドバー上の任意のフォルダを右クリックすると以下が表示されます：
+    - 「このフォルダの .txt を結合」
+    - 「このフォルダの .md を結合」
+    選択フォルダ内の `.txt` / `.md` をファイル名順に結合し、同フォルダ直下に出力します。
+  - **簡易エクスプローラ**  
+    現在開いているファイルと同じフォルダ内容を一覧。
+    ファイルをクリックで開くほか、右クリックで
+    「新規ファイル」「新規フォルダ」「コピー／切り取り／貼り付け／削除」等の操作も可能。
+  - **外部エクスプローラーで開く**
+    任意のファイル／フォルダを右クリック → 「OS で開く」。
+
+- **結合仕様**
+  - 出力ファイル名は `combined.txt` / `combined.md`
+  - 同名ファイルがあれば `(1)` `(2)` と自動採番
+  - ファイル間には空行 1 行を挿入
+  - 改行コードは `\n` に統一
+  - 結合後、自動的に生成ファイルを開く
+
+- **コマンド一覧**
+
+  | コマンド ID | 内容 |
+  |--------------|------|
+  | `posNote.combineTxtHere` | サイドバー上部のボタンで、アクティブフォルダの .txt を結合 |
+  | `posNote.combineMdHere`  | 同上（.md） |
+  | `posNote.combineTxtAt`   | サイドバーで右クリックしたフォルダの .txt を結合 |
+  | `posNote.combineMdAt`    | 同上（.md） |
+
+---
+
+- **補足:**  
+  - このサイドバーは VS Code 左側の「POS/Note」アイコンから開けます。
+  - 通常のエクスプローラに加え、作品単位での管理・結合作業を簡略化する目的で追加されました。
+
 ### ステータスバー {#statusbar}
 
-![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo2.png)
+![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_statusbar.png)
 表示例：現在ページ/総ページ -最終ページの行 （ページの行/列） 編集中ファイルの総文字数/フォルダ内同一ファイル総文字数 ±Git差分文字数
 
 - **ページカウンタ**
@@ -127,7 +182,7 @@ workspace/
 ```
 
 - **純作業量表示（v2.3.0）**
-![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo4.png)
+![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_workgraph.png)
 表示例：[左：円環グラフ、右：棒グラフ]
   - 実際に入力・削除された文字数を合計して「純作業量」として表示。
   - ステータスバー上では当日の合計作業量をリアルタイム更新。
@@ -175,7 +230,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
      - 「POS/Note: フォルダ内の .md を結合」  
   3. フォルダ直下にある対象拡張子ファイルをファイル名順に結合し、同フォルダ直下へ出力  
 
-![Combine Screen shot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo1.png)
+![Combine Screen shot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_combine.png)
 例：フォルダ右クリック時
 
 - **仕様**  
@@ -190,8 +245,8 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   執筆中のテキスト内で、「かな」表記と「漢字」表記をワンタッチで切り替えられます。
 
 - **ショートカット**
-  - `Ctrl + .` : 「かすか／わずか」→「微か／僅か」など、かな → 漢字
-  - `Alt + .` : 「微か／僅か」→「かすか／わずか」など、漢字 → かな
+  - `Ctrl + .` : 「微か／僅か」→「微か／僅か」など、かな → 漢字
+  - `Alt + .` : 「微か／僅か」→「微か／僅か」など、漢字 → かな
 
 - **ユーザー辞書（conversion.json）対応**
 - **読み込み場所**  
@@ -204,8 +259,8 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
   ```json
   {
-    "かすか": "微か",
-    "わずか": "僅か",
+    "微か": "微か",
+    "僅か": "僅か",
     "へんかん": "変換"
   }
   ```
@@ -214,7 +269,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 - `.vscode/conversion.json`:
       ```json
-      { "かすか": "微か" }
+      { "微か": "微か" }
       ```
 - `小説/conversion.json`:
       ```json
@@ -223,21 +278,19 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 - 実際の適用結果:
       ```json
       {
-        "かすか": "微か",
+        "微か": "微か",
         "てのひら": "掌"
       }
       ```
 
 ### 見出し機能 {#headline}
 
-![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo3.png)
+![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_headline.png)
 
 - **折りたたみ制御（v1.3.0）**  
   - 「#」で第一見出し、「##」で第二見出し  
   - `Ctrl + [` で展開／折りたたみをトグル  
   - 最小レベルを設定可能：`posNote.headings.foldMinLevel`（既定 2）
-- **見出しビュー（v1.3.3）**  
-  - サイドバーに見出しを一覧表示、クリックでジャンプ
 - **ミニマップ強調（v1.3.4）**  
   - ミニマップ上に見出しレベルごとの色付きバーを表示
 - **コードフェンスコメント（v2.2.1）**
@@ -261,7 +314,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
     ### 見出しレベル三
     ```
 
-### 入力支援 {#bracket}
+### 入力支援 {#support}
 
 - **全角括弧の入力補完**  
   - 「『（［｛〈《【〔」などの開きを入力すると自動で閉じを補完

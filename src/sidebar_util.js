@@ -11,6 +11,7 @@
 
 const vscode = require("vscode");
 const path = require("path");
+const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 
 // ===== エントリーポイント =====
 function initSidebarUtilities(context) {
@@ -50,6 +51,36 @@ function initSidebarUtilities(context) {
         // フォルダの可能性 → エクスプローラ上で開く
         await vscode.commands.executeCommand("revealInExplorer", uri);
       }
+    })
+  );
+
+  // サイドバー用『このフォルダの .txt を結合』
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.combineTxtHere", async () => {
+      const base = getSidebarBaseDirUri();
+      if (!base) {
+        vscode.window.showWarningMessage(
+          "アクティブなエディタのあるファイルを開いてください"
+        );
+        return;
+      }
+      await combineTxtInFolder(base);
+      provider.refresh();
+    })
+  );
+
+  // サイドバー用『このフォルダの .md を結合』
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.combineMdHere", async () => {
+      const base = getSidebarBaseDirUri();
+      if (!base) {
+        vscode.window.showWarningMessage(
+          "アクティブなエディタのあるファイルを開いてください"
+        );
+        return;
+      }
+      await combineMdInFolder(base);
+      provider.refresh();
     })
   );
 
@@ -177,6 +208,30 @@ function initSidebarUtilities(context) {
     })
   );
 
+  // --- 追加: サイドバーのフォルダ右クリック用『このフォルダの .txt を結合』
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.combineTxtAt", async (arg) => {
+      const base = await resolveBaseForSibling(arg); // フォルダならそのまま, ファイルなら親フォルダ
+      if (!base) {
+        vscode.window.showWarningMessage("対象フォルダを解決できませんでした");
+        return;
+      }
+      await combineTxtInFolder(base); // 既存の結合ロジックを利用
+    })
+  );
+
+  // --- 追加: サイドバーのフォルダ右クリック用『このフォルダの .md を結合』
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.combineMdAt", async (arg) => {
+      const base = await resolveBaseForSibling(arg);
+      if (!base) {
+        vscode.window.showWarningMessage("対象フォルダを解決できませんでした");
+        return;
+      }
+      await combineMdInFolder(base);
+    })
+  );
+
   // 外部エクスプローラー
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.revealInOS", async (arg) => {
@@ -228,9 +283,31 @@ class UtilitiesProvider {
     newNovel.contextValue = "noveltools.action";
     items.push(newNovel);
 
+    // 連結ボタン（.txt）
+    const concatTxt = new vscode.TreeItem(
+      "親フォルダの .txt を結合",
+      vscode.TreeItemCollapsibleState.None
+    );
+    concatTxt.description = "ファイル名順で連結し同フォルダへ出力";
+    concatTxt.command = { command: "posNote.combineTxtHere", title: "結合" };
+    concatTxt.iconPath = new vscode.ThemeIcon("merge");
+    concatTxt.contextValue = "noveltools.action";
+    items.push(concatTxt);
+
+    // 連結ボタン（.md）
+    const concatMd = new vscode.TreeItem(
+      "親フォルダの .md を結合",
+      vscode.TreeItemCollapsibleState.None
+    );
+    concatMd.description = "ファイル名順で連結し同フォルダへ出力";
+    concatMd.command = { command: "posNote.combineMdHere", title: "結合" };
+    concatMd.iconPath = new vscode.ThemeIcon("merge");
+    concatMd.contextValue = "noveltools.action";
+    items.push(concatMd);
+
     // 2) セクション見出し（表示だけ）
     const section = new vscode.TreeItem(
-      "— 現在のフォルダ",
+      "——現在のフォルダ——",
       vscode.TreeItemCollapsibleState.None
     );
     section.iconPath = new vscode.ThemeIcon("folder-library");
@@ -643,14 +720,14 @@ function defaultGlossary() {
   return ["glossary"];
 }
 function defaultConversion() {
-  return { before: "after" };
+  return { "alt + .": "ctrl + ." };
 }
 function defaultNovelTxt() {
   return [
-    "# タイトル未定",
+    "# タイトル",
     "",
     "　——ここから本文を開始してください。",
-    "　章見出しは `#`、節は `##` のように Markdown 風も可。",
+    "　章見出しは `# `、節は `## ` のように Markdown 形式。",
   ].join("\n");
 }
 
