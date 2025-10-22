@@ -13,12 +13,37 @@ const vscode = require("vscode");
 const path = require("path");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 
+// 直近に確定したベースフォルダ（テキスト以外を開いた時のフォールバック用）
+let _lastPinnedBaseDirUri = null;
+
 // ===== エントリーポイント =====
 function initSidebarUtilities(context) {
   const provider = new UtilitiesProvider(context);
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("novelUtilities", provider)
+  );
+
+  // === 追加: TreeViewタイトルを動的に変更 ===
+  const treeView = vscode.window.createTreeView("novelUtilities", {
+    treeDataProvider: provider,
+    showCollapseAll: false,
+  });
+
+  function updateViewTitle() {
+    const base = getSidebarBaseDirUri();
+    if (base) {
+      const folderName = path.basename(base.fsPath);
+      treeView.title = `- ${folderName} -`;
+    } else {
+      treeView.title = "各種操作・ファイル";
+    }
+  }
+
+  // 起動時とエディタ切替時に更新
+  updateViewTitle();
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => updateViewTitle())
   );
 
   // --- コマンド: 新しい小説を作成
@@ -46,11 +71,32 @@ function initSidebarUtilities(context) {
     vscode.commands.registerCommand("posNote.openResource", async (uri) => {
       if (!uri) return;
       try {
-        await vscode.window.showTextDocument(uri, { preview: false });
+        // どの拡張子でも VS Code 既定のビューアで開く
+        await vscode.commands.executeCommand("vscode.open", uri, {
+          preview: false,
+        });
       } catch (e) {
-        // フォルダの可能性 → エクスプローラ上で開く
+        // フォルダなどは OS 側で見せる
         await vscode.commands.executeCommand("revealInExplorer", uri);
       }
+    })
+  );
+
+  // 現在のフォルダに雛形を作成
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.createScaffoldHere", async () => {
+      const base = getSidebarBaseDirUri();
+      if (!base) {
+        vscode.window.showWarningMessage(
+          "アクティブなエディタのあるファイルを開いてください"
+        );
+        return;
+      }
+      await createScaffoldInFolder(base);
+      provider.refresh();
+      vscode.window.showInformationMessage(
+        `雛形を作成しました: ${base.fsPath}`
+      );
     })
   );
 
@@ -268,54 +314,10 @@ class UtilitiesProvider {
 
     // ルート要素
     const items = [];
-
-    // 1) 最上段アクション
-    const newNovel = new vscode.TreeItem(
-      "新しい小説を作成",
-      vscode.TreeItemCollapsibleState.None
-    );
-    newNovel.description = "雛形をワークスペースに作成";
-    newNovel.command = {
-      command: "posNote.createNewNovel",
-      title: "新しい小説を作成",
-    };
-    newNovel.iconPath = new vscode.ThemeIcon("add");
-    newNovel.contextValue = "noveltools.action";
-    items.push(newNovel);
-
-    // 連結ボタン（.txt）
-    const concatTxt = new vscode.TreeItem(
-      "親フォルダの .txt を結合",
-      vscode.TreeItemCollapsibleState.None
-    );
-    concatTxt.description = "ファイル名順で連結し同フォルダへ出力";
-    concatTxt.command = { command: "posNote.combineTxtHere", title: "結合" };
-    concatTxt.iconPath = new vscode.ThemeIcon("merge");
-    concatTxt.contextValue = "noveltools.action";
-    items.push(concatTxt);
-
-    // 連結ボタン（.md）
-    const concatMd = new vscode.TreeItem(
-      "親フォルダの .md を結合",
-      vscode.TreeItemCollapsibleState.None
-    );
-    concatMd.description = "ファイル名順で連結し同フォルダへ出力";
-    concatMd.command = { command: "posNote.combineMdHere", title: "結合" };
-    concatMd.iconPath = new vscode.ThemeIcon("merge");
-    concatMd.contextValue = "noveltools.action";
-    items.push(concatMd);
-
-    // 2) セクション見出し（表示だけ）
-    const section = new vscode.TreeItem(
-      "——現在のフォルダ——",
-      vscode.TreeItemCollapsibleState.None
-    );
-    section.iconPath = new vscode.ThemeIcon("folder-library");
-    section.contextValue = "noveltools.section";
-    items.push(section);
-
-    // 3) 現在フォルダの内容を列挙
+    // base定義
     const base = getSidebarBaseDirUri();
+
+    // 現在フォルダの内容を列挙
     if (!base) {
       const warn = new vscode.TreeItem(
         "アクティブなエディタがありません",
@@ -371,6 +373,16 @@ class FsTreeItem extends vscode.TreeItem {
     this.contextValue = isFolder ? "noveltools.folder" : "noveltools.file";
     if (resourceUri) this.tooltip = resourceUri.fsPath;
   }
+}
+
+// 拡張子ごとのソート優先度
+function extPriority(name) {
+  const ext = path.extname(name).toLowerCase();
+  if (ext === ".txt") return 1;
+  if (ext === ".md") return 2;
+  if (ext === ".json") return 3;
+  if (ext === ".png" || ext === ".jpg" || ext === ".jpeg") return 4;
+  return 9; // その他
 }
 
 // ===== クリップボード I/O =====
@@ -453,11 +465,16 @@ async function listFolderChildren(folderUri) {
     return [];
   }
 
-  // フォルダ→先, ファイル→後, 名前昇順
+  // 優先度: フォルダ(0) → .txt(1) → .md(2) → .json(3) → その他(9)
   entries.sort((a, b) => {
     const [nameA, typeA] = a;
     const [nameB, typeB] = b;
-    if (typeA !== typeB) return typeA === vscode.FileType.Directory ? -1 : 1;
+
+    // フォルダ優先
+    const priA = typeA === vscode.FileType.Directory ? 0 : extPriority(nameA);
+    const priB = typeB === vscode.FileType.Directory ? 0 : extPriority(nameB);
+
+    if (priA !== priB) return priA - priB;
     return nameA.localeCompare(nameB, "ja");
   });
 
@@ -479,7 +496,7 @@ async function listFolderChildren(folderUri) {
   return items;
 }
 
-// ====== 同階層の全ファイルを列挙（拡張子無制限） ======
+// ====== 同階層の全ファイルを列挙（拡張子優先→名前順） ======
 async function listFilesAt(baseDirUri) {
   const fs = vscode.workspace.fs;
   let entries = [];
@@ -489,11 +506,18 @@ async function listFilesAt(baseDirUri) {
     return [];
   }
 
-  // ファイルのみ抽出して名前昇順
+  // ファイルのみ抽出
   const files = entries
     .filter(([_, type]) => type === vscode.FileType.File)
-    .map(([name]) => name)
-    .sort((a, b) => a.localeCompare(b, "ja"));
+    .map(([name]) => name);
+
+  // 優先度: .txt → .md → .json → その他、同一拡張子内は名前昇順
+  files.sort((a, b) => {
+    const pa = extPriority(a);
+    const pb = extPriority(b);
+    if (pa !== pb) return pa - pb;
+    return a.localeCompare(b, "ja");
+  });
 
   return files.map((name) => {
     const uri = vscode.Uri.joinPath(baseDirUri, name);
@@ -519,29 +543,69 @@ async function makeFolderItemIfExists(folderUri, label) {
   return null;
 }
 
+// 現在のフォルダに雛形を作成
+async function createScaffoldInFolder(baseUri) {
+  const fs = vscode.workspace.fs;
+
+  // plot/ を用意（既存でも OK）
+  const plotUri = vscode.Uri.joinPath(baseUri, "plot");
+  try {
+    await fs.createDirectory(plotUri);
+  } catch {
+    // 既にあれば無視
+  }
+
+  // 既存ユーティリティで「無ければ書く」
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(plotUri, "characters.md"),
+    toUint8(defaultPlotCharactersMd())
+  );
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(plotUri, "plot.md"),
+    toUint8(defaultPlotMd())
+  );
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(baseUri, "characters.json"),
+    toUint8(JSON.stringify(defaultCharacters(), null, 2))
+  );
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(baseUri, "conversion.json"),
+    toUint8(JSON.stringify(defaultConversion(), null, 2))
+  );
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(baseUri, "glossary.json"),
+    toUint8(JSON.stringify(defaultGlossary(), null, 2))
+  );
+}
+
 // ====== 現在アクティブファイルの親フォルダ ======
 function getSidebarBaseDirUri() {
   const ed = vscode.window.activeTextEditor;
   const docUri = ed?.document?.uri;
-  if (!docUri || docUri.scheme !== "file") return null;
 
-  const fsPath = path.normalize(docUri.fsPath);
-  let dir = path.dirname(fsPath);
+  // アクティブエディタがファイルなら従来どおり算出して更新
+  if (docUri && docUri.scheme === "file") {
+    const fsPath = path.normalize(docUri.fsPath);
+    let dir = path.dirname(fsPath);
 
-  // パスを構成要素で解析し、最後に出現する "plot" の親まで遡る
-  const parts = dir.split(path.sep);
-  const lastPlotIdx = parts.lastIndexOf("plot");
-  if (lastPlotIdx !== -1) {
-    // plot の親 = parts.slice(0, lastPlotIdx)
-    const parentParts = parts.slice(0, lastPlotIdx);
-    const parentPath = parentParts.length
-      ? parentParts.join(path.sep)
-      : path.sep;
-    return vscode.Uri.file(parentPath);
+    // 最後の "plot" の親まで遡る既存仕様
+    const parts = dir.split(path.sep);
+    const lastPlotIdx = parts.lastIndexOf("plot");
+    if (lastPlotIdx !== -1) {
+      const parentParts = parts.slice(0, lastPlotIdx);
+      const parentPath = parentParts.length
+        ? parentParts.join(path.sep)
+        : path.sep;
+      _lastPinnedBaseDirUri = vscode.Uri.file(parentPath);
+      return _lastPinnedBaseDirUri;
+    }
+
+    _lastPinnedBaseDirUri = vscode.Uri.file(dir);
+    return _lastPinnedBaseDirUri;
   }
 
-  // それ以外は従来どおり “同じフォルダ”
-  return vscode.Uri.file(dir);
+  // 画像プレビューなどテキスト以外に切り替わった場合は直近のベースを維持
+  return _lastPinnedBaseDirUri;
 }
 
 // ====== NewNovel 雛形 ======

@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -257,6 +257,31 @@
         "icon": "$(add)"
       },
       {
+        "command": "posNote.createScaffoldHere",
+        "title": "POS/Note: 現在のフォルダに雛形を作成",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "posNote.combineTxtAt",
+        "title": "POS/Note: このフォルダの .txt を結合",
+        "icon": "$(symbol-text)"
+      },
+      {
+        "command": "posNote.combineMdAt",
+        "title": "POS/Note: このフォルダの .md を結合",
+        "icon": "$(markdown)"
+      },
+      {
+        "command": "posNote.combineTxtHere",
+        "title": "POS/Note: 親フォルダの .txt を結合",
+        "icon": "$(diff-multiple)"
+      },
+      {
+        "command": "posNote.combineMdHere",
+        "title": "POS/Note: 親フォルダの .md を結合",
+        "icon": "$(expand-all)"
+      },
+      {
         "command": "posNote.revealView",
         "title": "POS/Note: ビューを表示"
       },
@@ -298,16 +323,6 @@
         "command": "posNote.revealInOS",
         "title": "外部エクスプローラーで表示",
         "icon": "$(folder-opened)"
-      },
-      {
-        "command": "posNote.combineTxtAt",
-        "title": "POS/Note: このフォルダの .txt を結合",
-        "icon": "$(merge)"
-      },
-      {
-        "command": "posNote.combineMdAt",
-        "title": "POS/Note: このフォルダの .md を結合",
-        "icon": "$(merge)"
       }
     ],
     "menus": {
@@ -316,6 +331,21 @@
           "command": "posNote.createNewNovel",
           "when": "view == novelUtilities",
           "group": "navigation@1"
+        },
+        {
+          "command": "posNote.createScaffoldHere",
+          "when": "view == novelUtilities",
+          "group": "navigation@2"
+        },
+        {
+          "command": "posNote.combineTxtHere",
+          "when": "view == novelUtilities",
+          "group": "navigation@10"
+        },
+        {
+          "command": "posNote.combineMdHere",
+          "when": "view == novelUtilities",
+          "group": "navigation@11"
         }
       ],
       "editor/title": [
