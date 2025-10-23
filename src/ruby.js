@@ -1,21 +1,59 @@
 // ruby.js
 const vscode = require("vscode");
 
+/* =========================
+   ヘルパー群
+   ========================= */
+
 /**
- * 文字列を「傍点」書式へ変換する。
- * 仕様:
- *   - 非空白文字: `|{c}《・》`
- *   - 空白（半/全角・改行など）はそのまま温存
- *   - サロゲート/絵文字なども Array.from により「1字」として扱う
- * @returns {string} 変換後のテキスト
+ * 入力ボックスでルビ文字列を取得
+ * キャンセルや空は null
+ */
+async function askRubyText() {
+  const ruby = await vscode.window.showInputBox({
+    prompt: "《》の中に入れるルビを入力",
+    placeHolder: "かな／カナ／注音など",
+    ignoreFocusOut: true,
+    validateInput: (v) => {
+      if (v.includes("《") || v.includes("》"))
+        return "《》は入力しないでください";
+      return null;
+    },
+  });
+  if (!ruby) return null;
+  return ruby;
+}
+
+/**
+ * 文書全文から needle の一致開始位置をすべて返す
+ * 一致直前が '|' の箇所は除外（二重挿入防止）
+ */
+function findAllInsertableMatches(haystack, needle) {
+  if (!needle) return [];
+  const res = [];
+  let from = 0;
+  while (true) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) break;
+    if (idx > 0 && haystack[idx - 1] === "|") {
+      from = idx + needle.length;
+      continue;
+    }
+    res.push(idx);
+    from = idx + needle.length;
+  }
+  return res;
+}
+
+/**
+ * 文字列を傍点書式へ変換
+ * 非空白は `|{c}《・》` 空白や改行は温存
  */
 function toBouten(text) {
   const chars = Array.from(text || "");
   return chars
     .map((c) => {
-      // 改行はそのまま保つ（行構造を壊さない）
       if (c === "\r" || c === "\n") return c;
-      // 空白は傍点を付けない
       if (c === " " || c === "　" || /\s/.test(c)) return c;
       return `|${c}《・》`;
     })
@@ -23,19 +61,15 @@ function toBouten(text) {
 }
 
 /**
- * 複数選択に対応した置換と、置換後のカーソル移動。
- * @param {vscode.TextEditor} editor
- * @param {(text:string)=>{ replaced:string, caretOffset:number|null }} perSelection
-  *  - perSelection は各選択テキストに対する置換結果と、
-  *    選択開始位置からの「キャレットを置く相対オフセット」（nullなら末尾）を返す。
- * 選択範囲ごとに置換とカーソル移動をまとめて実行するユーティリティ
+ * 複数選択をまとめて置換し キャレットも移動
+ * perSelection は {replaced, caretOffset} を返す
+ * caretOffset は選択開始からの相対位置 null なら末尾
  */
 async function replaceSelectionsWithCarets(editor, perSelection) {
   const doc = editor.document;
   const sels = editor.selections;
   if (!sels || sels.length === 0) return;
 
-  // 置換内容を事前に計算
   const jobs = sels.map((sel) => {
     const text = doc.getText(sel);
     const { replaced, caretOffset } = perSelection(text);
@@ -43,25 +77,17 @@ async function replaceSelectionsWithCarets(editor, perSelection) {
   });
 
   await editor.edit((edit) => {
-    for (const j of jobs) {
-      edit.replace(j.sel, j.replaced);
-    }
+    for (const j of jobs) edit.replace(j.sel, j.replaced);
   });
 
-  // 置換後のキャレット位置を計算して反映
   const newSelections = [];
   for (const j of jobs) {
-    // 置換開始のオフセット
     const startOffset = doc.offsetAt(j.sel.start);
-    // 実際に置換されたテキスト長
     const replacedLen = j.replaced.length;
-
     let targetOffset;
     if (typeof j.caretOffset === "number" && j.caretOffset >= 0) {
-      // 選択開始 + 相対オフセット
       targetOffset = startOffset + Math.min(j.caretOffset, replacedLen);
     } else {
-      // 末尾（選択開始 + 置換長）
       targetOffset = startOffset + replacedLen;
     }
     const pos = doc.positionAt(targetOffset);
@@ -70,53 +96,105 @@ async function replaceSelectionsWithCarets(editor, perSelection) {
   editor.selections = newSelections;
 }
 
+/* =========================
+   コマンド群
+   ========================= */
+
 /**
- * ルビ挿入:
- *   選択:       "これ" -> "|これ《》"（《》の中へキャレット）
- *   選択なし:   カーソル位置に "|《》" を挿入（《》の中へキャレット）
+ * ルビ挿入
+ * 選択なし: その場に `|《{ruby}》` を挿入 caret は 》 直後
+ * 選択あり: 文書全体の同一文字列を `|{text}《{ruby}》` へ一括置換
+ *           直前が '|' の一致はスキップ caret は元選択の 》 直後
  */
 async function insertRuby(editor) {
+  const ruby = await askRubyText();
+  if (ruby === null) return;
+
   const noSelection = editor.selections.every((s) => s.isEmpty);
+
   if (noSelection) {
-    // 選択がない場合は |《》 の雛形を挿入し、括弧内へフォーカス
     await editor.edit((edit) => {
-      for (const s of editor.selections) {
-        edit.insert(s.active, "|《》");
-      }
+      for (const s of editor.selections) edit.insert(s.active, `|《${ruby}》`);
     });
     const doc = editor.document;
-    const sels = editor.selections.map((s) => {
+    editor.selections = editor.selections.map((s) => {
       const base = doc.offsetAt(s.active);
-      // "|《》" のうち、"|"=1, "《"=1 → 内部位置は +2
-      const pos = doc.positionAt(base + 2);
+      const pos = doc.positionAt(base + `|《${ruby}》`.length); // 》直後
       return new vscode.Selection(pos, pos);
     });
-    editor.selections = sels;
     return;
   }
 
-  await replaceSelectionsWithCarets(editor, (text) => {
-    const base = `|${text}《》`;
-    // caretOffset: 先頭から 1（|） + text.length（基文字列） + 1（《） = 中括弧内の開始
-    const caretOffset = 1 + Array.from(text).length + 1;
-    return { replaced: base, caretOffset };
+  const doc = editor.document;
+  const full = doc.getText();
+
+  const uniqTexts = Array.from(
+    new Set(
+      editor.selections
+        .map((sel) => doc.getText(sel))
+        .filter((t) => t && t.length > 0)
+    )
+  );
+  if (uniqTexts.length === 0) return;
+
+  const addLen = 3 + Array.from(ruby).length; // | + 《 + 》 の 3 文字分 + ルビ長
+  const matches = [];
+  for (const t of uniqTexts) {
+    const idxs = findAllInsertableMatches(full, t);
+    for (const start of idxs) {
+      matches.push({ start, end: start + t.length, text: t, addLen });
+    }
+  }
+
+  if (matches.length === 0) {
+    await replaceSelectionsWithCarets(editor, (text) => {
+      const replaced = `|${text}《${ruby}》`;
+      const caretOffset = replaced.length; // 》直後
+      return { replaced, caretOffset };
+    });
+    return;
+  }
+
+  matches.sort((a, b) => a.start - b.start);
+  await editor.edit((edit) => {
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const m = matches[i];
+      const range = new vscode.Range(
+        doc.positionAt(m.start),
+        doc.positionAt(m.end)
+      );
+      edit.replace(range, `|${m.text}《${ruby}》`);
+    }
+  });
+
+  const sortedMatches = matches.slice().sort((a, b) => a.start - b.start);
+  editor.selections = editor.selections.map((sel) => {
+    const selStart = doc.offsetAt(sel.start);
+    const selText = doc.getText(sel);
+    const replacedLen =
+      1 + Array.from(selText).length + 1 + Array.from(ruby).length + 1; // | + text + 《 + ruby + 》
+
+    let delta = 0;
+    for (const m of sortedMatches) {
+      if (m.start < selStart) delta += addLen;
+      else break;
+    }
+    const targetAbs = selStart + delta + replacedLen; // 》直後
+    const pos = doc.positionAt(targetAbs);
+    return new vscode.Selection(pos, pos);
   });
 }
 
 /**
- * 傍点挿入:
- *   選択:       "これ" -> "|こ《・》|れ《・》"
- *   選択なし:   カーソル位置に "|《・》" を挿入（末尾にキャレット）
+ * 傍点挿入
+ * 選択ありは各字へ `|c《・》` を付与 選択なしは `|《・》` を挿入
  */
 async function insertBouten(editor) {
   const noSelection = editor.selections.every((s) => s.isEmpty);
   if (noSelection) {
     await editor.edit((edit) => {
-      for (const s of editor.selections) {
-        edit.insert(s.active, "|《・》");
-      }
+      for (const s of editor.selections) edit.insert(s.active, "|《・》");
     });
-    // 末尾へキャレット（入力継続しやすいように）
     const doc = editor.document;
     const sels = editor.selections.map((s) => {
       const base = doc.offsetAt(s.active);
@@ -129,12 +207,14 @@ async function insertBouten(editor) {
 
   await replaceSelectionsWithCarets(editor, (text) => {
     const replaced = toBouten(text);
-    // caret は置換末尾
-    return { replaced, caretOffset: null };
+    return { replaced, caretOffset: null }; // 末尾
   });
 }
 
-// ルビ／傍点関連のコマンドを VS Code に登録する
+/* =========================
+   登録とエクスポート
+   ========================= */
+
 function registerRubySupport(context) {
   context.subscriptions.push(
     vscode.commands.registerTextEditorCommand(
