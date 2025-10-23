@@ -96,38 +96,34 @@ async function replaceSelectionsWithCarets(editor, perSelection) {
   editor.selections = newSelections;
 }
 
+// 共通補正関数
+function caretAdjustLeft(doc, abs, ruby) {
+  const correction = (ruby ?? "").length + 3; // ユーザー観測に基づく補正
+  const fixed = Math.max(0, abs - correction);
+  return doc.positionAt(fixed);
+}
+
 /* =========================
    コマンド群
    ========================= */
-
 /**
  * ルビ挿入
- * 選択なし: その場に `|《{ruby}》` を挿入 caret は 》 直後
  * 選択あり: 文書全体の同一文字列を `|{text}《{ruby}》` へ一括置換
- *           直前が '|' の一致はスキップ caret は元選択の 》 直後
+ *           直前が '|' の一致はスキップ caret は 》 直後（内部で補正）
+ * 選択なし: 何もせず警告を表示（※ ルビ入力は出さない）
  */
 async function insertRuby(editor) {
-  const ruby = await askRubyText();
-  if (ruby === null) return;
-
+  // 先に選択有無を判定
   const noSelection = editor.selections.every((s) => s.isEmpty);
-
   if (noSelection) {
-    await editor.edit((edit) => {
-      for (const s of editor.selections) edit.insert(s.active, `|《${ruby}》`);
-    });
-    const doc = editor.document;
-    editor.selections = editor.selections.map((s) => {
-      const base = doc.offsetAt(s.active);
-      const pos = doc.positionAt(base + `|《${ruby}》`.length); // 》直後
-      return new vscode.Selection(pos, pos);
-    });
+    vscode.window.showWarningMessage("文字列が選択されていません。");
     return;
   }
 
   const doc = editor.document;
   const full = doc.getText();
 
+  // 選択テキストのユニーク化（空は除外）
   const uniqTexts = Array.from(
     new Set(
       editor.selections
@@ -135,26 +131,37 @@ async function insertRuby(editor) {
         .filter((t) => t && t.length > 0)
     )
   );
-  if (uniqTexts.length === 0) return;
 
-  const addLen = 3 + Array.from(ruby).length; // | + 《 + 》 の 3 文字分 + ルビ長
+  // 範囲はあるが実体が空ならここで終了し ダイアログも出さない
+  if (uniqTexts.length === 0) {
+    vscode.window.showWarningMessage("文字列が選択されていません。");
+    return;
+  }
+
+  // ここで初めてルビ入力を要求
+  const ruby = await askRubyText();
+  if (ruby === null) return;
+
+  // 文書内一致（直前が '|' の一致は除外）
   const matches = [];
   for (const t of uniqTexts) {
     const idxs = findAllInsertableMatches(full, t);
     for (const start of idxs) {
-      matches.push({ start, end: start + t.length, text: t, addLen });
+      matches.push({ start, end: start + t.length, text: t });
     }
   }
 
+  // 文書内一致が無い → 選択範囲だけ置換（キャレットは補正込み）
   if (matches.length === 0) {
     await replaceSelectionsWithCarets(editor, (text) => {
       const replaced = `|${text}《${ruby}》`;
-      const caretOffset = replaced.length; // 》直後
+      const caretOffset = Math.max(0, replaced.length - (ruby.length + 3));
       return { replaced, caretOffset };
     });
     return;
   }
 
+  // 末尾から一括置換（オフセット崩壊防止）
   matches.sort((a, b) => a.start - b.start);
   await editor.edit((edit) => {
     for (let i = matches.length - 1; i >= 0; i--) {
@@ -167,41 +174,63 @@ async function insertRuby(editor) {
     }
   });
 
-  const sortedMatches = matches.slice().sort((a, b) => a.start - b.start);
+  // 置換で増える長さ（UTF-16）= 3（"|" "《" "》"）+ ruby.length
+  const addLen = 3 + ruby.length;
+
+  // 置換前の選択開始オフセット → 一致インデックスへ対応づけ
+  const startToIndex = new Map();
+  for (let i = 0; i < matches.length; i++)
+    startToIndex.set(matches[i].start, i);
+
+  // キャレット位置を「》直後」からルビ長+3 左へ補正して確定
   editor.selections = editor.selections.map((sel) => {
     const selStart = doc.offsetAt(sel.start);
     const selText = doc.getText(sel);
-    const replacedLen =
-      1 + Array.from(selText).length + 1 + Array.from(ruby).length + 1; // | + text + 《 + ruby + 》
+    const mIdx = startToIndex.get(selStart);
 
-    let delta = 0;
-    for (const m of sortedMatches) {
-      if (m.start < selStart) delta += addLen;
-      else break;
+    if (typeof mIdx === "number") {
+      const priorCount = mIdx;
+      const replacedLen = 1 + selText.length + 1 + ruby.length + 1;
+      const rawAbs = selStart + priorCount * addLen + replacedLen;
+      const pos = caretAdjustLeft(doc, rawAbs, ruby);
+      return new vscode.Selection(pos, pos);
     }
-    const targetAbs = selStart + delta + replacedLen; // 》直後
-    const pos = doc.positionAt(targetAbs);
+
+    // 近傍一致フォールバック
+    let nearIdx = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < matches.length; i++) {
+      const d = Math.abs(matches[i].start - selStart);
+      if (d < bestDist) {
+        bestDist = d;
+        nearIdx = i;
+      }
+    }
+    if (nearIdx >= 0) {
+      const m = matches[nearIdx];
+      const priorCount = nearIdx;
+      const replacedLen = 1 + m.text.length + 1 + ruby.length + 1;
+      const rawAbs = m.start + priorCount * addLen + replacedLen;
+      const pos = caretAdjustLeft(doc, rawAbs, ruby);
+      return new vscode.Selection(pos, pos);
+    }
+
+    // 最終フォールバック
+    const rawAbs = selStart + `|${selText}《${ruby}》`.length;
+    const pos = caretAdjustLeft(doc, rawAbs, ruby);
     return new vscode.Selection(pos, pos);
   });
 }
 
 /**
  * 傍点挿入
- * 選択ありは各字へ `|c《・》` を付与 選択なしは `|《・》` を挿入
+ * 選択あり: 各文字へ `|c《・》` を付与
+ * 選択なし: 何もせず警告を表示
  */
 async function insertBouten(editor) {
   const noSelection = editor.selections.every((s) => s.isEmpty);
   if (noSelection) {
-    await editor.edit((edit) => {
-      for (const s of editor.selections) edit.insert(s.active, "|《・》");
-    });
-    const doc = editor.document;
-    const sels = editor.selections.map((s) => {
-      const base = doc.offsetAt(s.active);
-      const pos = doc.positionAt(base + "|《・》".length);
-      return new vscode.Selection(pos, pos);
-    });
-    editor.selections = sels;
+    vscode.window.showWarningMessage("文字列が選択されていません。");
     return;
   }
 
