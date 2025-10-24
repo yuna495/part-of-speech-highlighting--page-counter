@@ -222,6 +222,28 @@ async function insertRuby(editor) {
   });
 }
 
+// 選択範囲のみにルビを付ける
+async function insertRubySelection(editor) {
+  // 選択が無ければ注意のみ
+  const noSelection = editor.selections.every((s) => s.isEmpty);
+  if (noSelection) {
+    vscode.window.showWarningMessage("文字列が選択されていません。");
+    return;
+  }
+
+  // ルビ入力
+  const ruby = await askRubyText();
+  if (ruby === null) return;
+
+  // 各選択を |text《ruby》 に置換
+  // caretOffset は選択開始から text 長へ置く → 「《」直前で止まる挙動（既存のフォールバックと整合）
+  await replaceSelectionsWithCarets(editor, (text) => {
+    const replaced = `|${text}《${ruby}》`;
+    const caretOffset = Math.max(0, replaced.length - (ruby.length + 3)); // = text.length
+    return { replaced, caretOffset };
+  });
+}
+
 /**
  * 傍点挿入
  * 選択あり: 各文字へ `|c《・》` を付与
@@ -253,6 +275,10 @@ function registerRubySupport(context) {
     vscode.commands.registerTextEditorCommand(
       "posNote.ruby.insertBouten",
       (editor) => insertBouten(editor)
+    ),
+    vscode.commands.registerTextEditorCommand(
+      "posNote.ruby.insertRubySelection",
+      (editor) => insertRubySelection(editor)
     )
   );
 }

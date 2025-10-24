@@ -38,3 +38,4 @@ scripts/tempCodeRunnerFile.*
 
 # --- 画像/メディア ---
 # icon.png は配布に必要なので ignore しない
+**/*.svg

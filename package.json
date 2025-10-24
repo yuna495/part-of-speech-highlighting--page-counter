@@ -225,7 +225,11 @@
       },
       {
         "command": "posNote.ruby.insertRuby",
-        "title": "POS/Note: 選択文字にルビを付ける（|選択《》）"
+        "title": "POS/Note: ファイル内の選択文字全てにルビを付ける（|選択《》）"
+      },
+      {
+        "command": "posNote.ruby.insertRubySelection",
+        "title": "POS/Note: 選択範囲のみにルビを付ける（|選択《》）"
       },
       {
         "command": "posNote.ruby.insertBouten",
@@ -680,6 +684,11 @@
       {
         "command": "posNote.ruby.insertRuby",
         "key": "ctrl+alt+r",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.ruby.insertRubySelection",
+        "key": "alt+r",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       },
       {

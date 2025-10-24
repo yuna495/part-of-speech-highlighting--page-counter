@@ -8,6 +8,7 @@ All notable changes to this extension are documented here.
 
 - コンテナタイトル部分に「現在のフォルダに雛形を追加」ボタンを実装。
   - plot/各種.mdと各種.jsonファイルを追加。
+- 「ctrl + r」で選択部分のみにルビを振るショートカットキーを追加。
 
 ### 変更
 
@@ -19,6 +20,7 @@ All notable changes to this extension are documented here.
   - 選択ありの場合、文書全体の同一文字列を一括で `|{text}《{ruby}》` に変換。
   - 一致直前が「|」の箇所はスキップ（二重挿入防止）。
   - キャレット位置を `》` の直後に自動移動するよう調整。
+- アクティビティバーのアイコンを変更。
 
 ### 修正
 
