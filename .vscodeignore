@@ -14,3 +14,4 @@ vsc-extension-quickstart.md
 **/*.tsx
 **/*.test.*
 **/__tests__/**
+**/*.svg

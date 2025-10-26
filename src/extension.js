@@ -24,6 +24,7 @@ const { registerHeadingSymbolProvider } = require("./headline_symbols");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
 const { registerConversionCommands } = require("./conversion");
+const { registerConvenientFeatures } = require("./convenient");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開API（activateで初期化）
@@ -277,6 +278,8 @@ function activate(context) {
       }
     })
   );
+  // 保存：自動整形（行末スペース削除）
+  registerConvenientFeatures(context);
 }
 
 // プレビューWebviewが残らないよう終了時に明示破棄する

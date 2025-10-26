@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -234,6 +234,10 @@
       {
         "command": "posNote.ruby.insertBouten",
         "title": "POS/Note: 選択文字に傍点を付ける（|字《・》…）"
+      },
+      {
+        "command": "posNote.ruby.wrapSmartQuotes",
+        "title": "POS/Note: 選択文字を“”で括る"
       },
       {
         "command": "posNote.workload.showGraph",
@@ -694,6 +698,12 @@
       {
         "command": "posNote.ruby.insertBouten",
         "key": "ctrl+alt+b",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.ruby.wrapSmartQuotes",
+        "key": "ctrl+'",
+        "mac": "cmd+'",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       },
       {

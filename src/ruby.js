@@ -262,6 +262,25 @@ async function insertBouten(editor) {
   });
 }
 
+/**
+ * スマート引用符で括る
+ * 選択あり: 各選択を “{text}” に置換
+ * 選択なし: 警告のみ
+ */
+async function wrapWithSmartQuotes(editor) {
+  const noSelection = editor.selections.every((s) => s.isEmpty);
+  if (noSelection) {
+    vscode.window.showWarningMessage("文字列が選択されていません。");
+    return;
+  }
+
+  await replaceSelectionsWithCarets(editor, (text) => {
+    const replaced = `“${text}”`;
+    // キャレットは末尾に置く（編集直後の連続入力がしやすい）
+    return { replaced, caretOffset: null };
+  });
+}
+
 /* =========================
    登録とエクスポート
    ========================= */
@@ -279,6 +298,10 @@ function registerRubySupport(context) {
     vscode.commands.registerTextEditorCommand(
       "posNote.ruby.insertRubySelection",
       (editor) => insertRubySelection(editor)
+    ),
+    vscode.commands.registerTextEditorCommand(
+      "posNote.ruby.wrapSmartQuotes",
+      (editor) => wrapWithSmartQuotes(editor)
     )
   );
 }
