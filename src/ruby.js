@@ -174,6 +174,9 @@ async function insertRuby(editor) {
     }
   });
 
+  // 一括置換が実行された件数をステータスバーへ表示（4秒）
+  vscode.window.setStatusBarMessage(`ルビ適用: ${matches.length} 件`, 4000);
+
   // 置換で増える長さ（UTF-16）= 3（"|" "《" "》"）+ ruby.length
   const addLen = 3 + ruby.length;
 
