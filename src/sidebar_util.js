@@ -254,7 +254,93 @@ function initSidebarUtilities(context) {
     })
   );
 
-  // --- 追加: サイドバーのフォルダ右クリック用『このフォルダの .txt を結合』
+  // 名前の変更
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.renameResource", async (arg) => {
+      const uri = asUri(arg);
+      if (!uri) return;
+
+      // 対象の現在名
+      const srcPath = uri.fsPath;
+      let stat;
+      try {
+        stat = await vscode.workspace.fs.stat(uri);
+      } catch {
+        vscode.window.showWarningMessage("対象を特定できませんでした");
+        return;
+      }
+
+      const currentName = path.basename(srcPath);
+      const isDir = stat.type === vscode.FileType.Directory;
+
+      // --- 初期選択範囲を数値で保持 ---
+      let selStart = 0;
+      let selEnd = currentName.length;
+
+      if (!isDir) {
+        const ext = path.extname(currentName);
+        const stem = ext ? currentName.slice(0, -ext.length) : currentName;
+        if (ext && stem.length > 0 && !currentName.startsWith(".")) {
+          selStart = 0;
+          selEnd = stem.length; // 例: "title.txt" → "title" を選択
+        } else {
+          selStart = 0;
+          selEnd = currentName.length; // ドットファイルや拡張子無しは全選択
+        }
+      }
+
+      // リネーム入力
+      const newName = await vscode.window.showInputBox({
+        prompt: "新しい名前",
+        value: currentName,
+        // ★ タプルとして明示
+        valueSelection: /** @type {[number, number]} */ ([selStart, selEnd]),
+        validateInput: (s) => {
+          if (!s || !s.trim()) return "名前を入力してください";
+          if (/[\\\/:*?"<>|]/.test(s))
+            return '使用不可文字: \\ / : * ? " < > |';
+          if (s === currentName) return "同じ名前です";
+          return undefined;
+        },
+        ignoreFocusOut: true,
+      });
+      if (!newName || newName === currentName) return;
+
+      // 親ディレクトリに対する移動先パス
+      const parentDir = path.dirname(srcPath);
+      const dst = vscode.Uri.joinPath(vscode.Uri.file(parentDir), newName);
+
+      // 既存衝突判定
+      let exists = false;
+      try {
+        await vscode.workspace.fs.stat(dst);
+        exists = true;
+      } catch {
+        exists = false;
+      }
+
+      if (exists) {
+        const pick = await vscode.window.showWarningMessage(
+          `同名が既に存在します\n${dst.fsPath}\n上書きしますか`,
+          { modal: true },
+          "上書き"
+        );
+        if (pick !== "上書き") return;
+      }
+
+      try {
+        await vscode.workspace.fs.rename(uri, dst, { overwrite: exists });
+        vscode.window.showInformationMessage(
+          `名前を変更しました: ${currentName} → ${newName}`
+        );
+        provider.refresh();
+      } catch (e) {
+        vscode.window.showErrorMessage("名前の変更に失敗しました");
+      }
+    })
+  );
+
+  // サイドバーのフォルダ右クリック用『このフォルダの .txt を結合』
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.combineTxtAt", async (arg) => {
       const base = await resolveBaseForSibling(arg); // フォルダならそのまま, ファイルなら親フォルダ
@@ -266,7 +352,7 @@ function initSidebarUtilities(context) {
     })
   );
 
-  // --- 追加: サイドバーのフォルダ右クリック用『このフォルダの .md を結合』
+  // サイドバーのフォルダ右クリック用『このフォルダの .md を結合』
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.combineMdAt", async (arg) => {
       const base = await resolveBaseForSibling(arg);

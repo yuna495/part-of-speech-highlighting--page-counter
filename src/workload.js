@@ -274,6 +274,27 @@ async function clearAllHistory(context) {
   vscode.window.showInformationMessage("作業量ログを全て削除しました");
 }
 
+// === 任意日付の作業量を強制上書き（保存＆UI更新まで一括） ===
+async function overrideWorkloadFor(dateKey, { total, add, del }) {
+  const hist = getHistory(_context); // 既存履歴（キャッシュ経由）
+  const toNum = (v) => Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0);
+
+  let T = toNum(total);
+  let A = toNum(add);
+  // del が未指定なら total - add を用いる
+  // add が total を超える場合は total に丸める（A<=T を保証）
+  if (A > T) A = T;
+  let D = del != null ? toNum(del) : Math.max(0, T - A);
+
+  const next = { total: T, add: A, del: D };
+
+  hist[dateKey] = next; // 置換
+  await saveHistory(_context, hist); // globalState へ反映（30日整理込み）
+  updateStatusBarText(cfg()); // ステータスバー更新
+  refreshGraphIfAny(_context); // グラフが開いていれば再描画
+  return next;
+}
+
 /* ------------------------------ グラフ表示（Webview） ------------------------------ */
 function buildLastNDays(hist, n) {
   const c = cfg();
@@ -455,7 +476,14 @@ function getGraphHtml(webview, days, targetValue = 10000) {
       r.setAttribute('width', Math.max(1, barW - gap * 3));
       r.setAttribute('height', Math.max(0, h));
       const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
-      r.setAttribute('fill', isMax ? '#bbd16666' : '#4da3ff66');
+      const isBelowTarget = (d.total||0) < targetValue;
+      if (isMax) {
+        r.setAttribute('fill', '#bbd16666'); // 最大日のバー
+      } else if (isBelowTarget) {
+        r.setAttribute('fill', '#ff993366'); // 目標未達→オレンジ系
+      } else {
+        r.setAttribute('fill', '#4da3ff66'); // 通常バー
+      }
       r.style.cursor = 'default';
       r.addEventListener('mousemove', (ev) => {
         const t = (d.total||0).toLocaleString('ja-JP');
@@ -789,7 +817,19 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
     const pTotal = document.createElementNS('http://www.w3.org/2000/svg','path');
     pTotal.setAttribute('d', ringWedge(R_INNER, rTotal, aStart, aEnd));
     const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
-    pTotal.setAttribute('class', isMax ? 'day-total-max' : 'day-total');
+    const isBelowTarget = (d.total||0) < targetValue;
+
+    if (isMax) {
+      pTotal.setAttribute('fill', '#bbd166'); // 最大日の扇
+      pTotal.setAttribute('opacity', '.6');
+    } else if (isBelowTarget) {
+      pTotal.setAttribute('fill', '#ff9933'); // 目標未達→オレンジ
+      pTotal.setAttribute('opacity', '.5');
+    } else {
+      pTotal.setAttribute('fill', '#4da3ff'); // 通常
+      pTotal.setAttribute('opacity', '.4');
+    }
+
     pTotal.addEventListener('mousemove', (ev) => {
       showTip(
         ev,
@@ -1053,7 +1093,81 @@ function initWorkload(context) {
         "全削除"
       );
       if (pick === "全削除") await clearAllHistory(context);
-    })
+    }),
+    // === 任意日付の作業量を上書き ===
+    // initWorkload(context) の中で他の registerCommand と並べて追加
+    vscode.commands.registerCommand(
+      "posNote.workload.overrideAtDate",
+      async () => {
+        try {
+          const c = cfg();
+          const todayKey = toTzDateKey(new Date(), c.timeZone);
+          const toNum = (v) =>
+            Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0);
+
+          // 1) 日付入力（既定は今日） YYYY-MM-DD
+          let dateKey = await vscode.window.showInputBox({
+            prompt: "上書きする日付 (YYYY-MM-DD)",
+            value: todayKey,
+            validateInput: (s) =>
+              /^\d{4}-\d{2}-\d{2}$/.test(s)
+                ? undefined
+                : "YYYY-MM-DD で入力してください",
+            ignoreFocusOut: true,
+          });
+          if (!dateKey) return;
+
+          // 2) 現在値の読込（表示の初期値に利用）
+          const hist = getHistory(_context);
+          const cur = hist[dateKey];
+          const curTotal = typeof cur === "number" ? cur : cur?.total || 0;
+          const curAdd = typeof cur === "number" ? 0 : cur?.add || 0;
+
+          // 3) total 入力
+          const sTotal = await vscode.window.showInputBox({
+            prompt: `total を入力（${dateKey}）`,
+            value: String(curTotal),
+            ignoreFocusOut: true,
+          });
+          if (sTotal == null) return;
+
+          // 4) add 入力（del は入力不要）
+          const sAdd = await vscode.window.showInputBox({
+            prompt: `add を入力（${dateKey}）  ※ total を超えないこと`,
+            value: String(curAdd),
+            ignoreFocusOut: true,
+          });
+          if (sAdd == null) return;
+
+          // 5) 数値化と検証
+          const nTotal = toNum(sTotal);
+          const nAdd = toNum(sAdd);
+
+          if (nAdd > nTotal) {
+            vscode.window.showErrorMessage(
+              `add が total を超えています  total=${nTotal}  add=${nAdd}`
+            );
+            return;
+          }
+
+          // 6) 自動計算: del = total - add
+          const nDel = nTotal - nAdd;
+
+          // 7) 上書き実行（overrideWorkloadFor 側でも A<=T を保証）
+          const next = await overrideWorkloadFor(dateKey, {
+            total: nTotal,
+            add: nAdd,
+            del: nDel,
+          });
+          vscode.window.showInformationMessage(
+            `作業量を更新しました ${dateKey}  total:${next.total} / add:${next.add} / del:${next.del}`
+          );
+        } catch (e) {
+          console.error(e);
+          vscode.window.showErrorMessage("作業量の上書きに失敗しました");
+        }
+      }
+    )
   );
 
   // 本日レコードの存在を保証

@@ -8,6 +8,7 @@ All notable changes to this extension are documented here.
 
 - コンテナタイトル部分に「現在のフォルダに雛形を追加」ボタンを実装。
   - plot/各種.mdと各種.jsonファイルを追加。
+- サイドバーでのフォルダ・ファイルの右クリックメニューに「名前の変更」を追加。
 - 「ctrl + r」で選択部分のみにルビを振るショートカットキーを追加。
 - 「ctrl + '」で選択部分に引用符を振るショートカットキーを追加。
 - 行末の「 」「　」を自動“削除”。
@@ -23,6 +24,7 @@ All notable changes to this extension are documented here.
   - 選択ありの場合、文書全体の同一文字列を一括で `|{text}《{ruby}》` に変換。
   - 一致直前が「|」の箇所はスキップ（二重挿入防止）。
   - キャレット位置を `》` の直後に自動移動するよう調整。
+- 作業量の目標値未達の場合のグラフ色を変更。
 
 ### 修正
 
@@ -177,7 +179,7 @@ All notable changes to this extension are documented here.
 
 ### 設定
 
-- 色は VS Code の `editor.semanticTokenColorCustomizations.rules` で変更可能  
+- 色は VS Code の `editor.semanticTokenColorCustomizations.rules` で変更可能
   例）`"character": "#ff14e0"`, `"glossary": "#ff0000"`
 - 既存の品詞色設定と共存（辞書色が重なり領域をマスク）
 
@@ -192,9 +194,9 @@ All notable changes to this extension are documented here.
 ## [2.0.1] - 2025-09-09
 
 - 変更
-  - **括弧補完の実装を VS Code の Language Configuration に委譲**  
+  - **括弧補完の実装を VS Code の Language Configuration に委譲**
     `setLanguageConfiguration` の `autoClosingPairs / surroundingPairs / brackets` を利用し、開き入力→閉じ自動補完＋キャレット内側移動をエディタ側で処理。入力時の再入制御・余計な `edit` 呼び出しを撤去し、体感遅延を軽減。
-  - **Backspace 同時削除を軽量化**  
+  - **Backspace 同時削除を軽量化**
     `_caretCacheByUri` による「カーソル前後1文字キャッシュ」で O(1) 判定。全文スナップショット `_prevTextByUri` を廃止。`TextEditor.edit()` の戻り（Thenable）に対しては `.finally` ではなく `then(success, failure)` で再入フラグを確実に解除。
 
 - 内部整理
@@ -277,8 +279,8 @@ All notable changes to this extension are documented here.
     - 「#」で第一見出し、「##」で第二見出し（マークダウン記法と同様）
     - `Ctrl + [` による展開/折りたたみ
     - 一つでも見出しが展開され、変更されていれば「全折りたたみ」に切り替え、それ以外では「全展開」を実行
-  - 見出しの一括折りたたみにおいて、**折りたたむ最小レベル**を指定できる設定を追加  
-    - `posNote.headings.foldMinLevel`（既定: **2**）  
+  - 見出しの一括折りたたみにおいて、**折りたたむ最小レベル**を指定できる設定を追加
+    - `posNote.headings.foldMinLevel`（既定: **2**）
     - 例）2 → `##` 以上を一括折りたたみ、3 → `###` 以上を一括折りたたみ
 
 - 修正

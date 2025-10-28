@@ -252,6 +252,10 @@
         "title": "POS/Note: 作業量ログ 全て削除"
       },
       {
+        "command": "posNote.workload.overrideAtDate",
+        "title": "POS/Note: 任意日付の作業量を上書き（非推奨）"
+      },
+      {
         "command": "posNote.convert.toKanji",
         "title": "POS/Note: かな→漢字（かすか/わずか → 微か/僅か）"
       },
@@ -326,6 +330,11 @@
         "command": "posNote.deleteResource",
         "title": "削除",
         "icon": "$(trash)"
+      },
+      {
+        "command": "posNote.renameResource",
+        "title": "名前の変更",
+        "icon": "$(edit)"
       },
       {
         "command": "posNote.revealInOS",
@@ -410,6 +419,16 @@
           "command": "posNote.deleteResource",
           "when": "view == novelUtilities && viewItem == noveltools.folder",
           "group": "3_delete@1"
+        },
+        {
+          "command": "posNote.renameResource",
+          "when": "view == novelUtilities && viewItem == noveltools.folder",
+          "group": "4_external@0"
+        },
+        {
+          "command": "posNote.renameResource",
+          "when": "view == novelUtilities && viewItem == noveltools.file",
+          "group": "4_external@0"
         },
         {
           "command": "posNote.revealInOS",
@@ -668,8 +687,8 @@
           "conjunction": "#ff14e0",
           "symbol": "#fd9bcc",
           "bracket": "#fd9bcc",
-          "character": "#ff14e0",
-          "glossary": "#ff0000",
+          "character": "#ff0000",
+          "glossary": "#ffff00",
           "fencecomment": "#f0f0c0",
           "fwspace": {
             "underline": true,
