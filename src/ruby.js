@@ -10,18 +10,49 @@ const vscode = require("vscode");
  * キャンセルや空は null
  */
 async function askRubyText() {
-  const ruby = await vscode.window.showInputBox({
-    prompt: "《》の中に入れるルビを入力",
-    placeHolder: "かな／カナ／注音など",
-    ignoreFocusOut: true,
-    validateInput: (v) => {
-      if (v.includes("《") || v.includes("》"))
-        return "《》は入力しないでください";
-      return null;
-    },
+  const input = vscode.window.createInputBox();
+  input.title = "《》の中に入れるルビを入力";
+  input.placeholder = "かな／カナ／注音など";
+  input.ignoreFocusOut = true;
+
+  // 先に表示してフォーカスを確実に奪う
+  input.show();
+
+  // バリデーション
+  const validate = (v) => {
+    if (v.includes("《") || v.includes("》")) {
+      input.validationMessage = "《》は入力しないでください";
+      return false;
+    }
+    input.validationMessage = undefined;
+    return true;
+  };
+
+  // 初期値と選択（任意）
+  input.value = "";
+  input.valueSelection = [0, 0];
+
+  const result = await new Promise((resolve) => {
+    let accepted = false;
+
+    const subChange = input.onDidChangeValue((v) => validate(v));
+    const subAccept = input.onDidAccept(() => {
+      const v = input.value;
+      if (!validate(v) || v.length === 0) return; // 不正は確定させない
+      accepted = true;
+      resolve(v);
+      input.hide();
+    });
+    const subHide = input.onDidHide(() => {
+      if (!accepted) resolve(null);
+      subChange.dispose();
+      subAccept.dispose();
+      subHide.dispose();
+      input.dispose();
+    });
   });
-  if (!ruby) return null;
-  return ruby;
+
+  return result;
 }
 
 /**
@@ -138,6 +169,7 @@ async function insertRuby(editor) {
     return;
   }
 
+  await new Promise((r) => setTimeout(r, 0)); // 次のティックで InputBox を出す
   // ここで初めてルビ入力を要求
   const ruby = await askRubyText();
   if (ruby === null) return;
@@ -234,6 +266,7 @@ async function insertRubySelection(editor) {
     return;
   }
 
+  await new Promise((r) => setTimeout(r, 0)); // 次のティックで InputBox を出す
   // ルビ入力
   const ruby = await askRubyText();
   if (ruby === null) return;
@@ -290,17 +323,22 @@ async function wrapWithSmartQuotes(editor) {
 
 function registerRubySupport(context) {
   context.subscriptions.push(
-    vscode.commands.registerTextEditorCommand(
-      "posNote.ruby.insertRuby",
-      (editor) => insertRuby(editor)
-    ),
+    vscode.commands.registerCommand("posNote.ruby.insertRuby", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      await insertRuby(editor);
+    }),
     vscode.commands.registerTextEditorCommand(
       "posNote.ruby.insertBouten",
       (editor) => insertBouten(editor)
     ),
-    vscode.commands.registerTextEditorCommand(
+    vscode.commands.registerCommand(
       "posNote.ruby.insertRubySelection",
-      (editor) => insertRubySelection(editor)
+      async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return;
+        await insertRubySelection(editor);
+      }
     ),
     vscode.commands.registerTextEditorCommand(
       "posNote.ruby.wrapSmartQuotes",
