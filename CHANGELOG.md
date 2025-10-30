@@ -7,11 +7,32 @@ All notable changes to this extension are documented here.
 ### 追加
 
 - コンテナタイトル部分に「現在のフォルダに雛形を追加」ボタンを実装。
-  - plot/各種.mdと各種.jsonファイルを追加。
+  - plot/各種.mdとnotesetting.jsonファイルを追加。
 - サイドバーでのフォルダ・ファイルの右クリックメニューに「名前の変更」を追加。
 - 「ctrl + r」で選択部分のみにルビを振るショートカットキーを追加。
 - 「ctrl + '」で選択部分に引用符を振るショートカットキーを追加。
 - 行末の「 」「　」を自動“削除”。
+- ステータスバーに期限を表示。
+- notesetting.json記入例
+
+  ```json
+  {
+    "limit": "2026-1-1",
+    "characters": [
+      "a",
+      "b"
+    ],
+    "glossary": [
+      "A",
+      "B"
+    ],
+    "conversion": {
+      "alt + .": "ctrl + .",
+      "れい": "例"
+    }
+
+  }
+  ```
 
 ### 変更
 
@@ -25,6 +46,7 @@ All notable changes to this extension are documented here.
   - 一致直前が「|」の箇所はスキップ（二重挿入防止）。
   - キャレット位置を `》` の直後に自動移動するよう調整。
 - 作業量の目標値未達の場合のグラフ色を変更。
+- character.json,glossary.jsonをnotesetting.jsonに一本化
 
 ### 修正
 

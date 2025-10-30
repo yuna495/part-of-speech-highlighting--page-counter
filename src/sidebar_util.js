@@ -641,7 +641,7 @@ async function createScaffoldInFolder(baseUri) {
     // 既にあれば無視
   }
 
-  // 既存ユーティリティで「無ければ書く」
+  // 既存の Markdown はそのまま維持
   await writeFileIfNotExists(
     vscode.Uri.joinPath(plotUri, "characters.md"),
     toUint8(defaultPlotCharactersMd())
@@ -650,17 +650,11 @@ async function createScaffoldInFolder(baseUri) {
     vscode.Uri.joinPath(plotUri, "plot.md"),
     toUint8(defaultPlotMd())
   );
+
+  // 旧 3 JSON は作らない。notesetting.json 1 本に統合
   await writeFileIfNotExists(
-    vscode.Uri.joinPath(baseUri, "characters.json"),
-    toUint8(JSON.stringify(defaultCharacters(), null, 2))
-  );
-  await writeFileIfNotExists(
-    vscode.Uri.joinPath(baseUri, "conversion.json"),
-    toUint8(JSON.stringify(defaultConversion(), null, 2))
-  );
-  await writeFileIfNotExists(
-    vscode.Uri.joinPath(baseUri, "glossary.json"),
-    toUint8(JSON.stringify(defaultGlossary(), null, 2))
+    vscode.Uri.joinPath(baseUri, "notesetting.json"),
+    toUint8(JSON.stringify(defaultNoteSetting(), null, 2))
   );
 }
 
@@ -730,16 +724,8 @@ async function createNewNovelScaffold() {
     toUint8(defaultPlotMd())
   );
   await writeFileIfNotExists(
-    vscode.Uri.joinPath(targetUri, "characters.json"),
-    toUint8(JSON.stringify(defaultCharacters(), null, 2))
-  );
-  await writeFileIfNotExists(
-    vscode.Uri.joinPath(targetUri, "conversion.json"),
-    toUint8(JSON.stringify(defaultConversion(), null, 2))
-  );
-  await writeFileIfNotExists(
-    vscode.Uri.joinPath(targetUri, "glossary.json"),
-    toUint8(JSON.stringify(defaultGlossary(), null, 2))
+    vscode.Uri.joinPath(targetUri, "notesetting.json"),
+    toUint8(JSON.stringify(defaultNoteSetting(), null, 2))
   );
   await writeFileIfNotExists(
     vscode.Uri.joinPath(targetUri, "novel.txt"),
@@ -885,15 +871,19 @@ function defaultPlotMd() {
     "",
   ].join("\n");
 }
-function defaultCharacters() {
-  return ["character"];
+
+function defaultNoteSetting() {
+  return {
+    limit: "2026-1-1",
+    characters: ["a", "b"],
+    glossary: ["A", "B"],
+    conversion: {
+      "alt + .": "ctrl + .",
+      れい: "例",
+    },
+  };
 }
-function defaultGlossary() {
-  return ["glossary"];
-}
-function defaultConversion() {
-  return { "alt + .": "ctrl + ." };
-}
+
 function defaultNovelTxt() {
   return [
     "# タイトル",

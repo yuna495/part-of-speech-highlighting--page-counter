@@ -36,14 +36,38 @@ let _dictCache = {
   sourceSchema: "default", // "default" | "old" | "flat"
 };
 
-let _watcher = null;
-
 // ===== ユーティリティ =====
 function isPlainObject(v) {
   return v && typeof v === "object" && !Array.isArray(v);
 }
 
-function escapeRegExp(s) {
+/*************  ✨ Windsurf Command ⭐  *************/
+/**
+ * Escapes special characters in a string for use in a RegExp.
+ *
+ * The following characters have special meanings in RegExp and must be escaped:
+ * - `.` (dot)
+ * - `*` (star)
+ * - `+` (plus sign)
+ * - `?` (question mark)
+ * - `^` (caret)
+ * - `$` (dollar sign)
+ * - `{` (left curly brace)
+ * - `}` (right curly brace)
+ * - `(` (left parenthesis)
+ * - `)` (right parenthesis)
+ * - `|` (vertical bar or pipe)
+ * - `[` (left square bracket)
+ * - `]` (right square bracket)
+ * - `\` (backslash)
+ *
+ * This function escapes all of these characters in a given string.
+ *
+ * @param {string} s - The string to escape.
+ * @returns {string} The escaped string.
+/*******  ed5aa8fb-a975-4621-99f2-6f4ee68a2fc4  *******/ function escapeRegExp(
+  s
+) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -109,30 +133,28 @@ function getDictUri() {
   return vscode.Uri.joinPath(folders[0].uri, ".vscode", "conversion.json");
 }
 
+// .vscode 常時 + notesetting があれば合流。ローカル conversion.json は読まない
 async function loadDictFromWorkspace(activeDocUri) {
-  const wsUri = getDictUri(); // 既存 .vscode/conversion.json
-  const localUri = activeDocUri
-    ? vscode.Uri.joinPath(
-        vscode.Uri.file(path.dirname(activeDocUri.fsPath)),
-        "conversion.json"
-      )
-    : null;
+  const wsUri = getDictUri(); // <workspace>/.vscode/conversion.json
+  /** @type {vscode.Uri|null} */ let localDirUri = null;
+  if (activeDocUri)
+    localDirUri = vscode.Uri.file(path.dirname(activeDocUri.fsPath));
 
   const dicts = [];
 
-  // 1. ワークスペース共通辞書
+  // 1) .vscode は常に読む
   if (wsUri) {
     const wsDict = await tryReadDict(wsUri);
     if (wsDict) dicts.push(wsDict);
   }
 
-  // 2. 編集中フォルダのローカル辞書
-  if (localUri) {
-    const localDict = await tryReadDict(localUri);
-    if (localDict) dicts.push(localDict);
+  // 2) 同一フォルダ notesetting の conversion を合流
+  if (localDirUri) {
+    const setDict = await tryReadSettingConversion(localDirUri);
+    if (setDict) dicts.push(setDict);
   }
 
-  // 3. どちらもなければ既定
+  // 3) どれも無ければ既定
   if (dicts.length === 0) {
     _dictCache = {
       toKanji: { ...DEFAULT_TO_KANJI },
@@ -143,7 +165,7 @@ async function loadDictFromWorkspace(activeDocUri) {
     return;
   }
 
-  // 4. マージ：後の辞書（＝ローカル側）が優先
+  // 4) マージ（右側優先）→ notesetting が .vscode を上書き
   const merged = dicts.reduce(
     (acc, cur) => ({
       toKanji: { ...acc.toKanji, ...cur.toKanji },
@@ -159,10 +181,61 @@ async function loadDictFromWorkspace(activeDocUri) {
     sourceSchema: "merged",
   };
 
+  // 5) ステータス表示
+  if (localDirUri) {
+    try {
+      const note = vscode.Uri.joinPath(localDirUri, "notesetting.json");
+      await vscode.workspace.fs.stat(note);
+      vscode.window.setStatusBarMessage(
+        "POS/Note: .vscode + notesetting.conversion を統合",
+        2500
+      );
+      return;
+    } catch {}
+  }
   vscode.window.setStatusBarMessage(
-    "POS/Note: conversion.json を統合読み込み",
+    "POS/Note: .vscode の conversion を適用",
     2000
   );
+}
+
+// 同一フォルダ notesetting.json の conversion を読む
+/**
+ * @param {vscode.Uri} dirUri // 対象ドキュメントのあるディレクトリ
+ * @returns {Promise<{toKanji:Record<string,string>, toKana:Record<string,string>}|null>}
+ */
+async function tryReadSettingConversion(dirUri) {
+  const noteUri = vscode.Uri.joinPath(dirUri, "notesetting.json");
+  try {
+    await vscode.workspace.fs.stat(noteUri);
+  } catch {
+    return null;
+  }
+
+  try {
+    const bin = await vscode.workspace.fs.readFile(noteUri);
+    const text = Buffer.from(bin).toString("utf8");
+    const json = JSON.parse(text);
+    const conv = json && json.conversion;
+    if (!conv || typeof conv !== "object") return null;
+
+    // 旧スキーマ {toKanji:{}, toKana:{}} もフラット { "かな": "漢字" } も両対応
+    if (isPlainObject(conv.toKanji) || isPlainObject(conv.toKana)) {
+      const built = buildFromOld(conv);
+      return { toKanji: built.toKanji, toKana: built.toKana };
+    }
+    if (isPlainObject(conv)) {
+      const built = buildFromFlat(conv);
+      return { toKanji: built.toKanji, toKana: built.toKana };
+    }
+    return null;
+  } catch (e) {
+    console.warn(
+      `[posNote] notesetting.json 読み込み失敗 (${noteUri.fsPath}):`,
+      e.message
+    );
+    return null;
+  }
 }
 
 /**
@@ -199,17 +272,27 @@ async function tryReadDict(uri) {
   }
 }
 
+// 監視対象を .vscode/conversion.json と notesetting.json
 function ensureWatcher(context) {
-  if (_watcher) return;
-  _watcher = vscode.workspace.createFileSystemWatcher("**/conversion.json");
-  context.subscriptions.push(_watcher);
+  // .vscode だけを確実に見る
+  const wConv = vscode.workspace.createFileSystemWatcher(
+    "**/.vscode/conversion.json"
+  );
+  const wNote = vscode.workspace.createFileSystemWatcher("**/notesetting.json");
+  context.subscriptions.push(wConv, wNote);
+
   const reload = async () => {
     const uri = vscode.window.activeTextEditor?.document?.uri;
     await loadDictFromWorkspace(uri);
   };
-  _watcher.onDidCreate(reload);
-  _watcher.onDidChange(reload);
-  _watcher.onDidDelete(reload);
+
+  wConv.onDidCreate(reload);
+  wConv.onDidChange(reload);
+  wConv.onDidDelete(reload);
+
+  wNote.onDidCreate(reload);
+  wNote.onDidChange(reload);
+  wNote.onDidDelete(reload);
 }
 
 // ===== 全文一括置換 =====

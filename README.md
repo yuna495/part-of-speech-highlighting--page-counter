@@ -68,45 +68,34 @@
 workspace/
 ├─ arc1/
 │   ├─ chapter01.txt     ← 編集中
-│   ├─ characters.json   ← これが適用
-│   └─ glossary.json     ← これが適用
+│   └─ notesetting.json     ← これが適用
 └─ arc2/
     ├─ chapter01.txt
-    └─ characters.json   ← arc2 を編集中のときはこちらが適用
+    └─ notesetting.json   ← arc2 を編集中のときはこちらが適用
 ```
 
-- characters.json / glossary.jsonの書き方
+- notesetting.jsonの書き方
 
 ```json
-
-// 文字列配列
-[
-  "奏音",
-  "未澪"
-]
-// オブジェクト配列（人物）
-[
-  {
-    "name": "奏音",
-    "alias": ["かなで"],
-    "note": "主人公"
-  }
-]
-// オブジェクト配列（用語）
-[
-  {
-    "term": "祠",
-    "variants": ["社"]
-  }
-]
-
-// 連想形式
 {
-  "奏音": { "alias": ["かなで"] },
-  "未澪": "孤児院の子"
+  "limit": "2026-1-1",
+  "characters": [
+    "a",
+    "b"
+  ],
+  "glossary": [
+    "A",
+    "B"
+  ],
+  "conversion": {
+    "alt + .": "ctrl + .",
+    "れい": "例"
+  }
 }
-
 ```
+
+- **注意**
+  - 過去のcharacter.json/glossary.jsonは廃止。
 
 ### サイドバー機能（v2.3.0） {#sidebar}
 
@@ -121,9 +110,9 @@ workspace/
     - サイドバーに見出しを一覧表示、クリックでジャンプ
   - **「新しい小説を作成」ボタン**
     クリックすると、雛形フォルダ *NewNovel* を作成。
-    `plot/` サブフォルダ、`characters.json`、`conversion.json` などを自動生成します。
+    `plot/` サブフォルダ、`notesetting.js` などを自動生成ます。
   - **「現在のフォルダに雛形を作成」ボタン**
-    クリックすると、編集中ファイルの親フォルダに`plot/` サブフォルダ、`characters.json`、`conversion.json` などを自動生成します。;
+    クリックすると、編集中ファイルの親フォルダに`plot/` サブフォルダ、`notesettin.js`を自動生成します。;
     - 同名ファイルが存在する場合はスキップ。
   - **結合ボタン（.txt / .md）**
     ビュー上部の「親フォルダの .txt を結合」「親フォルダの .md を結合」ボタンをクリックすると、アクティブファイルのあるフォルダ直下のファイルを結合します。
@@ -135,7 +124,7 @@ workspace/
   - **簡易エクスプローラ**
     現在開いているファイルと同じフォルダ内容を一覧。
     - 優先度は、フォルダ→.txt → .md → .json → その他。
-    ファイルをクリックで開くほか、右クリックで
+    ファイルをクリックで開くほか、右クリッ
     「新規ファイル」「新規フォルダ」「コピー／切り取り／貼り付け／削除」等の操作も可能。
   - **外部エクスプローラーで開く**
     任意のファイル／フォルダを右クリック → 「OS で開く」。
@@ -166,6 +155,30 @@ workspace/
 
 ![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_statusbar.png)
 表示例：現在ページ/総ページ -最終ページの行 （ページの行/列） 編集中ファイルの総文字数/フォルダ内同一ファイル総文字数 ±Git差分文字数
+
+- **期限表示（v2.3.2）**
+  - notesetting.jsonに記載された日付までの残り日数表示。
+    - 値を"null"にすると期限表示は非表示。
+    - limit のフォーマットは YYYY-M-D（例: "2026-1-1"）で記述します。
+    - notesetting.json記入例
+
+    ```json
+    {
+      "limit": "2026-1-1",
+      "characters": [
+        "a",
+        "b"
+      ],
+      "glossary": [
+        "A",
+        "B" 
+      ],
+      "conversion": {
+        "alt + .": "ctrl + .",
+        "れい": "例"
+      }
+    }
+    ```
 
 - **ページカウンタ**
   - 原稿用紙風（行×列）で折り返し、行頭禁則処理に対応
@@ -252,38 +265,55 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   - `Ctrl + .` : 「微か／僅か」→「微か／僅か」など、かな → 漢字
   - `Alt + .` : 「微か／僅か」→「微か／僅か」など、漢字 → かな
 
-- **ユーザー辞書（conversion.json）対応**
+- **ユーザー辞書（notesetting.json）対応**
 - **読み込み場所**
   - ワークスペースの `.vscode/conversion.json`
-  - **編集中ファイルと同じフォルダ**の `conversion.json`
+  - **編集中ファイルと同じフォルダ**の `notesetting.json`
   - **マージ規則**
-  - 両方ある場合は**後勝ちマージ**で統合し、**同階層の `conversion.json` を優先**
-  - 監視は `**/conversion.json` に拡張 保存・作成・削除を自動検知し即時反映
+  - 両方ある場合は**後勝ちマージ**で統合し、**同階層の `notesetting.json` を優先**
+  - 監視は `**/notesetting.json` に拡張 保存・作成・削除を自動検知し即時反映
   - **書式**はシンプルな片方向マッピングでOK 逆方向は自動生成
 
   ```json
   {
-    "微か": "微か",
-    "僅か": "僅か",
-    "へんかん": "変換"
+    "characters": ["a", "b"],
+    "glossary": ["A", "B"],
+    "conversion": {
+      "alt + .": "ctrl + .",
+      "れい": "例"
+    }
   }
   ```
 
   - **辞書マージの例（両方の辞書を併用）**
 
-- `.vscode/conversion.json`:
+- `.vscode/notesetting.json`:
       ```json
       { "微か": "微か" }
       ```
-- `小説/conversion.json`:
+- `小説/notesetting.json`:
       ```json
-      { "てのひら": "掌" }
+      {
+        "limit": "2026-1-1",
+        "characters": [
+          "a",
+          "b"
+        ],
+        "glossary": [
+          "A",
+          "B"
+        ],
+        "conversion": {
+          "alt + .": "ctrl + .",
+          "れい": "例"
+        }
+      }
       ```
 - 実際の適用結果:
       ```json
       {
         "微か": "微か",
-        "てのひら": "掌"
+        "れい": "例"
       }
       ```
 

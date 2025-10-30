@@ -92,6 +92,9 @@ async function ensureTokenizer(context) {
  * 4) 汎用ヘルパ
  * ====================================== */
 
+// ★ notesetting.json 専用ローダ（同一フォルダのみ）に置換
+const _localDictCache = new Map(); // key: dir -> { key, chars:Set, glos:Set }
+
 /** HTML エスケープ（最小限） */
 // プレビューやツールチップ内での XSS を避けるため最低限の文字を置換する
 function _escapeHtml(s) {
@@ -325,102 +328,94 @@ function* enumerateTokenOffsets(lineText, tokens) {
 }
 
 /* ========================================
- * 5) 同一フォルダの characters.json / glossary.json を読むユーティリティ
+ * 5) 同一フォルダの notesetting.json を読むユーティリティ
  * ====================================== */
-
-// JSON: 配列形式 / 連想形式 / 文字列配列の全対応で {words:Set<string>} を返す
-// 作品ごとの人物・用語辞書を柔軟に読み込むためのヘルパー
-async function loadWordsFromJsonFile(filePath, charMode /*true=characters*/) {
+// 同フォルダ notesetting.json から characters/glossary を吸い上げる
+async function loadWordsFromNoteSetting(filePath) {
   try {
     const txt = await fs.promises.readFile(filePath, "utf8");
     const json = JSON.parse(txt);
-    const words = new Set();
 
-    const put = (s) => {
-      const v = String(s || "").trim();
-      if (v) words.add(v);
-    };
+    const buildSet = (val, charMode) => {
+      const put = (set, s) => {
+        const v = String(s ?? "").trim();
+        if (v) set.add(v);
+      };
+      /** @type {Set<string>} */ const out = new Set();
+      if (!val) return out;
 
-    if (Array.isArray(json)) {
-      // ① 文字列配列: ["奏音","未澪"] ← ★このケースを追加
-      if (json.length && typeof json[0] === "string") {
-        for (const s of json) put(s);
-      } else {
-        // ② オブジェクト配列: [{name, alias[]}, {term, variants[]}, …]
-        for (const it of json) {
-          if (!it) continue;
+      if (Array.isArray(val)) {
+        if (val.length && typeof val[0] === "string") {
+          for (const s of val) put(out, s);
+        } else {
+          for (const it of val) {
+            if (!it) continue;
+            if (charMode) {
+              if (it.name) put(out, it.name);
+              if (Array.isArray(it.alias)) it.alias.forEach((x) => put(out, x));
+            } else {
+              if (it.term) put(out, it.term);
+              if (Array.isArray(it.variants))
+                it.variants.forEach((x) => put(out, x));
+            }
+          }
+        }
+      } else if (val && typeof val === "object") {
+        for (const k of Object.keys(val)) {
+          put(out, k);
+          const v = val[k];
           if (charMode) {
-            if (it.name) put(it.name);
-            if (Array.isArray(it.alias)) it.alias.forEach(put);
+            if (v && Array.isArray(v.alias))
+              v.alias.forEach((x) => put(out, x));
           } else {
-            if (it.term) put(it.term);
-            if (Array.isArray(it.variants)) it.variants.forEach(put);
+            if (v && Array.isArray(v.variants))
+              v.variants.forEach((x) => put(out, x));
           }
         }
       }
-    } else if (json && typeof json === "object") {
-      // ③ 連想配列: { "奏音": {...}, "未澪": "説明" }
-      for (const k of Object.keys(json)) {
-        put(k);
-        const v = json[k];
-        if (charMode) {
-          if (v && Array.isArray(v.alias)) v.alias.forEach(put);
-        } else {
-          if (v && Array.isArray(v.variants)) v.variants.forEach(put);
-        }
-      }
-    }
-    return words;
+      return out;
+    };
+
+    const chars = buildSet(json.characters, true);
+    const glos = buildSet(json.glossary, false);
+    return { chars, glos };
   } catch {
-    return new Set();
+    return { chars: new Set(), glos: new Set() };
   }
 }
 
-/**
- * 同じフォルダ限定で辞書をロード
- * - なければ空集合（= 一切適用しない）
- * キャッシュ: フォルダパス単位（軽量）
- */
-const _localDictCache = new Map(); // key: dirPath -> {mtime?, chars:Set, glos:Set}
 async function loadLocalDictForDoc(docUri) {
   try {
     const dir = path.dirname(docUri.fsPath);
     const cache = _localDictCache.get(dir);
-    // 超単純キャッシュ：毎回読み直しても良いが、軽減のためファイル存在のみ見る
-    const charPath = path.join(dir, "characters.json");
-    const gloPath = path.join(dir, "glossary.json");
 
-    // ファイル有無
-    const [charStat, gloStat] = await Promise.all([
-      fsPromises.stat(charPath).catch(() => null),
-      fsPromises.stat(gloPath).catch(() => null),
-    ]);
+    const notePath = path.join(dir, "notesetting.json");
+    const noteStat = await fsPromises.stat(notePath).catch(() => null);
 
-    // どちらも無ければ空
-    if (!charStat && !gloStat) {
-      _localDictCache.set(dir, {
-        chars: new Set(),
-        glos: new Set(),
-        key: "none",
-      });
-      return { chars: new Set(), glos: new Set() };
+    if (!noteStat) {
+      // notesetting が無ければ空 既定ハイライトなし
+      const val = { key: "none", chars: new Set(), glos: new Set() };
+      _localDictCache.set(dir, val);
+      vscode.window.setStatusBarMessage(
+        "POS/Note: notesetting.json 不在 ハイライト辞書なし",
+        2000
+      );
+      return { chars: val.chars, glos: val.glos };
     }
 
-    // 簡易キー（更新検出）
-    const key = `${charStat?.mtimeMs || 0}:${gloStat?.mtimeMs || 0}`;
-    if (cache && cache.key === key)
+    const key = `note:${noteStat.mtimeMs}`;
+    if (cache && cache.key === key) {
       return { chars: cache.chars, glos: cache.glos };
+    }
 
-    const [chars, glos] = await Promise.all([
-      charStat
-        ? loadWordsFromJsonFile(charPath, true)
-        : Promise.resolve(new Set()),
-      gloStat
-        ? loadWordsFromJsonFile(gloPath, false)
-        : Promise.resolve(new Set()),
-    ]);
-    const val = { chars, glos, key };
+    const { chars, glos } = await loadWordsFromNoteSetting(notePath);
+    const val = { key, chars, glos };
     _localDictCache.set(dir, val);
+
+    vscode.window.setStatusBarMessage(
+      "POS/Note: notesetting.json を採用（人物・用語）",
+      2000
+    );
     return { chars, glos };
   } catch {
     return { chars: new Set(), glos: new Set() };
@@ -480,15 +475,19 @@ function matchDictRanges(lineText, charsSet, glosSet) {
  * @param {Array<[number, number]>} A
  * @param {{start:number, end:number}[]} mask
  * @returns {Array<[number, number]>}
- * フェンスや辞書に覆われた部分を除いた残り区間を計算する
  */
 function subtractMaskedIntervals(A, mask) {
   if (!A || A.length === 0) return [];
   if (!mask || mask.length === 0) return A.slice();
+
+  /** @type {Array<[number, number]>} */
   const out = [];
+
   for (const [as, ae] of A) {
+    /** @type {Array<[number, number]>} */
     let cur = [[as, ae]];
     for (const m of mask) {
+      /** @type {Array<[number, number]>} */
       const next = [];
       for (const [s, e] of cur) {
         if (e <= m.start || m.end <= s) {
@@ -503,17 +502,20 @@ function subtractMaskedIntervals(A, mask) {
     }
     out.push(...cur);
   }
+
   out.sort((a, b) => a[0] - b[0]);
+
   /** @type {Array<[number, number]>} */
   const merged = [];
   for (const seg of out) {
-    if (!merged.length || merged[merged.length - 1][1] < seg[0])
-      merged.push(/** @type {[number, number]} */ (seg));
-    else
+    if (!merged.length || merged[merged.length - 1][1] < seg[0]) {
+      merged.push(seg);
+    } else {
       merged[merged.length - 1][1] = Math.max(
         merged[merged.length - 1][1],
         seg[1]
       );
+    }
   }
   return merged;
 }
@@ -534,20 +536,15 @@ class JapaneseSemanticProvider {
     /** @type {vscode.Event<void>} */
     this.onDidChangeSemanticTokens = this._onDidChangeSemanticTokens.event;
 
-    this._kuromojiCooldownUntil = 0;
-    this._kuromojiCooldownTimer = null;
-
-    // 辞書ファイル変更を拾って再発行
-    const w1 = vscode.workspace.createFileSystemWatcher("**/characters.json");
-    const w2 = vscode.workspace.createFileSystemWatcher("**/glossary.json");
+    // JapaneseSemanticProvider constructor 内の監視登録
+    const wNote = vscode.workspace.createFileSystemWatcher(
+      "**/notesetting.json"
+    );
     const fire = () => this._onDidChangeSemanticTokens.fire();
     context.subscriptions.push(
-      w1.onDidCreate(fire),
-      w1.onDidChange(fire),
-      w1.onDidDelete(fire),
-      w2.onDidCreate(fire),
-      w2.onDidChange(fire),
-      w2.onDidDelete(fire)
+      wNote.onDidCreate(fire),
+      wNote.onDidChange(fire),
+      wNote.onDidDelete(fire)
     );
   }
 
@@ -566,7 +563,38 @@ class JapaneseSemanticProvider {
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
 
-    // 有効/無効
+    // notesetting.json だけを使う（他の .json 経路を完全にバイパス）★★★
+    const dir = path.dirname(document.uri.fsPath);
+    const notePath = path.join(dir, "notesetting.json");
+    const hasNote = await fs.promises.stat(notePath).catch(() => null);
+
+    /** @type {Set<string>} */
+    let charWords = new Set();
+    /** @type {Set<string>} */
+    let gloWords = new Set();
+
+    if (hasNote) {
+      const r = await loadWordsFromNoteSetting(notePath);
+      charWords = r.chars;
+      gloWords = r.glos;
+      try {
+        vscode.window.setStatusBarMessage(
+          "POS/Note: notesetting.json を採用（人物・用語）",
+          2000
+        );
+      } catch {}
+    } else {
+      charWords = new Set();
+      gloWords = new Set();
+      try {
+        vscode.window.setStatusBarMessage(
+          "POS/Note: notesetting.json 不在（人物・用語なし）",
+          1500
+        );
+      } catch {}
+    }
+
+    // 以降、既存の有効/無効判定やトークン生成ロジックはそのまま
     const lang = (document.languageId || "").toLowerCase();
     if (lang === "markdown") {
       if (!c.semanticEnabledMd)
@@ -577,11 +605,6 @@ class JapaneseSemanticProvider {
     }
 
     await ensureTokenizer(this._context);
-
-    // ▼ 同一フォルダ限定のローカル辞書をロード
-    const { chars: charWords, glos: gloWords } = await loadLocalDictForDoc(
-      document.uri
-    );
 
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     const startLine = Math.max(0, range.start.line);
@@ -681,7 +704,9 @@ class JapaneseSemanticProvider {
       }
 
       // ▼ (0) フェンスブロック：最優先で塗って、以降の処理を“その区間だけ”スキップ
-      const fenceSegs = fenceSegsByLine.get(line) || [];
+      const fenceSegs = /** @type {Array<[number, number]>} */ (
+        fenceSegsByLine.get(line) || []
+      );
       // 辞書が存在しても、フェンス内は辞書やPOSを出さない（完全除外）
       for (const [sCh, eCh] of fenceSegs) {
         const len = eCh - sCh;
@@ -718,6 +743,7 @@ class JapaneseSemanticProvider {
       const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
 
       // (fwspace)
+      /** @type {Array<[number, number]>} */
       const fwspaceRanges = [];
       {
         const re = /[ 　]/g;
@@ -741,7 +767,9 @@ class JapaneseSemanticProvider {
             e = s + m[0].length;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
             // ▲ 括弧内はスキップ（括弧色で統一したい）
-            const segs = bracketSegsByLine.get(line) || [];
+            const segs = /** @type {Array<[number, number]>} */ (
+              bracketSegsByLine.get(line) || []
+            );
             const inBracket = isInsideAnySegment(s, e, segs);
             if (inBracket) continue;
             const tIdx = bracketOverrideOn
@@ -988,14 +1016,6 @@ async function toPosHtml(text, context, opts = {}) {
     }
   }
 
-  {
-    let off = 0;
-    for (let i = 0; i < lines.length; i++) {
-      lineOffsets[i] = off;
-      off += lines[i].length + 1;
-    }
-  }
-
   // 同フォルダ辞書（無ければ空集合＝未適用）
   let charWords = new Set(),
     gloWords = new Set();
@@ -1080,7 +1100,9 @@ async function toPosHtml(text, context, opts = {}) {
     const lineStart = lineOffsets[i];
 
     // === ここからフェンス分割を厳密運用 ===
-    const fenceSegs = (fenceSegsByLine.get(i) || [])
+    const fenceSegs = /** @type {Array<[number, number]>} */ (
+      fenceSegsByLine.get(i) || []
+    )
       .slice()
       .sort((a, b) => a[0] - b[0]);
 
