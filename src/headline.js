@@ -1,8 +1,7 @@
 // 見出しの操作（全折/全展開トグル、FoldingRangeProvider、可視範囲変化に追随）
 
 const vscode = require("vscode");
-const { getHeadingLevel } = require("./utils");
-const { getHeadingCharMetricsCached } = require("./headline_symbols");
+const { getHeadingLevel, getHeadingCharMetricsForDisplay } = require("./utils");
 const countDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: "0 0 0 0.75em" },
 });
@@ -53,7 +52,9 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
 }
 
 // 見出しの “全折/全展開” トグル
-// コマンド: 見出しを一括で折りたたむ／展開する
+// （中略：このあたりは既存のまま）
+// ※ 以降のコードは元ファイルと同一です（折りたたみ関係は変更なし）
+
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -80,7 +81,6 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const shouldUnfold = lastStateFolded && lastVer === currVer;
 
   if (shouldUnfold) {
-    // ▼ 見出しだけ“展開”する（フェンスは対象外のまま）
     const minLv = c.headingFoldMinLevel;
     const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
     if (lines.length === 0) {
@@ -90,7 +90,6 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
       return;
     }
 
-    // 現在位置を丁寧に復元するための退避
     const caret = ed.selection?.active ?? new vscode.Position(0, 0);
     const enclosing = findEnclosingHeadingLineFor(
       ed.document,
@@ -107,7 +106,6 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
         : ed.selections;
 
     try {
-      // 見出し行だけを複数選択 → editor.unfold で“見出しだけ”展開
       ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
       await vscode.commands.executeCommand("editor.unfold");
       foldToggledByDoc.set(key, false);
@@ -172,7 +170,6 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
 }
 
 // FoldingRangeProvider（対象：plaintext / novel。Markdown は VS Code 既定に委譲）
-// FoldingRangeProvider: .txt/.novel で VS Code に見出し折りたたみ範囲を提供する
 class HeadingFoldingProvider {
   constructor(cfg) {
     this._cfg = cfg;
@@ -232,7 +229,6 @@ class HeadingFoldingProvider {
       }
     }
     if (fenceStart >= 0) {
-      // 末尾まで閉じないフェンスも折りたためるようにする
       ranges.push(
         new vscode.FoldingRange(
           fenceStart,
@@ -254,15 +250,12 @@ function registerHeadlineSupport(
   context,
   { cfg, isTargetDoc, sb, semProvider }
 ) {
-  // 見出し関連のコマンドやイベントをまとめて登録する初期化処理
-  // 1) コマンド
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
       cmdToggleFoldAllHeadings({ cfg, sb })
     )
   );
 
-  // 2) FoldingRangeProvider
   const foldSelector = [
     { language: "plaintext", scheme: "file" },
     { language: "plaintext", scheme: "untitled" },
@@ -278,7 +271,6 @@ function registerHeadlineSupport(
     )
   );
 
-  // 3) 可視範囲変更に追随：再ハイライト＋ステータス更新
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       const ed = e.textEditor;
@@ -299,7 +291,6 @@ function registerHeadlineSupport(
     })
   );
 
-  // 設定変更時にも更新（表示ON/OFF切替対策）
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration("posNote")) return;
@@ -309,7 +300,6 @@ function registerHeadlineSupport(
     })
   );
 
-  // 初回（アクティベーション直後）にも明示的に呼び出す
   const initEd = vscode.window.activeTextEditor;
   if (initEd) {
     updateHeadingCountDecorations(initEd, cfg);
@@ -318,43 +308,35 @@ function registerHeadlineSupport(
 
 // 見出し末尾に表示する字数デコレーションを算出して適用する
 function updateHeadingCountDecorations(ed, cfg) {
-  // ...前略（言語・設定チェックは現行のまま）...
+  // ...前段の言語・設定チェックは既存のまま...
   const c = cfg();
-  const { items } = getHeadingCharMetricsCached(ed.document, c);
+
+  // ★ ここを差し替え：utils 側の「表示ルール準拠メトリクス」を使用
+  const { items } = getHeadingCharMetricsForDisplay(ed.document, c, vscode);
+
   if (!items.length) {
     ed.setDecorations(countDeco, []);
     return;
   }
 
   const decorations = items
-    .map(({ line, count, childSum }) => {
-      // 表示テキストの構築
-      const own = count;
-      const sub = count + childSum;
-
-      let text = "- ";
+    .map(({ line, own, sub }) => {
+      // 表示テキストの構築（own / sub）
       const ownShow = own > 0;
       const subShow = sub > 0 && sub !== own;
 
-      if (!ownShow && !subShow) {
-        // 双方非表示 → この見出しは装飾を付けない
-        return null;
-      }
-      if (ownShow) {
-        text += `${own.toLocaleString("ja-JP")}字`;
-      }
-      if (subShow) {
-        // own が表示されていれば " / □字"、なければ "/ □字"
+      if (!ownShow && !subShow) return null;
+
+      let text = "- ";
+      if (ownShow) text += `${own.toLocaleString("ja-JP")}字`;
+      if (subShow)
         text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
-      }
 
       const endCh = ed.document.lineAt(line).text.length;
       const pos = new vscode.Position(line, endCh);
       return {
         range: new vscode.Range(pos, pos),
-        renderOptions: {
-          after: { contentText: text },
-        },
+        renderOptions: { after: { contentText: text } },
       };
     })
     .filter(Boolean);
