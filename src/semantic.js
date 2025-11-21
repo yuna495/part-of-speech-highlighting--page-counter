@@ -396,10 +396,10 @@ async function loadLocalDictForDoc(docUri) {
       // notesetting が無ければ空 既定ハイライトなし
       const val = { key: "none", chars: new Set(), glos: new Set() };
       _localDictCache.set(dir, val);
-      vscode.window.setStatusBarMessage(
-        "POS/Note: notesetting.json 不在 ハイライト辞書なし",
-        2000
-      );
+      // vscode.window.setStatusBarMessage(
+      //   "POS/Note: notesetting.json 不在 ハイライト辞書なし",
+      //   2000
+      // );
       return { chars: val.chars, glos: val.glos };
     }
 
@@ -412,10 +412,10 @@ async function loadLocalDictForDoc(docUri) {
     const val = { key, chars, glos };
     _localDictCache.set(dir, val);
 
-    vscode.window.setStatusBarMessage(
-      "POS/Note: notesetting.json を採用（人物・用語）",
-      2000
-    );
+    // vscode.window.setStatusBarMessage(
+    //   "POS/Note: notesetting.json を採用（人物・用語）",
+    //   2000
+    // );
     return { chars, glos };
   } catch {
     return { chars: new Set(), glos: new Set() };
@@ -578,19 +578,19 @@ class JapaneseSemanticProvider {
       charWords = r.chars;
       gloWords = r.glos;
       try {
-        vscode.window.setStatusBarMessage(
-          "POS/Note: notesetting.json を採用（人物・用語）",
-          2000
-        );
+        // vscode.window.setStatusBarMessage(
+        //   "POS/Note: notesetting.json を採用（人物・用語）",
+        //   2000
+        // );
       } catch {}
     } else {
       charWords = new Set();
       gloWords = new Set();
       try {
-        vscode.window.setStatusBarMessage(
-          "POS/Note: notesetting.json 不在（人物・用語なし）",
-          1500
-        );
+        // vscode.window.setStatusBarMessage(
+        //   "POS/Note: notesetting.json 不在（人物・用語なし）",
+        //   1500
+        // );
       } catch {}
     }
 

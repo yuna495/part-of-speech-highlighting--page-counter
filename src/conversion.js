@@ -1,24 +1,13 @@
 // src/conversion.js
 // かな↔漢字 双方向変換
 // Ctrl+. → かな→漢字 / Alt+. → 漢字→かな
-// <workspace>/.vscode/conversion.json を自動読み込み
-// { "かな": "漢字", "かな": "漢字", ... } を双方向に展開
-// 片方向だけ書けば OK 逆方向は自動生成
+// <workspace>/.vscode/conversion.json と 対象ドキュメントと同じフォルダの notesetting.json を自動読み込み
+// { "かな": "漢字", ... } を双方向に展開
+// 片方向だけ書けば OK（逆方向は自動生成）
+// ※ 既定ペア（フォールバック）は廃止
 
 const vscode = require("vscode");
 const path = require("path");
-
-// ===== 既定ペア（ファイル無しや壊れている場合のフォールバック） =====
-/** @type {Record<string, string>} */
-const DEFAULT_TO_KANJI = {
-  かすか: "微か",
-  わずか: "僅か",
-};
-/** @type {Record<string, string>} */
-const DEFAULT_TO_KANA = {
-  微か: "かすか",
-  僅か: "わずか",
-};
 
 // キャッシュ
 /**
@@ -26,14 +15,14 @@ const DEFAULT_TO_KANA = {
  * @property {Record<string,string>} toKanji
  * @property {Record<string,string>} toKana
  * @property {boolean} loadedFromFile
- * @property {"default"|"old"|"flat"|"merged"} sourceSchema
+ * @property {"empty"|"old"|"flat"|"merged"} sourceSchema
  */
 /** @type {DictCache} */
 let _dictCache = {
-  toKanji: { ...DEFAULT_TO_KANJI },
-  toKana: { ...DEFAULT_TO_KANA },
+  toKanji: {},
+  toKana: {},
   loadedFromFile: false,
-  sourceSchema: "default", // "default" | "old" | "flat"
+  sourceSchema: "empty",
 };
 
 // ===== ユーティリティ =====
@@ -41,33 +30,11 @@ function isPlainObject(v) {
   return v && typeof v === "object" && !Array.isArray(v);
 }
 
-/*************  ✨ Windsurf Command ⭐  *************/
 /**
- * Escapes special characters in a string for use in a RegExp.
- *
- * The following characters have special meanings in RegExp and must be escaped:
- * - `.` (dot)
- * - `*` (star)
- * - `+` (plus sign)
- * - `?` (question mark)
- * - `^` (caret)
- * - `$` (dollar sign)
- * - `{` (left curly brace)
- * - `}` (right curly brace)
- * - `(` (left parenthesis)
- * - `)` (right parenthesis)
- * - `|` (vertical bar or pipe)
- * - `[` (left square bracket)
- * - `]` (right square bracket)
- * - `\` (backslash)
- *
- * This function escapes all of these characters in a given string.
- *
- * @param {string} s - The string to escape.
- * @returns {string} The escaped string.
-/*******  ed5aa8fb-a975-4621-99f2-6f4ee68a2fc4  *******/ function escapeRegExp(
-  s
-) {
+ * 正規表現で使う文字をエスケープ
+ * @param {string} s
+ */
+function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -75,8 +42,8 @@ function normalizeString(x) {
   return typeof x === "string" ? x : String(x ?? "");
 }
 
-// entries のうち key/value が文字列のものだけ抽出しトリム
 /**
+ * entries のうち key/value が文字列のものだけ抽出しトリム
  * @param {any} obj
  * @returns {Record<string,string>}
  */
@@ -93,11 +60,7 @@ function sanitizeDict(obj) {
 
 /**
  * 新スキーマ（フラット）から双方向辞書を構築
- * 例: { "てのひら":"掌", "かすか":"微か" } -> toKanji はそのまま toKana は反転
- * 多対一（例: ほほえみ/微笑 → 微笑）の逆引き競合は**後勝ち**（最後に書かれたエントリが優先）
- * 競合を明示的に制御したい場合は旧スキーマ（toKana）を使えば上書き可能
- */
-/**
+ * 例: { "てのひら":"掌", "かすか":"微か" } -> toKanji はそのまま / toKana は反転
  * @param {Record<string,string>} flat
  * @returns {{toKanji: Record<string,string>, toKana: Record<string,string>, sourceSchema: "flat"}}
  */
@@ -106,22 +69,21 @@ function buildFromFlat(flat) {
   /** @type {Record<string,string>} */
   const toKana = {};
   for (const [kana, kanji] of Object.entries(toKanji)) {
-    // 逆方向
     toKana[kanji] = kana;
   }
   return { toKanji, toKana, sourceSchema: "flat" };
 }
 
-/** 旧スキーマから構築し 既定を下支えにしてユーザ定義を優先 */
 /**
+ * 旧スキーマから構築（ユーザ定義のみ。既定は混入しない）
  * @returns {{toKanji: Record<string,string>, toKana: Record<string,string>, sourceSchema: "old"}}
  */
 function buildFromOld(json) {
   const userToKanji = sanitizeDict(json.toKanji || {});
   const userToKana = sanitizeDict(json.toKana || {});
   return {
-    toKanji: { ...DEFAULT_TO_KANJI, ...userToKanji },
-    toKana: { ...DEFAULT_TO_KANA, ...userToKana },
+    toKanji: { ...userToKanji },
+    toKana: { ...userToKana },
     sourceSchema: "old",
   };
 }
@@ -133,7 +95,7 @@ function getDictUri() {
   return vscode.Uri.joinPath(folders[0].uri, ".vscode", "conversion.json");
 }
 
-// .vscode 常時 + notesetting があれば合流。ローカル conversion.json は読まない
+// .vscode 常時 + notesetting があれば合流（notesetting が後勝ち）
 async function loadDictFromWorkspace(activeDocUri) {
   const wsUri = getDictUri(); // <workspace>/.vscode/conversion.json
   /** @type {vscode.Uri|null} */ let localDirUri = null;
@@ -154,49 +116,61 @@ async function loadDictFromWorkspace(activeDocUri) {
     if (setDict) dicts.push(setDict);
   }
 
-  // 3) どれも無ければ既定
+  // 3) どれも無ければ空辞書（フォールバック無し）
   if (dicts.length === 0) {
     _dictCache = {
-      toKanji: { ...DEFAULT_TO_KANJI },
-      toKana: { ...DEFAULT_TO_KANA },
+      toKanji: {},
+      toKana: {},
       loadedFromFile: false,
-      sourceSchema: "default",
+      sourceSchema: "empty",
     };
     return;
   }
 
-  // 4) マージ（右側優先）→ notesetting が .vscode を上書き
+  // 4) マージ（右側優先＝notesetting が .vscode を上書き）
+  //    さらに逆向きペアが競合していたら「後勝ち」のペアのみ残す
   const merged = dicts.reduce(
-    (acc, cur) => ({
-      toKanji: { ...acc.toKanji, ...cur.toKanji },
-      toKana: { ...acc.toKana, ...cur.toKana },
-    }),
+    (acc, cur) => {
+      const newToKanji = { ...acc.toKanji, ...cur.toKanji };
+      const newToKana = { ...acc.toKana, ...cur.toKana };
+
+      // 逆ペア除外処理（cur 側が後勝ち）
+      for (const [k, v] of Object.entries(cur.toKanji)) {
+        // （例）acc に A→B がある / cur に B→A が来た → A→B を消す
+        if (newToKanji[v] === k) {
+          delete newToKanji[v];
+          delete newToKana[k];
+        }
+      }
+      for (const [k, v] of Object.entries(cur.toKana)) {
+        // （例）acc に B→A がある / cur に A→B が来た → B→A を消す
+        if (newToKana[v] === k) {
+          delete newToKana[v];
+          delete newToKanji[k];
+        }
+      }
+
+      return { toKanji: newToKanji, toKana: newToKana };
+    },
     { toKanji: {}, toKana: {} }
   );
 
   _dictCache = {
-    toKanji: { ...DEFAULT_TO_KANJI, ...merged.toKanji },
-    toKana: { ...DEFAULT_TO_KANA, ...merged.toKana },
+    toKanji: { ...merged.toKanji },
+    toKana: { ...merged.toKana },
     loadedFromFile: true,
     sourceSchema: "merged",
   };
 
-  // 5) ステータス表示
+  // 5) ステータス表示（notesetting が存在する場合の通知のみ任意で表示）
   if (localDirUri) {
     try {
       const note = vscode.Uri.joinPath(localDirUri, "notesetting.json");
       await vscode.workspace.fs.stat(note);
-      vscode.window.setStatusBarMessage(
-        "POS/Note: .vscode + notesetting.conversion を統合",
-        2500
-      );
+      vscode.window.setStatusBarMessage("P/N: notesetting.json を適用", 2500);
       return;
     } catch {}
   }
-  vscode.window.setStatusBarMessage(
-    "POS/Note: .vscode の conversion を適用",
-    2000
-  );
 }
 
 // 同一フォルダ notesetting.json の conversion を読む
@@ -219,7 +193,7 @@ async function tryReadSettingConversion(dirUri) {
     const conv = json && json.conversion;
     if (!conv || typeof conv !== "object") return null;
 
-    // 旧スキーマ {toKanji:{}, toKana:{}} もフラット { "かな": "漢字" } も両対応
+    // 旧スキーマ {toKanji:{}, toKana:{}} / フラット { "かな": "漢字" } に両対応
     if (isPlainObject(conv.toKanji) || isPlainObject(conv.toKana)) {
       const built = buildFromOld(conv);
       return { toKanji: built.toKanji, toKana: built.toKana };
@@ -263,7 +237,6 @@ async function tryReadDict(uri) {
 
     return null; // 不正フォーマット
   } catch (e) {
-    // ファイルが存在しない、またはJSON構文エラーなど
     console.warn(
       `[posNote] conversion.json 読み込み失敗 (${uri.fsPath}):`,
       e.message
@@ -274,7 +247,6 @@ async function tryReadDict(uri) {
 
 // 監視対象を .vscode/conversion.json と notesetting.json
 function ensureWatcher(context) {
-  // .vscode だけを確実に見る
   const wConv = vscode.workspace.createFileSystemWatcher(
     "**/.vscode/conversion.json"
   );
@@ -308,8 +280,7 @@ async function replaceWholeDocument(editor, mapping) {
   const keys = Object.keys(mapping);
   if (keys.length === 0) return 0;
 
-  // キーを長い順に並べて「より長い語を先に」マッチさせると意図せぬ再置換を減らせる
-  // 例: 「わずか」と「わず」などが混在する場合の安定化
+  // 長いキーを先にマッチさせて再置換を抑止
   keys.sort((a, b) => b.length - a.length);
 
   const pattern = new RegExp(keys.map(escapeRegExp).join("|"), "g");
@@ -332,25 +303,22 @@ async function replaceWholeDocument(editor, mapping) {
 
 // ===== コマンド本体 =====
 async function convertToKanji(editor) {
-  const mapping = _dictCache.toKanji || DEFAULT_TO_KANJI;
+  const mapping = _dictCache.toKanji; // 空なら何もしない
   const n = await replaceWholeDocument(editor, mapping);
   showResult(n, _dictCache.loadedFromFile ? "かな→漢字（辞書）" : "かな→漢字");
 }
 
 async function convertToKana(editor) {
-  const mapping = _dictCache.toKana || DEFAULT_TO_KANA;
+  const mapping = _dictCache.toKana; // 空なら何もしない
   const n = await replaceWholeDocument(editor, mapping);
   showResult(n, _dictCache.loadedFromFile ? "漢字→かな（辞書）" : "漢字→かな");
 }
 
 function showResult(n, label) {
   if (n > 0) {
-    vscode.window.setStatusBarMessage(
-      `POS/Note: ${label} を ${n} 件置換`,
-      2500
-    );
+    vscode.window.setStatusBarMessage(`P/N: ${label} を ${n} 件置換`, 2500);
   } else {
-    vscode.window.setStatusBarMessage(`POS/Note: ${label} 対象なし`, 2000);
+    vscode.window.setStatusBarMessage(`P/N: ${label} 対象なし`, 2000);
   }
 }
 
@@ -377,7 +345,7 @@ function registerConversionCommands(context, { isTargetDoc }) {
         if (typeof isTargetDoc === "function") {
           if (!isTargetDoc(doc, { applyToTxtOnly: true })) {
             vscode.window.setStatusBarMessage(
-              "POS/Note: この言語では変換を無効化",
+              "P/N: この言語では変換を無効化",
               2000
             );
             return;

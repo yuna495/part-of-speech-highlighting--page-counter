@@ -103,7 +103,7 @@ async function updateLimitStatusFor(doc) {
     _limitItem.hide();
     return;
   }
-  _limitItem.text = `$(calendar) 残り${days}日`;
+  _limitItem.text = `$(calendar) 残${days}日`;
   _limitItem.tooltip = iso ? `期限 ${iso}` : "notesetting.json の limit 期限";
   _limitItem.show();
 }
