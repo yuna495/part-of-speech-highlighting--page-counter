@@ -10,49 +10,21 @@ const vscode = require("vscode");
  * キャンセルや空は null
  */
 async function askRubyText() {
-  const input = vscode.window.createInputBox();
-  input.title = "《》の中に入れるルビを入力";
-  input.placeholder = "かな／カナ／注音など";
-  input.ignoreFocusOut = true;
-
-  // 先に表示してフォーカスを確実に奪う
-  input.show();
-
-  // バリデーション
-  const validate = (v) => {
-    if (v.includes("《") || v.includes("》")) {
-      input.validationMessage = "《》は入力しないでください";
-      return false;
-    }
-    input.validationMessage = undefined;
-    return true;
-  };
-
-  // 初期値と選択（任意）
-  input.value = "";
-  input.valueSelection = [0, 0];
-
-  const result = await new Promise((resolve) => {
-    let accepted = false;
-
-    const subChange = input.onDidChangeValue((v) => validate(v));
-    const subAccept = input.onDidAccept(() => {
-      const v = input.value;
-      if (!validate(v) || v.length === 0) return; // 不正は確定させない
-      accepted = true;
-      resolve(v);
-      input.hide();
-    });
-    const subHide = input.onDidHide(() => {
-      if (!accepted) resolve(null);
-      subChange.dispose();
-      subAccept.dispose();
-      subHide.dispose();
-      input.dispose();
-    });
+  const val = await vscode.window.showInputBox({
+    title: "《》の中に入れるルビを入力",
+    placeHolder: "かな／カナ／注音など",
+    ignoreFocusOut: true, // 入力中にフォーカスが外れないようにする
+    valueSelection: [0, 0],
+    validateInput: (v) => {
+      if (!v || v.length === 0) return "空欄は入力できません";
+      if (v.includes("《") || v.includes("》")) return "《》は入力しないでください";
+      return undefined;
+    },
   });
 
-  return result;
+  if (typeof val !== "string") return null; // Esc などでキャンセル
+  if (!val.length) return null;
+  return val;
 }
 
 /**

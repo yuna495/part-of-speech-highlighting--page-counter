@@ -1,6 +1,6 @@
 // sidebar_headings.js
 const vscode = require("vscode");
-const { getHeadingLevel } = require("./utils");
+const { getHeadingLevel, getHeadingCharMetricsForDisplay } = require("./utils");
 const path = require("path");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */
@@ -55,14 +55,14 @@ class HeadingNode extends vscode.TreeItem {
    * @param {number} line 行番号（0-based）
    * @param {number} level 見出しレベル(1-6)
    */
-  constructor(label, uri, line, level) {
+  constructor(label, uri, line, level, countText) {
     super(label);
     this.resourceUri = uri;
     this.line = line;
     this.level = level;
     this.iconPath = iconForLevel(level);
     this.collapsibleState = vscode.TreeItemCollapsibleState.None;
-    this.description = `L${line + 1}`;
+    this.description = countText || "";
     this.command = {
       command: "posNote.headings.reveal",
       title: "Reveal Heading",
@@ -113,13 +113,26 @@ class HeadingsProvider {
     if (!isTargetDoc(ed.document, c)) return [];
 
     const doc = ed.document;
+    const metrics = getHeadingCharMetricsForDisplay(doc, c, vscode)?.items || [];
+    const countByLine = new Map();
+    for (const { line, own, sub } of metrics) {
+      const ownShow = own > 0;
+      const subShow = sub > 0 && sub !== own;
+      if (!ownShow && !subShow) continue;
+      let text = "";
+      if (ownShow) text += `${own.toLocaleString("ja-JP")}字`;
+      if (subShow) text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
+      countByLine.set(line, text);
+    }
+
     const items = [];
     for (let i = 0; i < doc.lineCount; i++) {
       const text = doc.lineAt(i).text;
       const lvl = getHeadingLevel(text);
       if (lvl > 0) {
         const label = stripHeadingMarkup(text);
-        items.push(new HeadingNode(label, doc.uri, i, lvl));
+        const countText = countByLine.get(i) || "";
+        items.push(new HeadingNode(label, doc.uri, i, lvl, countText));
       }
     }
     this._items = items;

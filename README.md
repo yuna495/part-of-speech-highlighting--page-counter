@@ -171,7 +171,7 @@ workspace/
       ],
       "glossary": [
         "A",
-        "B" 
+        "B"
       ],
       "conversion": {
         "alt + .": "ctrl + .",
@@ -398,13 +398,13 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
       // ユーザー辞書（最優先）
       "charcter": #ff0000,      // characters.json指定項目
-      "glossary": #ff0000,      // glossary.json指定項目
+      "glossary": #ffff00,      // glossary.json指定項目
 
       // 特殊トークン
       "bracket": "#fd9bcc",     // 括弧と括弧内文書
       "fwspace": {                // 全角スペース
         "underline": true,
-        "foreground": "#ff0000"
+        "foreground": "#ff000044"
       },
       "heading": "#ff14e0" ,     // 見出しカラー
       "fencecomment": "#f0f0c0", // ```コードフェンスカラー```
