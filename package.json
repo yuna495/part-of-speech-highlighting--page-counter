@@ -692,7 +692,7 @@
           "fencecomment": "#f0f0c0",
           "fwspace": {
             "underline": true,
-            "foreground": "#ff0000"
+            "foreground": "#ff000044"
           },
           "heading": "#ff14e0"
         }

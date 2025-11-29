@@ -105,6 +105,29 @@ function _escapeHtml(s) {
 }
 
 /**
+ * editor.semanticTokenColorCustomizations.rules.fwspace から色を取得する。
+ * - 文字列形式ならそのまま
+ * - オブジェクト形式なら foreground を採用
+ * - 取れなければ null
+ */
+function _getFwspaceColorFromSettings() {
+  try {
+    const editorCfg = vscode.workspace.getConfiguration("editor");
+    const custom = editorCfg.get("semanticTokenColorCustomizations") || {};
+    const rules = custom?.rules || {};
+    const val = rules ? rules["fwspace"] : null;
+    if (!val) return null;
+    if (typeof val === "string") return val;
+    if (typeof val === "object" && typeof val.foreground === "string") {
+      return val.foreground;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 文書の見出しブロックを (# の連なりで) 粗く特定する。
  * 戻り値: [{ start: 見出し行, end: ブロック終端行(含む) }, ...]
  * 折りたたみ推定などで基礎データとして使用
@@ -546,6 +569,71 @@ class JapaneseSemanticProvider {
       wNote.onDidChange(fire),
       wNote.onDidDelete(fire)
     );
+
+    // fwspace 背景ハイライト用
+    this._fwspaceDecoration = null;
+    this._fwspaceColor = null;
+    this._fwspaceRangesByDoc = new Map(); // key: docUri -> vscode.Range[]
+    context.subscriptions.push(
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        this._fwspaceRangesByDoc.delete(doc.uri.toString());
+      })
+    );
+  }
+
+  // fwspace 用の背景ハイライトを、設定色に合わせて生成・更新する
+  _ensureFwspaceDecoration() {
+    const color = _getFwspaceColorFromSettings();
+    if (!color) {
+      if (this._fwspaceDecoration) {
+        this._fwspaceDecoration.dispose(); // dispose で既存描画も消す
+      }
+      this._fwspaceDecoration = null;
+      this._fwspaceColor = null;
+      this._fwspaceRangesByDoc.clear();
+      return null;
+    }
+
+    if (this._fwspaceDecoration && this._fwspaceColor === color) {
+      return this._fwspaceDecoration;
+    }
+
+    if (this._fwspaceDecoration) {
+      this._fwspaceDecoration.dispose();
+    }
+
+    this._fwspaceDecoration = vscode.window.createTextEditorDecorationType({
+      backgroundColor: color,
+      borderRadius: "2px",
+    });
+    this._fwspaceColor = color;
+    return this._fwspaceDecoration;
+  }
+
+  /**
+   * fwspace の背景ハイライトを適用する（部分更新対応）
+   * @param {import("vscode").TextDocument} document
+   * @param {number} fromLine
+   * @param {number} toLine
+   * @param {import("vscode").Range[]} rangesForWindow
+   */
+  _applyFwspaceDecorations(document, fromLine, toLine, rangesForWindow) {
+    const deco = this._ensureFwspaceDecoration();
+    if (!deco) return;
+
+    const key = document.uri.toString();
+    const prev = this._fwspaceRangesByDoc.get(key) || [];
+    const kept = prev.filter(
+      (r) => r.start.line < fromLine || r.start.line > toLine
+    );
+    const next = kept.concat(rangesForWindow);
+    this._fwspaceRangesByDoc.set(key, next);
+
+    for (const ed of vscode.window.visibleTextEditors) {
+      if (ed.document === document) {
+        ed.setDecorations(deco, next);
+      }
+    }
   }
 
   // VS Code に渡す SemanticTokensLegend を返す
@@ -679,8 +767,16 @@ class JapaneseSemanticProvider {
     })();
 
     // ★ ループは一つに統一（ネストしていた二重ループを削除）
+    /** @type {import("vscode").Range[]} */
+    const fwspaceDecoRanges = [];
+    let processedFrom = null;
+    let processedTo = null;
+
     for (let line = startLine; line <= endLine; line++) {
       if (cancelToken?.isCancellationRequested) break;
+
+      if (processedFrom === null) processedFrom = line;
+      processedTo = line;
 
       // ループ冒頭で必ず行テキストを取得（これが無いと TS(2304) ）
       const text = document.lineAt(line).text;
@@ -752,8 +848,13 @@ class JapaneseSemanticProvider {
           const s = m.index,
             e = s + 1;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-            builder.push(line, s, 1, tokenTypesArr.indexOf("fwspace"), 0);
             fwspaceRanges.push([s, e]); //括弧上書きから外すためのマスク
+            fwspaceDecoRanges.push(
+              new vscode.Range(
+                new vscode.Position(line, s),
+                new vscode.Position(line, e)
+              )
+            );
           }
         }
       }
@@ -824,6 +925,15 @@ class JapaneseSemanticProvider {
           builder.push(line, start, length, typeIdx, mods);
         }
       }
+    }
+
+    if (processedFrom !== null && processedTo !== null) {
+      this._applyFwspaceDecorations(
+        document,
+        processedFrom,
+        processedTo,
+        fwspaceDecoRanges
+      );
     }
 
     return builder.build();

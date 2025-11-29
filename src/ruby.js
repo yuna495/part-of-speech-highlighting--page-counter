@@ -169,7 +169,6 @@ async function insertRuby(editor) {
     return;
   }
 
-  await new Promise((r) => setTimeout(r, 0)); // 次のティックで InputBox を出す
   // ここで初めてルビ入力を要求
   const ruby = await askRubyText();
   if (ruby === null) return;
@@ -266,7 +265,6 @@ async function insertRubySelection(editor) {
     return;
   }
 
-  await new Promise((r) => setTimeout(r, 0)); // 次のティックで InputBox を出す
   // ルビ入力
   const ruby = await askRubyText();
   if (ruby === null) return;
