@@ -540,7 +540,7 @@
           },
           "posNote.workload.dailyTarget": {
             "type": "number",
-            "default": 10000,
+            "default": 2000,
             "minimum": 0,
             "description": "純作業量の1日目標値。グラフに赤い水平ラインとして表示する。"
           },
@@ -651,7 +651,7 @@
           "posNote.Preview.posHighlight.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "プレビューで品詞ハイライトを有効化（保存時反映）"
+            "description": "プレビューで品詞ハイライトを有効化（保存時のみ更新。無効化すると高速化）"
           },
           "posNote.Preview.posHighlight.mode": {
             "type": "boolean",
@@ -665,8 +665,8 @@
           },
           "posNote.Preview.posHighlight.maxLines": {
             "type": "number",
-            "default": 1000,
-            "minimum": 200,
+            "default": 250,
+            "minimum": 10,
             "description": "プレビューでPOS着色する最大行数（パフォーマンス上限）"
           }
         }

@@ -3,8 +3,22 @@
   const vscode = acquireVsCodeApi();
 
   const content = document.getElementById("content");
+  const refreshBtn = document.getElementById("refresh-btn");
   let cursorEl = null;
   let blinkTimer = null;
+  let isRefreshing = false;
+
+  const setRefreshing = (on) => {
+    isRefreshing = !!on;
+    if (refreshBtn) refreshBtn.classList.toggle("spinning", isRefreshing);
+  };
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      setRefreshing(true);
+      vscode.postMessage({ type: "requestRefresh" });
+    });
+  }
 
   // 縦ホイール → 横スクロール
   content.addEventListener(
@@ -18,6 +32,16 @@
     },
     { passive: false }
   );
+
+  // イベントデリゲーション: クリックでエディタへジャンプ
+  // 各<p>に個別にリスナーを追加するのではなく、親要素で一括処理
+  content.addEventListener("click", (e) => {
+    const target = e.target.closest("p[data-line]");
+    if (target) {
+      const ln = Number(target.dataset.line || "0");
+      vscode.postMessage({ type: "jumpToLine", line: ln });
+    }
+  });
 
   function normalizeWheelDelta(e) {
     const LINE_PIXELS = 16;
@@ -33,13 +57,16 @@
     const { type, payload, activeLine } = event.data;
 
     if (type === "update") {
-      // 全面再描画（本文・スタイル・初回のアクティブ行）
       render(payload);
       return;
     }
 
+    if (type === "diffUpdate") {
+      applyDiff(payload);
+      return;
+    }
+
     if (type === "highlight") {
-      // 軽量：行番号だけでハイライト（本文は作り直さない）
       highlightActiveLine(typeof activeLine === "number" ? activeLine : 0);
       const activeBg =
         content.style.getPropertyValue("--active-bg") ||
@@ -79,24 +106,15 @@
       dashHtmlList = [],
     } = data || {};
 
-    // 背景・色・CSS変数
-    content.style.backgroundColor = bgColor;
-    content.style.color = textColor;
-    content.style.setProperty("--active-bg", activeBg);
+    applyStyles({ bgColor, textColor, activeBg, tokenCss, fontsize, fontfamily });
 
-    // 受け取ったトークンCSSを <head> に適用（エディタ設定の色で上書き）
-    upsertTokenStyle(tokenCss);
-
-    // 本文：isHtml のときは拡張側で完成させた <p data-line> をそのまま適用
     if (isHtml) {
       content.innerHTML = textHtml;
     } else {
-      // 旧来：プレーンテキストから <p data-line> を生成
       const html = paragraphsWithLine(text, offset, cursor, showCursor);
       content.innerHTML = html;
     }
 
-    // 占位文字
     if (
       (rubyHtmlList && rubyHtmlList.length) ||
       (ellipsisHtmlList && ellipsisHtmlList.length) ||
@@ -109,32 +127,89 @@
       });
     }
 
-    // p にフォント反映
-    content.querySelectorAll("p").forEach((p) => {
-      p.style.fontSize = fontsize || "14px";
-      p.style.fontFamily = fontfamily ? `"${fontfamily}"` : "";
-    });
-
-    // クリックでエディタへジャンプ（data-line 依存）
-    content.querySelectorAll("p").forEach((p) => {
-      p.addEventListener("click", () => {
-        const ln = Number(p.dataset.line || "0");
-        vscode.postMessage({ type: "jumpToLine", line: ln });
-      });
-    });
-
-    // カーソル要素（必要なら）を再取得
     cursorEl = showCursor ? document.getElementById("cursor") : null;
     resetBlink(showCursor);
 
-    // ハイライト & 中央寄せ & 動的スタイル
     highlightActiveLine(activeLine);
     adjustScrollToActive(activeLine);
+    setRefreshing(false);
+  }
+
+  function applyDiff(payload) {
+    const {
+      isHtml = false,
+      textHtml = "",
+      tokenCss = "",
+      activeLine = 0,
+      showCursor = false,
+      bgColor = "#111111",
+      textColor = "#fafafa",
+      activeBg = "rgba(255, 215, 0, 0.2)",
+      fontsize,
+      fontfamily,
+      rubyHtmlList = [],
+      ellipsisHtmlList = [],
+      dashHtmlList = [],
+      changes = [],
+    } = payload || {};
+
+    if (!isHtml || !Array.isArray(changes) || !changes.length) {
+      render(payload);
+      return;
+    }
+
+    applyStyles({ bgColor, textColor, activeBg, tokenCss, fontsize, fontfamily });
+
+    for (const ch of changes) {
+      if (!ch || typeof ch.line !== "number" || !ch.html) continue;
+      const pEl = content.querySelector(`p[data-line="${ch.line}"]`);
+      if (!pEl) {
+        render(payload);
+        return;
+      }
+      const tpl = document.createElement("template");
+      tpl.innerHTML = ch.html.trim();
+      const node = tpl.content.firstElementChild;
+      if (node) pEl.replaceWith(node);
+    }
+
+    if (
+      (rubyHtmlList && rubyHtmlList.length) ||
+      (ellipsisHtmlList && ellipsisHtmlList.length) ||
+      (dashHtmlList && dashHtmlList.length)
+    ) {
+      restorePlaceholdersHtml(content, {
+        RB: rubyHtmlList,
+        EL: ellipsisHtmlList,
+        DL: dashHtmlList,
+      });
+    }
+
+    cursorEl = showCursor ? document.getElementById("cursor") : null;
+    resetBlink(showCursor);
+    highlightActiveLine(activeLine);
+    adjustScrollToActive(activeLine);
+    setRefreshing(false);
+  }
+
+  function applyStyles({
+    bgColor = "#111111",
+    textColor = "#fafafa",
+    activeBg = "rgba(255, 215, 0, 0.2)",
+    tokenCss = "",
+    fontsize,
+    fontfamily,
+  }) {
+    content.style.backgroundColor = bgColor;
+    content.style.color = textColor;
+    content.style.setProperty("--active-bg", activeBg);
+    content.style.setProperty("--font-size", fontsize || "14px");
+    content.style.setProperty("--font-family", fontfamily ? `"${fontfamily}"` : "inherit");
+    upsertTokenStyle(tokenCss);
     upsertDynamicStyle(activeBg);
   }
 
-  /** data-line を付与した <p> 羅列を作る。showCursor=false のときは cursor 挿入しない */
-  function paragraphsWithLine(text, offset, cursor, showCursor) {
+function paragraphsWithLine(text, offset, cursor, showCursor) {
     let injected = text;
     if (showCursor) {
       const safeCursor = '<span id="cursor">' + escapeHtml(cursor) + "</span>";

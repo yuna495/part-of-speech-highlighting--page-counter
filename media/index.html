@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
@@ -18,10 +18,11 @@
     <title>縦書きプレビュー</title>
   </head>
   <body>
-    <!-- コンテンツ領域 -->
+    <div id="toolbar">
+      <button id="refresh-btn" type="button" aria-label="refresh-preview">⟳</button>
+    </div>
     <div id="content" aria-label="vertical-preview"></div>
-
-    <!-- 受け取り・描画ロジック -->
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
   </body>
 </html>
+

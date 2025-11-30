@@ -1,4 +1,4 @@
-// ===========================================
+﻿// ===========================================
 //  日本語 品詞ハイライト（Semantic）＋ページカウンタ 拡張メイン
 //  - semantic.js: 形態素解析 → Semantic Tokens
 //  - status_bar.js: 原稿用紙風ページ/文字数・禁則処理
@@ -134,8 +134,7 @@ function activate(context) {
     vscode.commands.registerCommand("posNote.Preview.open", () => {
       PreviewPanel.show(context.extensionUri, context);
     }),
-    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
-      PreviewPanel.update();
+    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
     }),
     vscode.commands.registerCommand("posNote.combineTxt", (resourceUri) => {
       // エクスプローラーで右クリックしたフォルダ URI が渡ってくる
@@ -214,6 +213,9 @@ function activate(context) {
 
       // 5) ステータスバーへフィード（再計算させない）
       sb.scheduleUpdateWithPrecount(ed, shownLen);
+
+      // プレビューの自動更新は削除（保存時のみ更新に変更）
+      // 品詞ハイライト有効時のKuromoji処理が重いため
     }),
 
     // 保存：即時確定計算（Git差分/見出しビュー）
@@ -222,8 +224,7 @@ function activate(context) {
       if (ed && ed.document === doc) {
         sb.recomputeOnSaveIfNeeded(doc);
         refreshHeadingCounts(ed, cfg);
-        // プレビューの再描画（保存時のみ）
-        PreviewPanel.update();
+        // プレビューの再描画（保存時のみ）
       }
     }),
 
@@ -290,3 +291,4 @@ function deactivate() {
 }
 
 module.exports = { activate, deactivate };
+

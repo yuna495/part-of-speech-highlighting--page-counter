@@ -1,15 +1,20 @@
 // ruby.js
+// ruby.js
 const vscode = require("vscode");
 
 /* =========================
    ヘルパー群
    ========================= */
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * 入力ボックスでルビ文字列を取得
  * キャンセルや空は null
  */
 async function askRubyText() {
+  await sleep(100); // 100ms 待機（ショートカットキー離脱待ち・フォーカス安定化）
+
   const val = await vscode.window.showInputBox({
     title: "《》の中に入れるルビを入力",
     placeHolder: "かな／カナ／注音など",
@@ -124,7 +129,6 @@ async function insertRuby(editor) {
   }
 
   const doc = editor.document;
-  const full = doc.getText();
 
   // 選択テキストのユニーク化（空は除外）
   const uniqTexts = Array.from(
@@ -144,6 +148,8 @@ async function insertRuby(editor) {
   // ここで初めてルビ入力を要求
   const ruby = await askRubyText();
   if (ruby === null) return;
+
+  const full = doc.getText(); // ユーザー入力待ちの間に文書が変わっている可能性があるため、ここで取得
 
   // 文書内一致（直前が '|' の一致は除外）
   const matches = [];

@@ -1020,6 +1020,7 @@ async function toPosHtml(text, context, opts = {}) {
     classPrefix = "pos-",
     activeLine = 0,
     docUri,
+    renderWindowOnly = false,
   } = opts || {};
 
   // kuromoji が無くても辞書ハイライトは動作するようにする
@@ -1179,7 +1180,9 @@ async function toPosHtml(text, context, opts = {}) {
     // ウィンドウ外はプレーン（既存）
     const inWindow = i >= winStart && i <= winEnd;
     if (!inWindow) {
-      out.push(`<p data-line="${i}">${escapeHtml(line)}</p>`);
+      if (!renderWindowOnly) {
+        out.push(`<p data-line="${i}">${escapeHtml(line)}</p>`);
+      }
       continue;
     }
 
