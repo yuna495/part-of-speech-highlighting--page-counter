@@ -665,7 +665,7 @@
           },
           "posNote.Preview.posHighlight.maxLines": {
             "type": "number",
-            "default": 250,
+            "default": 50,
             "minimum": 10,
             "description": "プレビューでPOS着色する最大行数（パフォーマンス上限）"
           }

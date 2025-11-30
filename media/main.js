@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 (function () {
   const vscode = acquireVsCodeApi();
 
@@ -7,16 +7,28 @@
   let cursorEl = null;
   let blinkTimer = null;
   let isRefreshing = false;
+  let lastActiveLine = 0;
 
   const setRefreshing = (on) => {
     isRefreshing = !!on;
     if (refreshBtn) refreshBtn.classList.toggle("spinning", isRefreshing);
   };
 
+  // 初回ウォームアップ中はスピナーを回しておく
+  setRefreshing(true);
+
   if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => {
-      setRefreshing(true);
-      vscode.postMessage({ type: "requestRefresh" });
+    // クリックが下のコンテンツに届いて jumpToLine しないように完全に止める
+    ["mousedown", "mouseup", "click"].forEach((ev) => {
+      refreshBtn.addEventListener(ev, (e) => {
+        e.stopPropagation();
+        if (ev !== "click") {
+          e.preventDefault();
+          return;
+        }
+        setRefreshing(true);
+        vscode.postMessage({ type: "requestRefresh" });
+      });
     });
   }
 
@@ -52,30 +64,53 @@
   }
 
   // VS Code からのメッセージ（更新）
+    // VS Code からのメッセージ
   window.addEventListener("message", (event) => {
     if (!event || !event.data) return;
     const { type, payload, activeLine } = event.data;
 
-    if (type === "update") {
-      render(payload);
-      return;
-    }
+    try {
+      if (type === "update") {
+        render(payload);
+        return;
+      }
 
-    if (type === "diffUpdate") {
-      applyDiff(payload);
-      return;
-    }
+      if (type === "diffUpdate") {
+        applyDiff(payload);
+        return;
+      }
 
-    if (type === "highlight") {
-      highlightActiveLine(typeof activeLine === "number" ? activeLine : 0);
-      const activeBg =
-        content.style.getPropertyValue("--active-bg") ||
-        "rgba(255, 215, 0, 0.2)";
-      upsertDynamicStyle(activeBg);
-      adjustScrollToActive(typeof activeLine === "number" ? activeLine : 0);
-      return;
+      if (type === "setRefreshing") {
+        const spinning = payload && payload.spinning;
+        setRefreshing(!!spinning);
+        return;
+      }
+
+      if (type === "highlight") {
+        const line =
+          typeof activeLine === "number"
+            ? activeLine
+            : Number.isFinite(lastActiveLine)
+            ? lastActiveLine
+            : 0;
+        if (typeof activeLine === "number") lastActiveLine = activeLine;
+        highlightActiveLine(line);
+        const activeBg =
+          content.style.getPropertyValue("--active-bg") ||
+          "rgba(255, 215, 0, 0.2)";
+        upsertDynamicStyle(activeBg);
+        adjustScrollToActive(line);
+        return;
+      }
+    } catch (e) {
+      console.error("preview message handling failed:", e);
+    } finally {
+      if (type === "update" || type === "diffUpdate") {
+        setRefreshing(false);
+      }
     }
   });
+
 
   /**
    * 描画処理
@@ -106,32 +141,48 @@
       dashHtmlList = [],
     } = data || {};
 
-    applyStyles({ bgColor, textColor, activeBg, tokenCss, fontsize, fontfamily });
+    const hasLine = Number.isFinite(activeLine);
+    if (hasLine) lastActiveLine = activeLine;
+    const targetLine =
+      hasLine || Number.isFinite(lastActiveLine)
+        ? hasLine
+          ? activeLine
+          : lastActiveLine
+        : 0;
+
+    applyStyles({
+      bgColor,
+      textColor,
+      activeBg,
+      tokenCss,
+      fontsize,
+      fontfamily,
+    });
 
     if (isHtml) {
-      content.innerHTML = textHtml;
+      const cleaned =
+        (textHtml || "")
+          .replace(/\uE000DL\d+\uE001/g, "——")
+          .replace(/\uE000RB\d+\uE001/g, "") ||
+        "";
+      renderHtmlWithReuse(cleaned);
     } else {
       const html = paragraphsWithLine(text, offset, cursor, showCursor);
-      content.innerHTML = html;
+      renderHtmlWithReuse(html);
     }
 
-    if (
-      (rubyHtmlList && rubyHtmlList.length) ||
-      (ellipsisHtmlList && ellipsisHtmlList.length) ||
-      (dashHtmlList && dashHtmlList.length)
-    ) {
-      restorePlaceholdersHtml(content, {
-        RB: rubyHtmlList,
-        EL: ellipsisHtmlList,
-        DL: dashHtmlList,
-      });
-    }
+    // プレースホルダはリストが空でも強制クリーンアップ
+    restorePlaceholdersHtml(content, {
+      RB: rubyHtmlList || [],
+      EL: ellipsisHtmlList || [],
+      DL: dashHtmlList || [],
+    });
 
     cursorEl = showCursor ? document.getElementById("cursor") : null;
     resetBlink(showCursor);
 
-    highlightActiveLine(activeLine);
-    adjustScrollToActive(activeLine);
+    highlightActiveLine(targetLine);
+    adjustScrollToActive(targetLine);
     setRefreshing(false);
   }
 
@@ -158,37 +209,54 @@
       return;
     }
 
-    applyStyles({ bgColor, textColor, activeBg, tokenCss, fontsize, fontfamily });
+    const hasLine = Number.isFinite(activeLine);
+    if (hasLine) lastActiveLine = activeLine;
+    const targetLine =
+      hasLine || Number.isFinite(lastActiveLine)
+        ? hasLine
+          ? activeLine
+          : lastActiveLine
+        : 0;
 
+    applyStyles({
+      bgColor,
+      textColor,
+      activeBg,
+      tokenCss,
+      fontsize,
+      fontfamily,
+    });
+
+    const updated = new Set();
     for (const ch of changes) {
       if (!ch || typeof ch.line !== "number" || !ch.html) continue;
-      const pEl = content.querySelector(`p[data-line="${ch.line}"]`);
-      if (!pEl) {
-        render(payload);
-        return;
-      }
       const tpl = document.createElement("template");
-      tpl.innerHTML = ch.html.trim();
+      tpl.innerHTML = (ch.html || "")
+        .replace(/\uE000DL\d+\uE001/g, "——")
+        .replace(/\uE000RB\d+\uE001/g, "");
       const node = tpl.content.firstElementChild;
-      if (node) pEl.replaceWith(node);
+      if (!node) continue;
+      const line = ch.line;
+      updated.add(line);
+      const pEl = pCache.get(line) || content.querySelector(`p[data-line="${line}"]`);
+      if (pEl) {
+        pEl.replaceWith(node);
+      } else {
+        content.appendChild(node);
+      }
+      pCache.set(line, node);
     }
 
-    if (
-      (rubyHtmlList && rubyHtmlList.length) ||
-      (ellipsisHtmlList && ellipsisHtmlList.length) ||
-      (dashHtmlList && dashHtmlList.length)
-    ) {
-      restorePlaceholdersHtml(content, {
-        RB: rubyHtmlList,
-        EL: ellipsisHtmlList,
-        DL: dashHtmlList,
-      });
-    }
+    restorePlaceholdersHtml(content, {
+      RB: rubyHtmlList || [],
+      EL: ellipsisHtmlList || [],
+      DL: dashHtmlList || [],
+    });
 
     cursorEl = showCursor ? document.getElementById("cursor") : null;
     resetBlink(showCursor);
-    highlightActiveLine(activeLine);
-    adjustScrollToActive(activeLine);
+    highlightActiveLine(targetLine);
+    adjustScrollToActive(targetLine);
     setRefreshing(false);
   }
 
@@ -208,6 +276,31 @@
     upsertTokenStyle(tokenCss);
     upsertDynamicStyle(activeBg);
   }
+
+  // プレースホルダ(RB/EL/DL)を安全に除去・展開する
+  function cleansePlaceholders(html, lists = {}) {
+    if (!html) return html;
+    const rep = (kind, val) => {
+      const re = new RegExp(`\\uE000${kind}(\\d+)\\uE001`, "g");
+      html = html.replace(re, (_, idx) => {
+        if (Array.isArray(val)) return val[Number(idx)] || "";
+        if (typeof val === "string") return val;
+        return "";
+      });
+    };
+    rep("RB", lists.RB || "");
+    rep("EL", lists.EL || "");
+    rep("DL", lists.DL || "——");
+    return html.replace(/\uE000RB\d+\uE001/g, "").replace(/\uE000DL\d+\uE001/g, "——");
+  }
+
+  // HTML文字列をパースしつつ、既存の <p data-line> を再利用して差し替える
+  function renderHtmlWithReuse(html) {
+    // まずは確実に表示を復旧させるため、単純代入に戻す
+    content.innerHTML = html || "";
+    pCache.clear();
+  }
+
 
 function paragraphsWithLine(text, offset, cursor, showCursor) {
     let injected = text;
@@ -260,7 +353,10 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
 
   // エディタのアクティブ行を常に中央へ
   function adjustScrollToActive(activeLine) {
-    const target = content.querySelector('p[data-line="' + activeLine + '"]');
+    const target =
+      content.querySelector('p[data-line="' + activeLine + '"]') ||
+      content.querySelector('p[data-line="' + lastActiveLine + '"]') ||
+      content.querySelector("p:last-of-type");
     if (!target) return;
     // content から見た要素中心
     const targetCenter =
@@ -397,6 +493,10 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
         const repl = list[idx];
         return repl ? repl : "";
       });
+      // 念のため残りのプレースホルダを潰す（Rubyは削除、Dashは実体）
+      html = html
+        .replace(/\uE000RB\d+\uE001/g, "")
+        .replace(/\uE000DL\d+\uE001/g, "——");
       p.innerHTML = html;
     });
   }
@@ -408,3 +508,6 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
       .replaceAll(">", "&gt;");
   }
 })();
+
+
+

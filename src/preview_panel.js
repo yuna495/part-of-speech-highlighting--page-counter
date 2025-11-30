@@ -1,37 +1,21 @@
 ﻿// preview_panel.js
-// VS Code Extension: posNote — 縦書きプレビュー（保存時更新）
-// 由来: Novel Preview（novelPreview.*）を posNote.* へ改名・統合
+// VS Code Extension: posNote — vertical preview (update on save)
+// Origin: Novel Preview -> renamed to posNote.*
 
 const vscode = require("vscode");
 const fs = require("fs");
 
-// === Ruby placeholder extraction (占位化) ===
+// === Ruby placeholder extraction ===
+// ルビ表示は行わず、|基《よみ》 を基だけにする
 const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
-// 私用領域(U+E000〜)にインデックスを埋め込んだ占位マーカーを作る
-const PH = (i) => `\uE000RB${i}\uE001`;
-
-// テキストからルビ表記を抜き出して占位マーカーとHTML片に分離する
 function extractRubyPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", rubyHtmlList: [] };
   }
-  let idx = 0;
-  const rubyHtmlList = [];
-  const textWithPH = input.replace(RUBY_RE, (_, base, reading) => {
-    const html = generateRubyHtml(base, reading);
-    rubyHtmlList.push(html);
-    return PH(idx++);
-  });
-  return { textWithPH, rubyHtmlList };
+  const textWithPH = input.replace(RUBY_RE, (_, base) => base);
+  return { textWithPH, rubyHtmlList: [] };
 }
 
-// |基《よみ》 → <ruby>…> 生成規則：
-//  1) 読みに "・" がある → その区切りで**各文字対応**
-//  2) "・" が無く、基と読みの長さが等しい → **各文字対応**
-//  3) それ以外 → 単語ルビ（基語全体にひとつの rt）
-//
-// 追加仕様：読みが「・」だけ（= 全部削ると空）なら、基文字数ぶん「・」を配る。
-// ルビ表記の仕様に合わせて <ruby> 要素のHTML断片を組み立てる
 function generateRubyHtml(base, reading) {
   const baseChars = [...base];
   const esc = (s) =>
@@ -39,12 +23,9 @@ function generateRubyHtml(base, reading) {
 
   const onlyDots = reading.replace(/・/g, "") === "";
   if (onlyDots) {
-    // 例: |文《・》, |天地《・・》 など
     const pairs = [];
     for (let i = 0; i < baseChars.length; i++) {
-      const rb = esc(baseChars[i]);
-      const rt = "・";
-      pairs.push(`<rb>${rb}</rb><rt>${rt}</rt>`);
+      pairs.push(`<rb>${esc(baseChars[i])}</rb><rt>・</rt>`);
     }
     return `<ruby class="rb-group">${pairs.join("")}</ruby>`;
   }
@@ -54,25 +35,20 @@ function generateRubyHtml(base, reading) {
   const perChar = hasSep || readingParts.length === baseChars.length;
 
   if (perChar) {
-    const n = baseChars.length;
     const pairs = [];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < baseChars.length; i++) {
       const rb = esc(baseChars[i]);
       const rt = esc(readingParts[i] ?? "");
       pairs.push(`<rb>${rb}</rb><rt>${rt}</rt>`);
     }
     return `<ruby class="rb-group">${pairs.join("")}</ruby>`;
-  } else {
-    return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
   }
+  return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
 }
 
-// === Ellipsis placeholder extraction (「……」→占位) ===
-// 「……」(U+2026 × 2) を占位文字へ置換し、完成HTMLは配列に積む
-const ELLIPSIS_RE = /…{2}/g; // 三点リーダー2つ
-const PHE = (i) => `\uE000EL${i}\uE001`; // 占位マーカー（EL）
-
-// 三点リーダー2連を検出し、Webviewに差し戻すためのHTMLと置換文字を生成する
+// === Ellipsis placeholder extraction ("……") ===
+const ELLIPSIS_RE = /…{2}/g; // two U+2026
+const PHE = (i) => `\uE000EL${i}\uE001`;
 function extractEllipsisPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", ellipsisHtmlList: [] };
@@ -87,12 +63,9 @@ function extractEllipsisPlaceholders(input) {
   return { textWithPH, ellipsisHtmlList };
 }
 
-// === Dash placeholder extraction（「——」→占位） ===
-// 「——」（U+2014 × 2）を占位へ置換し、完成HTMLは配列に積む
-const DASH_RE = /—{2}/g; // EM DASH 2連
-const PHD = (i) => `\uE000DL${i}\uE001`; // 占位マーカー（DL）
-
-// ダッシュ2連を占位マーカーへ差し替え、完成HTMLを控える
+// === Dash placeholder extraction ("——") ===
+const DASH_RE = /[—―]{2}/g; // two EM DASH or two HORIZONTAL BAR
+const PHD = (i) => `\uE000DL${i}\uE001`;
 function extractDashPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", dashHtmlList: [] };
@@ -106,8 +79,6 @@ function extractDashPlaceholders(input) {
   });
   return { textWithPH, dashHtmlList };
 }
-
-// Webview を使った縦書きプレビューのライフサイクルを管理するクラス
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
@@ -122,6 +93,7 @@ class PreviewPanel {
     this._prevPreview = null;
     this._disposables = [];
     this._initialized = false;
+    this._hasWarmed = false;
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -220,6 +192,18 @@ class PreviewPanel {
       editor,
       context
     );
+    // 初回ウォームアップ（Webviewロード直後にバックグラウンドで1回だけ）
+    setTimeout(() => {
+      if (PreviewPanel.currentPanel && !PreviewPanel.currentPanel._hasWarmed) {
+        PreviewPanel.currentPanel._hasWarmed = true;
+        // ウォームアップ中であることをWebviewへ通知（スピナー表示用）
+        PreviewPanel.currentPanel._panel.webview.postMessage({
+          type: "setRefreshing",
+          payload: { spinning: true },
+        });
+        PreviewPanel.currentPanel._update(true, true);
+      }
+    }, 50);
   }
 
   // VS Code 再起動後の Webview 復元で呼ばれ、状態を再構築する
@@ -295,6 +279,7 @@ class PreviewPanel {
     }
 
     const text = doc.getText();
+    const textNoRuby = text.replace(/\|([^《》\|\n]+)《([^》\n]+)》/g, "$1"); // ルビは基だけ残す
     const offset = this._editor
       ? doc.offsetAt(this._editor.selection.anchor)
       : 0;
@@ -337,6 +322,17 @@ class PreviewPanel {
     let rubyHtmlListToSend = [];
     let ellipsisHtmlListToSend = [];
     let dashHtmlListToSend = [];
+    // ルビ・三点リーダー・ダッシュ占位化は POS の有無にかかわらず実施する
+    const { textWithPH: withRubyPH, rubyHtmlList } =
+      extractRubyPlaceholders(textNoRuby);
+    const { textWithPH: withEllipsisPH, ellipsisHtmlList } =
+      extractEllipsisPlaceholders(withRubyPH);
+    const { textWithPH: withDashPH, dashHtmlList } =
+      extractDashPlaceholders(withEllipsisPH);
+    rubyHtmlListToSend = [];
+    ellipsisHtmlListToSend = ellipsisHtmlList;
+    dashHtmlListToSend = dashHtmlList;
+
     if (posActive) {
       try {
         const { toPosHtml } = require("./semantic");
@@ -348,16 +344,6 @@ class PreviewPanel {
             return 0;
           }
         };
-        // 1) ルビを占位化
-        const { textWithPH: withRubyPH, rubyHtmlList } =
-          extractRubyPlaceholders(text);
-        // 2) 三点リーダーを占位化（ルビの後）
-        const { textWithPH: withEllipsisPH, ellipsisHtmlList } =
-          extractEllipsisPlaceholders(withRubyPH);
-        // 3) ダッシュ（——）を占位化
-        const { textWithPH: withDashPH, dashHtmlList } =
-          extractDashPlaceholders(withEllipsisPH);
-
         // Kuromoji には占位済みテキストを渡す（品詞タグとの競合回避）
         textHtml = await toPosHtml(withDashPH, this._context, {
           maxLines, // 選択行を中心に、この行数だけ前後解析
@@ -375,6 +361,14 @@ class PreviewPanel {
         rubyHtmlListToSend = rubyHtmlList;
         ellipsisHtmlListToSend = ellipsisHtmlList;
         dashHtmlListToSend = dashHtmlList;
+        // Webview 側での復元に加え、送信前にも占位子を展開しておく（保険）
+        textHtml = inlineRestorePlaceholders(textHtml, {
+          RB: rubyHtmlListToSend,
+          EL: ellipsisHtmlListToSend,
+          DL: dashHtmlListToSend,
+        })
+          .replace(/\uE000RB\d+\uE001/g, "")
+          .replace(/\uE000DL\d+\uE001/g, "——");
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
@@ -387,7 +381,7 @@ class PreviewPanel {
     } else {
       // POS を切っているときもカーソル±maxLines のウィンドウだけ描画して負荷を軽減
       isHtml = true;
-      textHtml = buildPlainPreviewHtml(text, {
+      textHtml = buildPlainPreviewHtml(withDashPH, {
         activeLine,
         activeCh,
         maxLines,
@@ -395,6 +389,22 @@ class PreviewPanel {
         cursorSymbol: symbol,
       });
     }
+
+    // 保険：POS OFF 経路でも残っている占位子を除去
+    textHtml = inlineRestorePlaceholders(textHtml, {
+      RB: rubyHtmlListToSend,
+      EL: ellipsisHtmlListToSend,
+      DL: dashHtmlListToSend,
+    })
+      .replace(/\uE000RB\d+\uE001/g, "")
+      .replace(/\uE000DL\d+\uE001/g, "——");
+
+    // 送信直前に占位子を展開（Rubyは空配列なので削除扱い）
+    textHtml = inlineRestorePlaceholders(textHtml, {
+      RB: rubyHtmlListToSend,
+      EL: ellipsisHtmlListToSend,
+      DL: dashHtmlListToSend,
+    }).replace(/\uE000RB\d+\uE001/g, "");
 
     // === 差分用マップ ===
     const newLineMap = isHtml ? buildLineHtmlMap(textHtml) : null;
@@ -599,7 +609,35 @@ function buildLineHtmlMap(html) {
   return map;
 }
 
-module.exports = { PreviewPanel };
+// Webview へ送る前に占位文字を HTML に戻す（念のため二重復元）
+function inlineRestorePlaceholders(html, lists) {
+  if (!html || !lists) return html;
+  // POS HTML �ł� kuromoji ���e�Ńv���X�R�[�v�����ǎm�炵�邩�Ȃ��悤�A�܂��͎��݂��v���X�R�[�v��ǉ�
+  const repSimple = (kind, arr) => {
+    if (!arr || !arr.length) return;
+    const re = new RegExp(`\\uE000${kind}(\\d+)\\uE001`, "g");
+    html = html.replace(re, (_, idx) => arr[Number(idx)] || "");
+  };
+  repSimple("RB", lists.RB);
+  repSimple("EL", lists.EL);
+  repSimple("DL", lists.DL);
 
+  // kuromoji �ŋO�ɓn�� span ���挟�����Ƃ��E�W�J���悤�ɕϊ�
+  const OPEN = "\uE000";
+  const CLOSE = "\uE001";
+  const splitAwareRe = new RegExp(
+    `${OPEN}(?:<[^>]*>|[^<])*?(RB|EL|DL)(?:<[^>]*>|[^<])*?(\\d+)(?:<[^>]*>|[^<])*?${CLOSE}`,
+    "g"
+  );
+  html = html.replace(splitAwareRe, (_whole, kind, idxStr) => {
+    const arr = lists[kind];
+    if (!arr || !arr.length) return "";
+    return arr[Number(idxStr)] || "";
+  });
+
+  return html;
+}
+
+module.exports = { PreviewPanel };
 
 

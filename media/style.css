@@ -177,7 +177,7 @@ rt {
   letter-spacing: 0;
   /* ★位置調整 */
   position: relative;
-  right: -0.4em; /* ← 右にずらす。値は調整可能 */
+  right: -0.38em; /* ← 右にずらす。値は調整可能 */
 }
 
 .dash {
@@ -190,4 +190,3 @@ rt {
   position: relative;
   right: -0.2em; /* ← 右にずらす。値は調整可能 */
 }
-
