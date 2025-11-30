@@ -160,12 +160,7 @@
     });
 
     if (isHtml) {
-      const cleaned =
-        (textHtml || "")
-          .replace(/\uE000DL\d+\uE001/g, "——")
-          .replace(/\uE000RB\d+\uE001/g, "") ||
-        "";
-      renderHtmlWithReuse(cleaned);
+      renderHtmlWithReuse(textHtml || "");
     } else {
       const html = paragraphsWithLine(text, offset, cursor, showCursor);
       renderHtmlWithReuse(html);
@@ -232,8 +227,7 @@
       if (!ch || typeof ch.line !== "number" || !ch.html) continue;
       const tpl = document.createElement("template");
       tpl.innerHTML = (ch.html || "")
-        .replace(/\uE000DL\d+\uE001/g, "——")
-        .replace(/\uE000RB\d+\uE001/g, "");
+        ;
       const node = tpl.content.firstElementChild;
       if (!node) continue;
       const line = ch.line;
@@ -493,10 +487,6 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
         const repl = list[idx];
         return repl ? repl : "";
       });
-      // 念のため残りのプレースホルダを潰す（Rubyは削除、Dashは実体）
-      html = html
-        .replace(/\uE000RB\d+\uE001/g, "")
-        .replace(/\uE000DL\d+\uE001/g, "——");
       p.innerHTML = html;
     });
   }

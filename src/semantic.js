@@ -1008,10 +1008,29 @@ function applyFenceColorToParagraphHtml(html, text) {
         `<p${attrs}><span class="pos-fencecomment">${inner}</span></p>`
     );
   }
-  // 置換した配列を元の HTML に戻す
-  // もとの html が <p>連結文字列</p>… の単純連結なら join('') で一致する
   return blocks.join("");
 }
+/* ========================================
+ * 7) Webview（プレビュー）用：HTML生成
+ * ====================================== */
+
+/**
+ * VS Code 側と同じ分類（tokenTypesArr）で <span class="pos-XXX">…</span> を行ごと生成。
+ * - docUri が与えられれば、同フォルダの characters.json / glossary.json を読み込み、
+ *   行内で "最優先" で pos-character / pos-glossary を付与する。
+ * - 括弧上書きが有効なら、辞書に“重ならない部分”だけ pos-bracket を塗る。
+ * - 残りは kuromoji による品詞スパン（pos-<type>）。ダッシュは bracket/symbol として強制色。
+ * @param {string} text
+ * @param {import('vscode').ExtensionContext} context
+ * @param {{
+ *   maxLines?: number,
+ *   headingDetector?: (line:string)=>number,
+ *   classPrefix?: string,
+ *   activeLine?: number,
+ *   docUri?: import('vscode').Uri,
+ *   renderWindowOnly?: boolean
+ * }} [opts]
+ */
 
 async function toPosHtml(text, context, opts = {}) {
   const {
@@ -1159,6 +1178,9 @@ async function toPosHtml(text, context, opts = {}) {
   const winStart = Math.max(0, activeLine - maxLines);
   const winEnd = Math.min(total - 1, activeLine + maxLines);
 
+  // プレースホルダー検出用正規表現 (\uE000 ... \uE001)
+  const PH_RE = /\uE000(RB|EL|DL)(\d+)\uE001/g;
+
   for (let i = 0; i < total; i++) {
     const line = lines[i];
     if (/^\s*$/.test(line)) {
@@ -1242,6 +1264,14 @@ async function toPosHtml(text, context, opts = {}) {
         ? matchDictRanges(line, charWords, gloWords)
         : [];
 
+    // プレースホルダーマッチ（行内）
+    const phRanges = [];
+    PH_RE.lastIndex = 0;
+    let mPh;
+    while ((mPh = PH_RE.exec(line)) !== null) {
+      phRanges.push({ start: mPh.index, end: mPh.index + mPh[0].length, kind: 'placeholder' });
+    }
+
     // === ここから描画 ===
     const chunks = [];
 
@@ -1266,11 +1296,35 @@ async function toPosHtml(text, context, opts = {}) {
             s,
             e,
             cls: r.kind === "character" ? "character" : "glossary",
+            isPh: false,
           });
         }
       }
 
-      // 2) 括弧（上書きON時）は辞書に重ならない残りだけ
+      // 1.5) プレースホルダーを抽出（辞書と同列または優先）
+      const phMarks = [];
+      for (const r of phRanges) {
+        const s = Math.max(seg.s, r.start);
+        const e = Math.min(seg.e, r.end);
+        if (e > s) {
+          phMarks.push({ s, e, cls: null, isPh: true });
+        }
+      }
+
+      // 辞書マークとプレースホルダーが重なる場合、プレースホルダーを優先して辞書マークを除去
+      if (phMarks.length > 0 && dictMarks.length > 0) {
+        for (let i = dictMarks.length - 1; i >= 0; i--) {
+          const dm = dictMarks[i];
+          const overlap = phMarks.some((pm) => {
+             return Math.max(dm.s, pm.s) < Math.min(dm.e, pm.e);
+          });
+          if (overlap) {
+            dictMarks.splice(i, 1);
+          }
+        }
+      }
+
+      // 2) 括弧（上書きON時）は辞書・プレースホルダーに重ならない残りだけ
       let bracketMarks = [];
       if (bracketOverrideOn && parenSegs.length) {
         /** @type {Array<[number, number]>} */
@@ -1284,14 +1338,16 @@ async function toPosHtml(text, context, opts = {}) {
           )
           .filter(([s, e]) => e > s);
 
-        const dictMaskInSeg = dictMarks.map((m) => ({ start: m.s, end: m.e }));
-        const rest = subtractMaskedIntervals(parenInSeg, dictMaskInSeg);
+        const maskList = dictMarks.map((m) => ({ start: m.s, end: m.e }))
+          .concat(phMarks.map((m) => ({ start: m.s, end: m.e })));
 
-        bracketMarks = rest.map(([s, e]) => ({ s, e, cls: "bracket" }));
+        const rest = subtractMaskedIntervals(parenInSeg, maskList);
+
+        bracketMarks = rest.map(([s, e]) => ({ s, e, cls: "bracket", isPh: false }));
       }
 
-      // 3) マーク（辞書 + 括弧）を左→右に統合
-      const marks = dictMarks.concat(bracketMarks).sort((a, b) => a.s - b.s);
+      // 3) マーク（辞書 + PH + 括弧）を左→右に統合
+      const marks = dictMarks.concat(phMarks).concat(bracketMarks).sort((a, b) => a.s - b.s);
 
       // 4) マークの“間”を POS で塗る（既存関数を活用）
       let cur = seg.s;
@@ -1300,8 +1356,14 @@ async function toPosHtml(text, context, opts = {}) {
           const before = line.slice(cur, m.s);
           chunks.push(renderWithDash(before)); // ← tokenizedSpanHtml 内で kuromoji 適用
         }
+
         const inner = escapeHtml(line.slice(m.s, m.e));
-        chunks.push(`<span class="${classPrefix}${m.cls}">${inner}</span>`);
+        if (m.isPh) {
+          // プレースホルダーは span で囲まずそのまま出す（後で復元されるため）
+          chunks.push(inner);
+        } else {
+          chunks.push(`<span class="${classPrefix}${m.cls}">${inner}</span>`);
+        }
         cur = m.e;
       }
       if (cur < seg.e) {
@@ -1316,21 +1378,6 @@ async function toPosHtml(text, context, opts = {}) {
   return html;
 }
 
-/* ========================================
- * 8) Webview（プレビュー）用：設定色 → CSS 生成
- * ====================================== */
-/**
- * エディタ設定（editor.semanticTokenColorCustomizations.rules）を
- * プレビュー用の CSS 文字列に変換。
- * 未設定のトークンは出力しない（= 既定の style.css が効く）
- * @returns {string} CSS text
- */
-/**
- * エディタ設定（editor.semanticTokenColorCustomizations.rules）を
- * プレビュー用の CSS に反映。未指定トークンは出力しないが、
- * fencecomment については未設定時に既定色 #f0f0c0 を適用する。
- * @returns {string} CSS text
- */
 // エディタのセマンティックトークン配色設定をプレビュー CSS に落とし込む
 function buildPreviewCssFromEditorRules() {
   try {

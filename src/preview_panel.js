@@ -6,14 +6,20 @@ const vscode = require("vscode");
 const fs = require("fs");
 
 // === Ruby placeholder extraction ===
-// ルビ表示は行わず、|基《よみ》 を基だけにする
 const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+const PHR = (i) => `\uE000RB${i}\uE001`;
 function extractRubyPlaceholders(input) {
   if (!input || typeof input !== "string") {
     return { textWithPH: input || "", rubyHtmlList: [] };
   }
-  const textWithPH = input.replace(RUBY_RE, (_, base) => base);
-  return { textWithPH, rubyHtmlList: [] };
+  let idx = 0;
+  const rubyHtmlList = [];
+  const textWithPH = input.replace(RUBY_RE, (_, base, reading) => {
+    const html = generateRubyHtml(base, reading);
+    rubyHtmlList.push(html);
+    return PHR(idx++);
+  });
+  return { textWithPH, rubyHtmlList };
 }
 
 function generateRubyHtml(base, reading) {
@@ -279,7 +285,6 @@ class PreviewPanel {
     }
 
     const text = doc.getText();
-    const textNoRuby = text.replace(/\|([^《》\|\n]+)《([^》\n]+)》/g, "$1"); // ルビは基だけ残す
     const offset = this._editor
       ? doc.offsetAt(this._editor.selection.anchor)
       : 0;
@@ -324,12 +329,12 @@ class PreviewPanel {
     let dashHtmlListToSend = [];
     // ルビ・三点リーダー・ダッシュ占位化は POS の有無にかかわらず実施する
     const { textWithPH: withRubyPH, rubyHtmlList } =
-      extractRubyPlaceholders(textNoRuby);
+      extractRubyPlaceholders(text);
     const { textWithPH: withEllipsisPH, ellipsisHtmlList } =
       extractEllipsisPlaceholders(withRubyPH);
     const { textWithPH: withDashPH, dashHtmlList } =
       extractDashPlaceholders(withEllipsisPH);
-    rubyHtmlListToSend = [];
+    rubyHtmlListToSend = rubyHtmlList;
     ellipsisHtmlListToSend = ellipsisHtmlList;
     dashHtmlListToSend = dashHtmlList;
 
@@ -366,9 +371,7 @@ class PreviewPanel {
           RB: rubyHtmlListToSend,
           EL: ellipsisHtmlListToSend,
           DL: dashHtmlListToSend,
-        })
-          .replace(/\uE000RB\d+\uE001/g, "")
-          .replace(/\uE000DL\d+\uE001/g, "——");
+        });
       } catch (e) {
         console.error("toPosHtml failed; fallback to plain:", e);
         isHtml = false;
@@ -390,21 +393,12 @@ class PreviewPanel {
       });
     }
 
-    // 保険：POS OFF 経路でも残っている占位子を除去
+    // 保険：送信直前に占位子を展開
     textHtml = inlineRestorePlaceholders(textHtml, {
       RB: rubyHtmlListToSend,
       EL: ellipsisHtmlListToSend,
       DL: dashHtmlListToSend,
-    })
-      .replace(/\uE000RB\d+\uE001/g, "")
-      .replace(/\uE000DL\d+\uE001/g, "——");
-
-    // 送信直前に占位子を展開（Rubyは空配列なので削除扱い）
-    textHtml = inlineRestorePlaceholders(textHtml, {
-      RB: rubyHtmlListToSend,
-      EL: ellipsisHtmlListToSend,
-      DL: dashHtmlListToSend,
-    }).replace(/\uE000RB\d+\uE001/g, "");
+    });
 
     // === 差分用マップ ===
     const newLineMap = isHtml ? buildLineHtmlMap(textHtml) : null;
