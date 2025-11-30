@@ -12,11 +12,13 @@ const {
   stripClosedCodeFences,
   stripHeadingLines,
   countCharsForDisplay,
+  loadNoteSettingForDoc,
 } = require("./utils");
 const { getHeadingCharMetricsCached } = require("./headline_symbols");
 
 // ------- 内部 state -------
 let _statusBarItem = null;
+let _limitItem = null; // 期限表示用
 let _debouncer = null;
 let _idleRecomputeTimer = null;
 let _enabledNote = true; // ページ情報表示のON/OFF（トグル用）
@@ -91,14 +93,47 @@ function initStatusBar(context, helpers) {
     2
   );
   context.subscriptions.push(_statusBarItem);
+  _limitItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    10
+  );
+  context.subscriptions.push(_limitItem);
 
   // 初回：アクティブエディタの情報で初期化
+  const refreshLimit = async (doc) => {
+    try {
+      await updateLimitStatusFor(doc);
+    } catch (e) {
+      console.error("[POSNote:status] limit update error:", e);
+    }
+  };
+
   if (vscode.window.activeTextEditor) {
     _recomputeFileDelta(vscode.window.activeTextEditor);
     recomputeAndCacheMetrics(vscode.window.activeTextEditor);
     recomputeFolderSum(vscode.window.activeTextEditor);
     updateStatusBar(vscode.window.activeTextEditor);
+    refreshLimit(vscode.window.activeTextEditor.document);
   }
+
+  // limit 用ウォッチャー（notesetting.json 監視＋保存＋アクティブ切替）
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((doc) => refreshLimit(doc)),
+    vscode.window.onDidChangeActiveTextEditor((ed) => {
+      if (ed && ed.document) refreshLimit(ed.document);
+      else if (_limitItem) _limitItem.hide();
+    })
+  );
+  const wNote = vscode.workspace.createFileSystemWatcher("**/notesetting.json");
+  context.subscriptions.push(wNote);
+  const refreshActiveLimit = () => {
+    const ed = vscode.window.activeTextEditor;
+    if (ed && ed.document) refreshLimit(ed.document);
+    else if (_limitItem) _limitItem.hide();
+  };
+  wNote.onDidCreate(refreshActiveLimit);
+  wNote.onDidChange(refreshActiveLimit);
+  wNote.onDidDelete(refreshActiveLimit);
 
   // 公開関数を返す
   return {
@@ -137,6 +172,86 @@ function countCharsNoLF(text) {
 // 3桁区切りで整形するフォーマッタ（日本語ロケール）
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
+}
+
+// YYYY-M-D / YYYY/MM/DD / YYYY-MM-DD を厳密に解釈（0時始まり）
+function parseDateYYYYMD(s) {
+  if (typeof s !== "string") return null;
+  // 区切りは - または / を許容し、混在は不可
+  const m = s.trim().match(/^(\d{4})([-/])(\d{1,2})\2(\d{1,2})$/);
+  if (!m) return null;
+  const y = +m[1],
+    mo = +m[3],
+    d = +m[4];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d, 0, 0, 0)); // UTC基準で日付丸め
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+// 残日数を計算（今日→期限日までの切り上げ日数。過去は 0）
+function calcRemainingDays(targetUtcDate) {
+  const now = new Date();
+  const todayUtc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    0,
+    0,
+    0
+  );
+  const diffMs = targetUtcDate.getTime() - todayUtc;
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / 86400000);
+}
+
+// ISO 表記 YYYY-MM-DD に整形
+function formatDateYYYYMMDD(dtUtc) {
+  const y = dtUtc.getUTCFullYear();
+  const m = String(dtUtc.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dtUtc.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// アクティブ文書と同一フォルダの notesetting.json から limit を読む
+async function readLimitFromNoteSettingFor(doc) {
+  try {
+    const { data, path: where } = await loadNoteSettingForDoc(doc);
+    if (!data) return { days: null, where: null, iso: null, raw: null };
+
+    if (!Object.prototype.hasOwnProperty.call(data, "limit")) {
+      return { days: null, where, iso: null, raw: null };
+    }
+    if (data.limit === null) {
+      return { days: null, where, iso: null, raw: null };
+    }
+
+    const dt = parseDateYYYYMD(data.limit);
+    if (!dt) return { days: null, where, iso: null, raw: data.limit };
+
+    const days = calcRemainingDays(dt);
+    const iso = formatDateYYYYMMDD(dt);
+    return { days, where, iso, raw: data.limit };
+  } catch {
+    return { days: null, where: null, iso: null, raw: null };
+  }
+}
+
+// ステータスバー更新（期限表示）
+async function updateLimitStatusFor(doc) {
+  if (!_limitItem || !_helpers) return;
+  const { cfg, isTargetDoc } = _helpers;
+  if (!doc || !cfg || !isTargetDoc || !isTargetDoc(doc, cfg())) {
+    _limitItem.hide();
+    return;
+  }
+  const { days, iso } = await readLimitFromNoteSettingFor(doc);
+  if (days == null) {
+    _limitItem.hide();
+    return;
+  }
+  _limitItem.text = `$(calendar) 残${days}日`;
+  _limitItem.tooltip = iso ? `期限 ${iso}` : "notesetting.json の limit 期限";
+  _limitItem.show();
 }
 
 // 選択範囲それぞれの文字数を合算し、表示ルールに沿ってカウントする

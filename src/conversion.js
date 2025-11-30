@@ -8,6 +8,7 @@
 
 const vscode = require("vscode");
 const path = require("path");
+const { loadNoteSettingForDoc } = require("./utils");
 
 // キャッシュ
 /**
@@ -97,103 +98,64 @@ function getDictUri() {
 
 // .vscode 常時 + notesetting があれば合流（notesetting が後勝ち）
 async function loadDictFromWorkspace(activeDocUri) {
-  const wsUri = getDictUri(); // <workspace>/.vscode/conversion.json
-  /** @type {vscode.Uri|null} */ let localDirUri = null;
-  if (activeDocUri)
-    localDirUri = vscode.Uri.file(path.dirname(activeDocUri.fsPath));
-
+  const wsUri = getDictUri();
   const dicts = [];
+  let noteApplied = false;
 
-  // 1) .vscode は常に読む
   if (wsUri) {
     const wsDict = await tryReadDict(wsUri);
     if (wsDict) dicts.push(wsDict);
   }
 
-  // 2) 同一フォルダ notesetting の conversion を合流
-  if (localDirUri) {
-    const setDict = await tryReadSettingConversion(localDirUri);
-    if (setDict) dicts.push(setDict);
+  if (activeDocUri) {
+    const setDict = await tryReadSettingConversion({ uri: activeDocUri });
+    if (setDict) {
+      dicts.push(setDict);
+      noteApplied = true;
+    }
   }
 
-  // 3) どれも無ければ空辞書（フォールバック無し）
   if (dicts.length === 0) {
-    _dictCache = {
-      toKanji: {},
-      toKana: {},
-      loadedFromFile: false,
-      sourceSchema: "empty",
-    };
+    _dictCache = { toKanji: {}, toKana: {}, loadedFromFile: false, sourceSchema: "empty" };
     return;
   }
 
-  // 4) マージ（右側優先＝notesetting が .vscode を上書き）
-  //    さらに逆向きペアが競合していたら「後勝ち」のペアのみ残す
-  const merged = dicts.reduce(
-    (acc, cur) => {
-      const newToKanji = { ...acc.toKanji, ...cur.toKanji };
-      const newToKana = { ...acc.toKana, ...cur.toKana };
-
-      // 逆ペア除外処理（cur 側が後勝ち）
-      for (const [k, v] of Object.entries(cur.toKanji)) {
-        // （例）acc に A→B がある / cur に B→A が来た → A→B を消す
-        if (newToKanji[v] === k) {
-          delete newToKanji[v];
-          delete newToKana[k];
-        }
+  const merged = dicts.reduce((acc, cur) => {
+    const newToKanji = { ...acc.toKanji, ...cur.toKanji };
+    const newToKana = { ...acc.toKana, ...cur.toKana };
+    for (const [k, v] of Object.entries(cur.toKanji)) {
+      if (newToKanji[v] === k) {
+        delete newToKanji[v];
+        delete newToKana[k];
       }
-      for (const [k, v] of Object.entries(cur.toKana)) {
-        // （例）acc に B→A がある / cur に A→B が来た → B→A を消す
-        if (newToKana[v] === k) {
-          delete newToKana[v];
-          delete newToKanji[k];
-        }
+    }
+    for (const [k, v] of Object.entries(cur.toKana)) {
+      if (newToKana[v] === k) {
+        delete newToKana[v];
+        delete newToKanji[k];
       }
+    }
+    return { toKanji: newToKanji, toKana: newToKana };
+  }, { toKanji: {}, toKana: {} });
 
-      return { toKanji: newToKanji, toKana: newToKana };
-    },
-    { toKanji: {}, toKana: {} }
-  );
+  _dictCache = { toKanji: { ...merged.toKanji }, toKana: { ...merged.toKana }, loadedFromFile: true, sourceSchema: "merged" };
 
-  _dictCache = {
-    toKanji: { ...merged.toKanji },
-    toKana: { ...merged.toKana },
-    loadedFromFile: true,
-    sourceSchema: "merged",
-  };
-
-  // 5) ステータス表示（notesetting が存在する場合の通知のみ任意で表示）
-  if (localDirUri) {
-    try {
-      const note = vscode.Uri.joinPath(localDirUri, "notesetting.json");
-      await vscode.workspace.fs.stat(note);
-      vscode.window.setStatusBarMessage("P/N: notesetting.json を適用", 2500);
-      return;
-    } catch {}
+  if (noteApplied) {
+    vscode.window.setStatusBarMessage("P/N: notesetting.json を適用", 2500);
   }
 }
 
 // 同一フォルダ notesetting.json の conversion を読む
 /**
- * @param {vscode.Uri} dirUri // 対象ドキュメントのあるディレクトリ
+ * @param {{uri:{fsPath?:string}}} docLike // 対象ドキュメントのあるディレクトリを示すオブジェクト
  * @returns {Promise<{toKanji:Record<string,string>, toKana:Record<string,string>}|null>}
  */
-async function tryReadSettingConversion(dirUri) {
-  const noteUri = vscode.Uri.joinPath(dirUri, "notesetting.json");
+async function tryReadSettingConversion(docLike) {
   try {
-    await vscode.workspace.fs.stat(noteUri);
-  } catch {
-    return null;
-  }
-
-  try {
-    const bin = await vscode.workspace.fs.readFile(noteUri);
-    const text = Buffer.from(bin).toString("utf8");
-    const json = JSON.parse(text);
-    const conv = json && json.conversion;
+    const { data } = await loadNoteSettingForDoc(docLike);
+    const conv = data && data.conversion;
     if (!conv || typeof conv !== "object") return null;
 
-    // 旧スキーマ {toKanji:{}, toKana:{}} / フラット { "かな": "漢字" } に両対応
     if (isPlainObject(conv.toKanji) || isPlainObject(conv.toKana)) {
       const built = buildFromOld(conv);
       return { toKanji: built.toKanji, toKana: built.toKana };
@@ -203,11 +165,7 @@ async function tryReadSettingConversion(dirUri) {
       return { toKanji: built.toKanji, toKana: built.toKana };
     }
     return null;
-  } catch (e) {
-    console.warn(
-      `[posNote] notesetting.json 読み込み失敗 (${noteUri.fsPath}):`,
-      e.message
-    );
+  } catch {
     return null;
   }
 }

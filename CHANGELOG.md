@@ -2,6 +2,13 @@
 
 All notable changes to this extension are documented here.
 
+## [2.3.4] - 2025/12/01
+
+### 追加・変更
+
+- notesetting.json の読み込みを utils.js に一本化し、各機能の設定参照を共通化
+- 見出し折りたたみレベルを notesetting.json の `headings_folding_level` で上書きできるように変更（0 の場合は設定の `posNote.headings.foldMinLevel` を使用）
+
 ## [2.3.3] - 2025/11/30
 
 ### 修正

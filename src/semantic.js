@@ -9,7 +9,7 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const kuromoji = require("kuromoji"); // CJS
-const { getHeadingLevel } = require("./utils");
+const { getHeadingLevel, loadNoteSettingForDoc } = require("./utils");
 
 /* ========================================
  * 1) Semantic 定数・Legend
@@ -354,10 +354,16 @@ function* enumerateTokenOffsets(lineText, tokens) {
  * 5) 同一フォルダの notesetting.json を読むユーティリティ
  * ====================================== */
 // 同フォルダ notesetting.json から characters/glossary を吸い上げる
-async function loadWordsFromNoteSetting(filePath) {
+async function loadWordsFromNoteSetting(source) {
   try {
-    const txt = await fs.promises.readFile(filePath, "utf8");
-    const json = JSON.parse(txt);
+    let json = null;
+    if (typeof source === "string") {
+      const txt = await fs.promises.readFile(source, "utf8");
+      json = JSON.parse(txt);
+    } else if (source && typeof source === "object") {
+      json = source;
+    }
+    if (!json) return { chars: new Set(), glos: new Set() };
 
     const buildSet = (val, charMode) => {
       const put = (set, s) => {
@@ -412,33 +418,22 @@ async function loadLocalDictForDoc(docUri) {
     const dir = path.dirname(docUri.fsPath);
     const cache = _localDictCache.get(dir);
 
-    const notePath = path.join(dir, "notesetting.json");
-    const noteStat = await fsPromises.stat(notePath).catch(() => null);
+    const { data, mtimeMs } = await loadNoteSettingForDoc({ uri: docUri });
+    const key = data ? `note:${mtimeMs}` : "none";
 
-    if (!noteStat) {
-      // notesetting が無ければ空 既定ハイライトなし
-      const val = { key: "none", chars: new Set(), glos: new Set() };
-      _localDictCache.set(dir, val);
-      // vscode.window.setStatusBarMessage(
-      //   "POS/Note: notesetting.json 不在 ハイライト辞書なし",
-      //   2000
-      // );
-      return { chars: val.chars, glos: val.glos };
-    }
-
-    const key = `note:${noteStat.mtimeMs}`;
     if (cache && cache.key === key) {
       return { chars: cache.chars, glos: cache.glos };
     }
 
-    const { chars, glos } = await loadWordsFromNoteSetting(notePath);
+    if (!data) {
+      const val = { key, chars: new Set(), glos: new Set() };
+      _localDictCache.set(dir, val);
+      return { chars: val.chars, glos: val.glos };
+    }
+
+    const { chars, glos } = await loadWordsFromNoteSetting(data);
     const val = { key, chars, glos };
     _localDictCache.set(dir, val);
-
-    // vscode.window.setStatusBarMessage(
-    //   "POS/Note: notesetting.json を採用（人物・用語）",
-    //   2000
-    // );
     return { chars, glos };
   } catch {
     return { chars: new Set(), glos: new Set() };
@@ -651,35 +646,16 @@ class JapaneseSemanticProvider {
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
 
-    // notesetting.json だけを使う（他の .json 経路を完全にバイパス）★★★
-    const dir = path.dirname(document.uri.fsPath);
-    const notePath = path.join(dir, "notesetting.json");
-    const hasNote = await fs.promises.stat(notePath).catch(() => null);
-
     /** @type {Set<string>} */
     let charWords = new Set();
     /** @type {Set<string>} */
     let gloWords = new Set();
 
-    if (hasNote) {
-      const r = await loadWordsFromNoteSetting(notePath);
+    const noteLoaded = await loadNoteSettingForDoc(document);
+    if (noteLoaded?.data) {
+      const r = await loadWordsFromNoteSetting(noteLoaded.data);
       charWords = r.chars;
       gloWords = r.glos;
-      try {
-        // vscode.window.setStatusBarMessage(
-        //   "POS/Note: notesetting.json を採用（人物・用語）",
-        //   2000
-        // );
-      } catch {}
-    } else {
-      charWords = new Set();
-      gloWords = new Set();
-      try {
-        // vscode.window.setStatusBarMessage(
-        //   "POS/Note: notesetting.json 不在（人物・用語なし）",
-        //   1500
-        // );
-      } catch {}
     }
 
     // 以降、既存の有効/無効判定やトークン生成ロジックはそのまま

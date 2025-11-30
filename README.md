@@ -1,6 +1,6 @@
 # POS & Note (小説・論文執筆アシスト)
 
-**小説・論文執筆向け**の VSCode 拡張です。（最新版: v2.3.1）
+**小説・論文執筆向け**の VSCode 拡張です。（最新版: v2.3.4）
 
 - [品詞ごとの色分け（semantic token）](#highlight)
   - 括弧・記号・全角スペースの強調表示
@@ -66,9 +66,11 @@
 
 ```txt
 workspace/
+├─ .vscode/
+│   └─ conversion.json    ← ワークスペース全体に適用
 ├─ arc1/
-│   ├─ chapter01.txt     ← 編集中
-│   └─ notesetting.json     ← これが適用
+│   ├─ chapter01.txt      ← 編集中
+│   └─ notesetting.json   ← これが適用
 └─ arc2/
     ├─ chapter01.txt
     └─ notesetting.json   ← arc2 を編集中のときはこちらが適用
@@ -78,7 +80,8 @@ workspace/
 
 ```json
 {
-  "limit": "2026-1-1",
+  "limit": "XXXX-XX-XX",
+  "headings_folding_level": 0,
   "characters": [
     "a",
     "b"
@@ -89,7 +92,8 @@ workspace/
   ],
   "conversion": {
     "alt + .": "ctrl + .",
-    "れい": "例"
+    "れい": "例",
+    "僅か": "わずか"
   }
 }
 ```
@@ -164,7 +168,8 @@ workspace/
 
     ```json
     {
-      "limit": "2026-1-1",
+      "limit": "XXXX-XX-XX",
+      "headings_folding_level": 0,
       "characters": [
         "a",
         "b"
@@ -175,7 +180,8 @@ workspace/
       ],
       "conversion": {
         "alt + .": "ctrl + .",
-        "れい": "例"
+        "れい": "例",
+        "僅か": "わずか"
       }
     }
     ```
@@ -276,11 +282,20 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
   ```json
   {
-    "characters": ["a", "b"],
-    "glossary": ["A", "B"],
+    "limit": "XXXX-XX-XX",
+    "headings_folding_level": 0,
+    "characters": [
+      "a",
+      "b"
+    ],
+    "glossary": [
+      "A",
+      "B"
+    ],
     "conversion": {
       "alt + .": "ctrl + .",
-      "れい": "例"
+      "れい": "例",
+      "僅か": "わずか"
     }
   }
   ```
@@ -325,6 +340,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   - 「#」で第一見出し、「##」で第二見出し
   - `Ctrl + [` で展開／折りたたみをトグル
   - 最小レベルを設定可能：`posNote.headings.foldMinLevel`（既定 2）
+  - notesetting.json に headings_folding_level を追加し、ファイル単位で見出し折りたたみレベルを上書きできるようにしました（0 のときは設定の posNote.headings.foldMinLevel を使用）。
 - **ミニマップ強調（v1.3.4）**
   - ミニマップ上に見出しレベルごとの色付きバーを表示
 - **コードフェンスコメント（v2.2.1）**
@@ -378,7 +394,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 - 設定例
 
-```jsonc
+```json
 {
   // エディタとプレビューどちらも共通色
   "editor.semanticTokenColorCustomizations": {
@@ -407,7 +423,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
         "foreground": "#ff000044"
       },
       "heading": "#ff14e0" ,     // 見出しカラー
-      "fencecomment": "#f0f0c0", // ```コードフェンスカラー```
+      "fencecomment": "#f0f0c0", // コードフェンスカラー
     }
   },
   "posNote.semantic.enabled": true,

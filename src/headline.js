@@ -1,12 +1,36 @@
 // 見出しの操作（全折/全展開トグル、FoldingRangeProvider、可視範囲変化に追随）
 
 const vscode = require("vscode");
-const { getHeadingLevel, getHeadingCharMetricsForDisplay } = require("./utils");
+const fs = require("fs");
+const path = require("path");
+const {
+  getHeadingLevel,
+  getHeadingCharMetricsForDisplay,
+  loadNoteSettingForDoc,
+} = require("./utils");
 const countDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: "0 0 0 0.75em" },
 });
 
 // アクティブエディタの見出し文字数装飾を更新する外部公開関数
+// headings_folding_level を notesetting.json から読む。0 のときは設定値を使用。
+async function resolveFoldMinLevel(doc, c) {
+  const fallback = Math.max(1, Math.min(6, c.headingFoldMinLevel || 1));
+  try {
+    const { data } = await loadNoteSettingForDoc(doc);
+    if (!data) return fallback;
+    if (!Object.prototype.hasOwnProperty.call(data, "headings_folding_level"))
+      return fallback;
+    const v = Number(data.headings_folding_level);
+    if (!Number.isFinite(v)) return fallback;
+    const lv = Math.floor(v);
+    if (lv === 0) return fallback;
+    return Math.max(1, Math.min(6, lv));
+  } catch {
+    return fallback;
+  }
+}
+
 function refreshHeadingCounts(ed, cfg) {
   updateHeadingCountDecorations(ed, cfg);
 }
@@ -81,7 +105,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const shouldUnfold = lastStateFolded && lastVer === currVer;
 
   if (shouldUnfold) {
-    const minLv = c.headingFoldMinLevel;
+    const minLv = await resolveFoldMinLevel(ed.document, c);
     const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
     if (lines.length === 0) {
       vscode.window.showInformationMessage(
@@ -130,7 +154,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
     return;
   }
 
-  const minLv = c.headingFoldMinLevel;
+  const minLv = await resolveFoldMinLevel(ed.document, c);
   const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
   if (lines.length === 0) {
     vscode.window.showInformationMessage(

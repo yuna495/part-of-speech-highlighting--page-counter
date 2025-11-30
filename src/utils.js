@@ -167,6 +167,42 @@ function getHeadingCharMetricsForDisplay(document, c, vscodeModule) {
   return { items, total };
 }
 
+// notesetting.json をディレクトリ単位でキャッシュして取得
+const _noteCache = new Map(); // dir -> { key, data, mtimeMs }
+
+/**
+ * アクティブ文書と同一フォルダの notesetting.json を読み込む（キャッシュ付き）
+ * @param {import("vscode").TextDocument | { uri: { fsPath?: string }}} doc
+ * @returns {Promise<{ data: any|null, path: string|null, mtimeMs: number|null }>}
+ */
+async function loadNoteSettingForDoc(doc) {
+  try {
+    const fsPath = doc?.uri?.fsPath;
+    if (!fsPath) return { data: null, path: null, mtimeMs: null };
+    const dir = require("path").dirname(fsPath);
+    const notePath = require("path").join(dir, "notesetting.json");
+    const fs = require("fs");
+    let st;
+    try {
+      st = await fs.promises.stat(notePath);
+    } catch {
+      _noteCache.delete(dir);
+      return { data: null, path: null, mtimeMs: null };
+    }
+    const key = `${dir}:${st.mtimeMs}`;
+    const cached = _noteCache.get(dir);
+    if (cached && cached.key === key) {
+      return { data: cached.data, path: notePath, mtimeMs: cached.mtimeMs };
+    }
+    const txt = await fs.promises.readFile(notePath, "utf8");
+    const json = JSON.parse(txt);
+    _noteCache.set(dir, { key, data: json, mtimeMs: st.mtimeMs });
+    return { data: json, path: notePath, mtimeMs: st.mtimeMs };
+  } catch {
+    return { data: null, path: null, mtimeMs: null };
+  }
+}
+
 module.exports = {
   getHeadingLevel,
   stripClosedCodeFences,
@@ -174,4 +210,5 @@ module.exports = {
   countCharsForDisplay,
   collectHeadings,
   getHeadingCharMetricsForDisplay,
+  loadNoteSettingForDoc,
 };

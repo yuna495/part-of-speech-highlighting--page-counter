@@ -874,7 +874,8 @@ function defaultPlotMd() {
 
 function defaultNoteSetting() {
   return {
-    limit: "2026-1-1",
+    limit: "XXXX-XX-XX",
+    headings_folding_level: 0,
     characters: ["a", "b"],
     glossary: ["A", "B"],
     conversion: {
