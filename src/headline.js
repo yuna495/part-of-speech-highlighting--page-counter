@@ -75,9 +75,65 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
   return lines;
 }
 
-// 見出しの “全折/全展開” トグル
-// （中略：このあたりは既存のまま）
-// ※ 以降のコードは元ファイルと同一です（折りたたみ関係は変更なし）
+// 見出しジャンプ用ヘルパー
+function findPrevHeadingLine(document, fromLine) {
+  for (let i = fromLine - 1; i >= 0; i--) {
+    if (getHeadingLevel(document.lineAt(i).text) > 0) return i;
+  }
+  return -1;
+}
+
+function findNextHeadingLine(document, fromLine) {
+  for (let i = fromLine + 1; i < document.lineCount; i++) {
+    if (getHeadingLevel(document.lineAt(i).text) > 0) return i;
+  }
+  return -1;
+}
+
+// コマンド: 前/次の見出し行にカーソルを移動
+async function cmdMoveToPrevHeading() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown")) return;
+
+  const currentLine = ed.selection?.active?.line ?? 0;
+  const target = findPrevHeadingLine(ed.document, currentLine);
+  if (target < 0) {
+    vscode.window.showInformationMessage("前方に見出し行がありません。");
+    return;
+  }
+  const pos = new vscode.Position(target, 0);
+  const sel = new vscode.Selection(pos, pos);
+  ed.selections = [sel];
+  ed.revealRange(
+    new vscode.Range(pos, pos),
+    vscode.TextEditorRevealType.Default
+  );
+}
+
+async function cmdMoveToNextHeading() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown")) return;
+
+  const currentLine = ed.selection?.active?.line ?? 0;
+  const target = findNextHeadingLine(ed.document, currentLine);
+  if (target < 0) {
+    vscode.window.showInformationMessage("後方に見出し行がありません。");
+    return;
+  }
+  const pos = new vscode.Position(target, 0);
+  const sel = new vscode.Selection(pos, pos);
+  ed.selections = [sel];
+  ed.revealRange(
+    new vscode.Range(pos, pos),
+    vscode.TextEditorRevealType.Default
+  );
+}
 
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const ed = vscode.window.activeTextEditor;
@@ -277,6 +333,12 @@ function registerHeadlineSupport(
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
       cmdToggleFoldAllHeadings({ cfg, sb })
+    ),
+    vscode.commands.registerCommand("posNote.headings.gotoPrev", () =>
+      cmdMoveToPrevHeading()
+    ),
+    vscode.commands.registerCommand("posNote.headings.gotoNext", () =>
+      cmdMoveToNextHeading()
     )
   );
 

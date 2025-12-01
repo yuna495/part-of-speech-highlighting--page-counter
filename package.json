@@ -199,6 +199,14 @@
         "title": "POS/Note: 見出しを 全折りたたみ／全展開 トグル"
       },
       {
+        "command": "posNote.headings.gotoPrev",
+        "title": "POS/Note: 前の見出しへ移動"
+      },
+      {
+        "command": "posNote.headings.gotoNext",
+        "title": "POS/Note: 次の見出しへ移動"
+      },
+      {
         "command": "posNote.headings.refresh",
         "title": "POS/Note: 見出しを更新"
       },
@@ -709,6 +717,16 @@
       }
     },
     "keybindings": [
+      {
+        "command": "posNote.headings.gotoNext",
+        "key": "ctrl+alt+s",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
+        "command": "posNote.headings.gotoPrev",
+        "key": "ctrl+alt+l",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
       {
         "command": "posNote.toggleFoldAllHeadings",
         "key": "ctrl+[",

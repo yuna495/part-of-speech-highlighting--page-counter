@@ -19,7 +19,6 @@ const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
 const { registerHeadlineSupport, refreshHeadingCounts } = require("./headline");
-
 const { registerHeadingSymbolProvider } = require("./headline_symbols");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");

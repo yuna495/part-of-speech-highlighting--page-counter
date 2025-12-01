@@ -341,6 +341,10 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   - `Ctrl + [` で展開／折りたたみをトグル
   - 最小レベルを設定可能：`posNote.headings.foldMinLevel`（既定 2）
   - notesetting.json に headings_folding_level を追加し、ファイル単位で見出し折りたたみレベルを上書きできるようにしました（0 のときは設定の posNote.headings.foldMinLevel を使用）。
+- **見出しジャンプ (v2.3.4)**
+  - `Ctrl+Alt+W` で現在位置から直前の見出し行へカーソル移動
+  - `Ctrl+Alt+I` で現在位置から直後の見出し行へカーソル移動
+  - `.txt` / `.md` / `Novel` の # 見出しに対応
 - **ミニマップ強調（v1.3.4）**
   - ミニマップ上に見出しレベルごとの色付きバーを表示
 - **コードフェンスコメント（v2.2.1）**
