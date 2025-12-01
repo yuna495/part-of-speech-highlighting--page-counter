@@ -12,6 +12,35 @@ const countDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: "0 0 0 0.75em" },
 });
 
+// 見出しキャッシュ: uri -> { version, headings: { line, level }[] }
+const headingCache = new Map();
+let debounceTimer = null;
+
+/**
+ * ドキュメントの見出しリストを取得（キャッシュ利用）
+ * @param {vscode.TextDocument} doc
+ */
+function getHeadings(doc) {
+  const key = doc.uri.toString();
+  const cached = headingCache.get(key);
+  if (cached && cached.version === doc.version) {
+    return cached.headings;
+  }
+
+  // 再計算
+  const headings = [];
+  for (let i = 0; i < doc.lineCount; i++) {
+    const text = doc.lineAt(i).text;
+    const lvl = getHeadingLevel(text);
+    if (lvl > 0) {
+      headings.push({ line: i, level: lvl });
+    }
+  }
+
+  headingCache.set(key, { version: doc.version, headings });
+  return headings;
+}
+
 // アクティブエディタの見出し文字数装飾を更新する外部公開関数
 // headings_folding_level を notesetting.json から読む。0 のときは設定値を使用。
 async function resolveFoldMinLevel(doc, c) {
@@ -132,6 +161,117 @@ async function cmdMoveToNextHeading() {
   ed.revealRange(
     new vscode.Range(pos, pos),
     vscode.TextEditorRevealType.Default
+  );
+}
+
+/**
+ * カーソル位置（またはその上方向）で直近の見出しを起点に、
+ * 次の同レベル見出し直前（またはファイル末尾）までを取得する。
+ * @param {vscode.TextEditor} editor
+ * @returns {{ fullRange: vscode.Range, bodyRange: vscode.Range | null } | null}
+ */
+function findHeadingSection(editor) {
+  const doc = editor.document;
+  const currentLine = editor.selection.active.line;
+  const headings = getHeadings(doc);
+
+  // 現在行より上にある直近の見出しを探す（逆順探索）
+  let startHeading = null;
+  let startIndex = -1;
+
+  for (let i = headings.length - 1; i >= 0; i--) {
+    if (headings[i].line <= currentLine) {
+      startHeading = headings[i];
+      startIndex = i;
+      break;
+    }
+  }
+
+  if (!startHeading) {
+    return null;
+  }
+
+  const startLine = startHeading.line;
+  const currentLevel = startHeading.level;
+
+  // 次の同レベル以上の見出しを探す（順方向探索）
+  let endLine = doc.lineCount - 1;
+  for (let i = startIndex + 1; i < headings.length; i++) {
+    if (headings[i].level <= currentLevel) {
+      endLine = headings[i].line - 1;
+      break;
+    }
+  }
+
+  const endLineText = doc.lineAt(endLine).text;
+  const fullRange = new vscode.Range(startLine, 0, endLine, endLineText.length);
+
+  // 見出し行＋直後の1行を除外した本文
+  let bodyRange = null;
+  const bodyStartLine = startLine + 2;
+  if (bodyStartLine <= endLine) {
+    bodyRange = new vscode.Range(
+      bodyStartLine,
+      0,
+      endLine,
+      endLineText.length
+    );
+  }
+
+  return { fullRange, bodyRange };
+}
+
+/**
+ * 見出しセクション全体を選択（見出し行を含む）。
+ */
+function cmdSelectHeadingSection() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+
+  const section = findHeadingSection(editor);
+  if (!section) {
+    vscode.window.showInformationMessage(
+      'カーソル行または上方向にMarkdownの見出しが見つかりません。'
+    );
+    return;
+  }
+
+  editor.selection = new vscode.Selection(
+    section.fullRange.start,
+    section.fullRange.end
+  );
+  vscode.window.setStatusBarMessage('見出しセクションを選択。', 2000);
+}
+
+/**
+ * 見出し行＋直後の1行を除外した本文のみを選択。
+ */
+function cmdSelectHeadingSectionBody() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+
+  const section = findHeadingSection(editor);
+  if (!section) {
+    vscode.window.showInformationMessage(
+      'カーソル行または上方向にMarkdownの見出しが見つかりません。'
+    );
+    return;
+  }
+
+  if (!section.bodyRange) {
+    vscode.window.showInformationMessage(
+      '見出し行と直後の行のみで選択範囲がありません。'
+    );
+    return;
+  }
+
+  editor.selection = new vscode.Selection(
+    section.bodyRange.start,
+    section.bodyRange.end
+  );
+  vscode.window.setStatusBarMessage(
+    '見出し行と直後の行を除いてセクションを選択。',
+    2000
   );
 }
 
@@ -339,6 +479,12 @@ function registerHeadlineSupport(
     ),
     vscode.commands.registerCommand("posNote.headings.gotoNext", () =>
       cmdMoveToNextHeading()
+    ),
+    vscode.commands.registerCommand("posNote.headline.selectSection", () =>
+      cmdSelectHeadingSection()
+    ),
+    vscode.commands.registerCommand("posNote.headline.selectSectionBody", () =>
+      cmdSelectHeadingSectionBody()
     )
   );
 
@@ -383,6 +529,20 @@ function registerHeadlineSupport(
       const ed = vscode.window.activeTextEditor;
       if (!ed) return;
       updateHeadingCountDecorations(ed, cfg);
+    }),
+
+    // バックグラウンドで見出しキャッシュを更新
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // キャッシュ更新（getHeadingsを呼ぶだけ）
+        getHeadings(e.document);
+      }, 500);
+    }),
+
+    // 閉じたドキュメントのキャッシュを削除
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      headingCache.delete(doc.uri.toString());
     })
   );
 

@@ -207,6 +207,18 @@
         "title": "POS/Note: 次の見出しへ移動"
       },
       {
+        "command": "posNote.headline.selectSection",
+        "title": "POS/Note: 見出しセクションを選択"
+      },
+      {
+        "command": "posNote.headline.selectSectionBody",
+        "title": "POS/Note: 見出し本文を選択（見出し行除外）"
+      },
+      {
+        "command": "posNote.convenient.countSelectedString",
+        "title": "POS/Note: 選択文字列の出現数をカウント"
+      },
+      {
         "command": "posNote.headings.refresh",
         "title": "POS/Note: 見出しを更新"
       },

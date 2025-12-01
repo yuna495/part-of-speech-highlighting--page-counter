@@ -641,6 +641,63 @@ class JapaneseSemanticProvider {
     this._onDidChangeSemanticTokens.fire();
   }
 
+  /**
+   * ドキュメントごとの計算結果キャッシュを取得または生成する
+   * @param {import("vscode").TextDocument} document
+   * @returns {{ fenceRanges: import("vscode").Range[], bracketSegsByLine: Map<number, Array<[number, number]>> }}
+   */
+  _getOrComputeRanges(document) {
+    // キャッシュ初期化
+    if (!this._cache) {
+      /** @type {Map<string, { version: number, data: any }>} */
+      this._cache = new Map();
+    }
+
+    const key = document.uri.toString();
+    const cached = this._cache.get(key);
+
+    // バージョンが一致すればキャッシュを返す
+    if (cached && cached.version === document.version) {
+      return cached.data;
+    }
+
+    // 計算実行（全文スキャン）
+    const fenceRanges = computeFenceRanges(document);
+
+    /** @type {Map<number, Array<[number, number]>>} */
+    const bracketSegsByLine = new Map();
+
+    // 括弧計算
+    const pairs = computeFullwidthQuoteRanges(document);
+    for (const r of pairs) {
+      const sL = r.start.line,
+        eL = r.end.line;
+      for (let ln = sL; ln <= eL; ln++) {
+        const lineText = document.lineAt(ln).text;
+        const sCh = ln === sL ? r.start.character : 0;
+        const eCh = ln === eL ? r.end.character : lineText.length;
+        if (eCh > sCh) {
+          const arr = bracketSegsByLine.get(ln) || [];
+          arr.push([sCh, eCh]);
+          bracketSegsByLine.set(ln, arr);
+        }
+      }
+    }
+
+    const data = { fenceRanges, bracketSegsByLine };
+
+    // キャッシュ保存
+    this._cache.set(key, { version: document.version, data });
+
+    // 古いキャッシュの掃除（簡易的：エントリ数が多すぎたらクリア）
+    if (this._cache.size > 20) {
+      this._cache.clear();
+      this._cache.set(key, { version: document.version, data });
+    }
+
+    return data;
+  }
+
   // semantic.js 内 JapaneseSemanticProvider クラス
   // 指定範囲のテキストを解析し、セマンティックトークンデータを構築する本体
   async _buildTokens(document, range, cancelToken) {
@@ -695,19 +752,33 @@ class JapaneseSemanticProvider {
     const idxChar = tokenTypesArr.indexOf("character");
     const idxGlossary = tokenTypesArr.indexOf("glossary");
     const idxFence = tokenTypesArr.indexOf("fencecomment");
-    /** @type {Map<number, Array<[number, number]>>} */
-    const fenceSegsByLine = new Map();
+
+    // ★ キャッシュを利用して取得
+    const { fenceRanges, bracketSegsByLine } = this._getOrComputeRanges(document);
 
     /** @type {Map<number, Array<[number, number]>>} */
-    const bracketSegsByLine = new Map();
+    const fenceSegsByLine = new Map();
     const bracketOverrideOn = !!c.bracketsOverrideEnabled;
 
     try {
-      const fenceRanges = computeFenceRanges(document); // vscode.Range[]
+      // fenceRanges はキャッシュ済みだが、行ごとのセグメントマップはここで作る（軽量）
+      // ※ ここもキャッシュに含めても良いが、fenceRanges自体が軽量なのでこのままでもOK
+      //    ただし、fenceSegsByLine もキャッシュした方がより高速。
+      //    今回は _getOrComputeRanges で bracketSegsByLine は作ったが、
+      //    fenceSegsByLine は作っていないのでここで作る。
+
       for (const r of fenceRanges) {
         const sL = r.start.line,
           eL = r.end.line;
+        // 画面内（range）に関係ある部分だけ処理すればさらに高速だが、
+        // fenceRanges の数が少なければループしても問題ない。
+        // ここでは単純化のため全フェンスを処理するが、
+        // 将来的には range と重なるものだけフィルタしてもよい。
+
         for (let ln = sL; ln <= eL; ln++) {
+          // 範囲外の行はスキップ（これが重要）
+          if (ln < startLine || ln > endLine) continue;
+
           const lineText = document.lineAt(ln).text;
           const sCh = ln === sL ? r.start.character : 0;
           const eCh = ln === eL ? r.end.character : lineText.length;
@@ -721,26 +792,6 @@ class JapaneseSemanticProvider {
     } catch {
       // 失敗時は空のままで続行
     }
-
-    (() => {
-      const pairs = computeFullwidthQuoteRanges(document);
-      for (const r of pairs) {
-        const sL = r.start.line,
-          eL = r.end.line;
-        for (let ln = sL; ln <= eL; ln++) {
-          const lineText = document.lineAt(ln).text;
-          const sCh = ln === sL ? r.start.character : 0;
-          const eCh = ln === eL ? r.end.character : lineText.length;
-          if (eCh > sCh) {
-            const arr = /** @type {Array<[number, number]>} */ (
-              bracketSegsByLine.get(ln) || []
-            );
-            arr.push(/** @type {[number, number]} */ ([sCh, eCh]));
-            bracketSegsByLine.set(ln, arr);
-          }
-        }
-      }
-    })();
 
     // ★ ループは一つに統一（ネストしていた二重ループを削除）
     /** @type {import("vscode").Range[]} */
