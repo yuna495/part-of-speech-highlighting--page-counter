@@ -10,7 +10,7 @@ function getHeadingLevel(lineText) {
   return m ? m[1].length : 0;
 }
 
-/** ``` フェンスの“閉じたペア”に挟まれた行（フェンス行自体も）を除去 */
+/** ``` フェンスの"閉じたペア"に挟まれた行（フェンス行自体も）を除去 */
 // 文字数カウントやプレビューの対象からコードブロックを外すための前処理
 function stripClosedCodeFences(text) {
   const src = String(text || "").split(/\r?\n/);
@@ -42,7 +42,7 @@ function stripHeadingLines(text) {
   return kept.join("\n");
 }
 
-/** ステータス/見出し表示で共通の“字数”カウント */
+/** ステータス/見出し表示で共通の"字数"カウント */
 // スペースの扱いなど設定に合わせて文字数を求める
 function countCharsForDisplay(text, c) {
   let t = (text || "").replace(/\r\n/g, "\n");
@@ -68,103 +68,6 @@ function countCharsForDisplay(text, c) {
         ch !== "｜"
     ).length;
   }
-}
-
-/* ===========================
- * 追加：見出しメトリクス（表示ルール準拠）
- *   - sub: 自身の階層にぶら下がる全文（子を含む）を countCharsForDisplay で計測
- *   - own: sub から直下の子の sub を差し引いた値
- *   - total: 文書全体を countCharsForDisplay
- * =========================== */
-
-/** VS Code 互換の Range を最小限で表現（doc.getText(range) 用） */
-function _mkRange(vscode, sLine, sCh, eLine, eCh) {
-  return new vscode.Range(
-    new vscode.Position(sLine, sCh),
-    new vscode.Position(eLine, eCh)
-  );
-}
-
-/** ドキュメント内の見出し（line/level）一覧を収集 */
-function collectHeadings(document) {
-  const heads = [];
-  for (let i = 0; i < document.lineCount; i++) {
-    const text = document.lineAt(i).text;
-    const lvl = getHeadingLevel(text);
-    if (lvl > 0) heads.push({ index: heads.length, line: i, level: lvl });
-  }
-  return heads;
-}
-
-/** 各見出しの範囲（startLine ～ endLineExclusive）を決定 */
-function computeHeadingRanges(document, heads) {
-  const n = heads.length;
-  for (let i = 0; i < n; i++) {
-    const me = heads[i];
-    let end = document.lineCount; // exclusive
-    for (let j = i + 1; j < n; j++) {
-      if (heads[j].level <= me.level) {
-        end = heads[j].line;
-        break;
-      }
-    }
-    me.start = me.line;
-    me.end = end;
-  }
-  return heads;
-}
-
-/** head i の直下の子（最短の上位一致）インデックスを列挙 */
-function computeChildrenIndices(heads) {
-  const children = new Array(heads.length).fill(0).map(() => []);
-  for (let i = 0; i < heads.length; i++) {
-    const pi = heads[i];
-    for (let j = i + 1; j < heads.length; j++) {
-      const ch = heads[j];
-      if (ch.line >= pi.end) break;
-      if (ch.level === pi.level + 1) {
-        children[i].push(j);
-      } else if (ch.level <= pi.level) {
-        break;
-      }
-    }
-  }
-  return children;
-}
-
-/**
- * 見出し字数メトリクス（コードブロック除外／表示ルール準拠）
- * @param {import('vscode').TextDocument} document - VSCode の TextDocument
- * @param {any} c 拡張の設定オブジェクト
- * @param {typeof import('vscode')} vscodeModule - Range/Position生成のための vscode モジュール
- * @returns {{ items: { line:number, own:number, sub:number }[], total:number }}
- */
-function getHeadingCharMetricsForDisplay(document, c, vscodeModule) {
-  const vscode = vscodeModule; // 明示
-  const heads = computeHeadingRanges(document, collectHeadings(document));
-  if (heads.length === 0) {
-    return { items: [], total: countCharsForDisplay(document.getText(), c) };
-  }
-  const children = computeChildrenIndices(heads);
-
-  // sub を先に全見出し分計測（doc.getText→countCharsForDisplay）
-  const subArr = new Array(heads.length).fill(0);
-  for (let i = 0; i < heads.length; i++) {
-    const h = heads[i];
-    const range = _mkRange(vscode, h.start, 0, h.end, 0);
-    const sub = countCharsForDisplay(document.getText(range), c);
-    subArr[i] = sub;
-  }
-
-  // own = sub - Σ(直下子の sub)
-  const items = heads.map((h, i) => {
-    const sumChildSub = children[i].reduce((acc, j) => acc + subArr[j], 0);
-    const own = Math.max(0, subArr[i] - sumChildSub);
-    return { line: h.line, own, sub: subArr[i] };
-  });
-
-  const total = countCharsForDisplay(document.getText(), c);
-  return { items, total };
 }
 
 // notesetting.json をディレクトリ単位でキャッシュして取得
@@ -203,12 +106,176 @@ async function loadNoteSettingForDoc(doc) {
   }
 }
 
+// ==== 統合キャッシュシステム ====
+const _headingCache = new WeakMap();
+// WeakMap<TextDocument, {
+//   version: number,
+//   headings: { line:number, level:number, text:string }[],
+//   metrics: { items:..., total:number } | null
+// }>
+
+/**
+ * 見出し構造キャッシュを取得（なければ計算）
+ * @param {import('vscode').TextDocument} doc
+ */
+function getHeadingsCached(doc) {
+  const ver = doc.version;
+  let entry = _headingCache.get(doc);
+
+  if (!entry || entry.version !== ver) {
+    // 再計算
+    const headings = [];
+    for (let i = 0; i < doc.lineCount; i++) {
+      const text = doc.lineAt(i).text;
+      const lvl = getHeadingLevel(text);
+      if (lvl > 0) {
+        headings.push({ line: i, level: lvl, text });
+      }
+    }
+    entry = { version: ver, headings, metrics: null };
+    _headingCache.set(doc, entry);
+  }
+  return entry.headings;
+}
+
+/**
+ * 見出しメトリクスキャッシュを取得（なければ計算）
+ * @param {import('vscode').TextDocument} doc
+ * @param {any} c 設定オブジェクト
+ * @param {typeof import('vscode')} vscodeModule
+ */
+function getHeadingMetricsCached(doc, c, vscodeModule) {
+  const entry = _headingCache.get(doc);
+  // 構造キャッシュが最新かつメトリクスがあればそれを返す
+  if (entry && entry.version === doc.version && entry.metrics) {
+    return entry.metrics;
+  }
+
+  // 構造が無ければ先に作る（getHeadingsCached経由）
+  const headings = getHeadingsCached(doc); // これで entry が作られる/更新される
+  const currentEntry = _headingCache.get(doc); // 最新を取得
+
+  // メトリクス計算（既存ロジックの流用・統合）
+  // ここでは sidebar_headings.js と headline_symbols.js の両方の要求を満たすデータを作る
+  // items: { line, level, text, own, sub, childSum, range }
+
+  const vscode = vscodeModule;
+  const items = [];
+  const max = doc.lineCount;
+
+  // 1. 基本情報と own/sub 計算用の範囲決定
+  // headings は { line, level, text }
+  const ranges = [];
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    let end = max;
+    // sub範囲: 次の同レベル以上の見出しまで
+    for (let j = i + 1; j < headings.length; j++) {
+      if (headings[j].level <= h.level) {
+        end = headings[j].line;
+        break;
+      }
+    }
+    ranges.push({ start: h.line, end });
+  }
+
+  // 2. sub (自分+配下) の文字数を計算
+  const subCounts = new Array(headings.length).fill(0);
+  for (let i = 0; i < headings.length; i++) {
+    const r = ranges[i];
+    const range = new vscode.Range(r.start, 0, r.end, 0);
+    subCounts[i] = countCharsForDisplay(doc.getText(range), c);
+  }
+
+  // 3. 親子関係を特定して own (自分のみ) と childSum (配下合計) を計算
+  // childSum は headline_symbols.js 用（配下の count の合計）
+  // own は sidebar_headings.js 用（sub - 直下の子の sub）
+
+  const children = new Array(headings.length).fill(0).map(() => []);
+  for (let i = 0; i < headings.length; i++) {
+    const pi = headings[i];
+    const pEnd = ranges[i].end;
+    for (let j = i + 1; j < headings.length; j++) {
+      const ch = headings[j];
+      if (ch.line >= pEnd) break;
+      if (ch.level === pi.level + 1) {
+        children[i].push(j);
+      } else if (ch.level <= pi.level) {
+        break;
+      }
+    }
+  }
+
+  // 結果オブジェクト構築
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    const sub = subCounts[i];
+
+    // own = sub - Σ(直下の子のsub)
+    const sumChildSub = children[i].reduce((acc, idx) => acc + subCounts[idx], 0);
+    const own = Math.max(0, sub - sumChildSub);
+
+    // childSum (headline_symbols.js用) = 配下の count の合計
+    // ここでの count は "own" に相当する（本文の文字数）
+    // 再帰的に計算する必要があるが、own があれば実は簡単
+    // しかし headline_symbols.js の childSum は「配下の DocumentSymbol の文字数合計」なので
+    // sub - own = 配下の合計、で良いはずだが、念のため定義を確認
+    // headline_symbols.js: items[parentIdx].childSum += items[child.idx].count + items[child.idx].childSum;
+    // つまり「配下全ての own の合計」である。
+    // これは sub - own と等しいはず（sub は自分+配下全てなので）。
+    const childSum = sub - own;
+
+    // タイトル整形
+    const title = h.text.replace(/^#+\s*/, "").trim() || `Heading L${h.level}`;
+
+    // 範囲（本文）
+    // headline_symbols.js では「次の任意レベルの見出し直前」までを本文としているが
+    // ここでは ranges[i].end (次の同レベル以上) を使っている。
+    // DocumentSymbol の range としては ranges[i] が正しい。
+    // 文字数カウント用の range は... headline_symbols.js を見ると
+    // 「次に現れる任意レベルの見出し直前」までを bodyText としている。
+    // これは own の計算ロジックと一致する。
+
+    // headline_symbols.js 互換の range 生成
+    let bodyEnd = max - 1;
+    if (i < headings.length - 1) {
+      bodyEnd = headings[i+1].line - 1;
+    }
+    const range = new vscode.Range(h.line, 0, ranges[i].end, 0); // セクション全体
+
+    items.push({
+      line: h.line,
+      level: h.level,
+      text: h.text,
+      title,
+      own,      // = count (headline_symbols)
+      sub,
+      childSum,
+      range     // セクション全体
+    });
+  }
+
+  const total = countCharsForDisplay(doc.getText(), c);
+  const result = { items, total };
+
+  // キャッシュ更新
+  currentEntry.metrics = result;
+  return result;
+}
+
+/** キャッシュの手動無効化（閉じた時など） */
+function invalidateHeadingCache(doc) {
+  _headingCache.delete(doc);
+}
+
 module.exports = {
   getHeadingLevel,
   stripClosedCodeFences,
   stripHeadingLines,
   countCharsForDisplay,
-  collectHeadings,
-  getHeadingCharMetricsForDisplay,
   loadNoteSettingForDoc,
+  // 新API
+  getHeadingsCached,
+  getHeadingMetricsCached,
+  invalidateHeadingCache
 };

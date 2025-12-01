@@ -13,8 +13,9 @@ const {
   stripHeadingLines,
   countCharsForDisplay,
   loadNoteSettingForDoc,
+  getHeadingMetricsCached,
 } = require("./utils");
-const { getHeadingCharMetricsCached } = require("./headline_symbols");
+// const { getHeadingCharMetricsCached } = require("./headline_symbols"); // 廃止
 
 // ------- 内部 state -------
 let _statusBarItem = null;
@@ -319,7 +320,7 @@ function computeNoteMetrics(doc, c, selection) {
   const fullText = doc.getText().replace(/\r\n/g, "\n");
 
   // 共有ロジックに一本化（キャッシュ付き）
-  const { items, total } = getHeadingCharMetricsCached(doc, c);
+  const { items, total } = getHeadingMetricsCached(doc, c, vscode);
   const totalChars =
     items.length > 0 ? total : countCharsForDisplay(fullText, c);
 

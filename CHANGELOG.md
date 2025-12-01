@@ -14,6 +14,7 @@ All notable changes to this extension are documented here.
 
 - プレビュー表示の軽量化、全文表示設定の追加
 - プレビューの品詞ハイライトON/OFF設定が効いていなかった点を修正
+- 重複処理の整理
 
 ## [2.3.3] - 2025/11/30
 

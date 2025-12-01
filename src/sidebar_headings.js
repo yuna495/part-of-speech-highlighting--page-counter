@@ -1,6 +1,6 @@
 // sidebar_headings.js
 const vscode = require("vscode");
-const { getHeadingLevel, getHeadingCharMetricsForDisplay } = require("./utils");
+const { getHeadingLevel, getHeadingCharMetricsForDisplay, getHeadingMetricsCached } = require("./utils");
 const path = require("path");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */
@@ -113,7 +113,8 @@ class HeadingsProvider {
     if (!isTargetDoc(ed.document, c)) return [];
 
     const doc = ed.document;
-    const metrics = getHeadingCharMetricsForDisplay(doc, c, vscode)?.items || [];
+    // キャッシュ版を利用
+    const metrics = getHeadingMetricsCached(doc, c, vscode)?.items || [];
     const countByLine = new Map();
     for (const { line, own, sub } of metrics) {
       const ownShow = own > 0;

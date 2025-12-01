@@ -5,41 +5,16 @@ const fs = require("fs");
 const path = require("path");
 const {
   getHeadingLevel,
-  getHeadingCharMetricsForDisplay,
   loadNoteSettingForDoc,
+  getHeadingsCached,
+  getHeadingMetricsCached,
+  invalidateHeadingCache,
 } = require("./utils");
 const countDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: "0 0 0 0.75em" },
 });
 
-// 見出しキャッシュ: uri -> { version, headings: { line, level }[] }
-const headingCache = new Map();
 let debounceTimer = null;
-
-/**
- * ドキュメントの見出しリストを取得（キャッシュ利用）
- * @param {vscode.TextDocument} doc
- */
-function getHeadings(doc) {
-  const key = doc.uri.toString();
-  const cached = headingCache.get(key);
-  if (cached && cached.version === doc.version) {
-    return cached.headings;
-  }
-
-  // 再計算
-  const headings = [];
-  for (let i = 0; i < doc.lineCount; i++) {
-    const text = doc.lineAt(i).text;
-    const lvl = getHeadingLevel(text);
-    if (lvl > 0) {
-      headings.push({ line: i, level: lvl });
-    }
-  }
-
-  headingCache.set(key, { version: doc.version, headings });
-  return headings;
-}
 
 // アクティブエディタの見出し文字数装飾を更新する外部公開関数
 // headings_folding_level を notesetting.json から読む。0 のときは設定値を使用。
@@ -104,17 +79,25 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
   return lines;
 }
 
-// 見出しジャンプ用ヘルパー
+// 見出しジャンプ用ヘルパー（最適化版：キャッシュを利用）
 function findPrevHeadingLine(document, fromLine) {
-  for (let i = fromLine - 1; i >= 0; i--) {
-    if (getHeadingLevel(document.lineAt(i).text) > 0) return i;
+  const headings = getHeadingsCached(document);
+  // 逆順で、現在行より前の見出しを探す
+  for (let i = headings.length - 1; i >= 0; i--) {
+    if (headings[i].line < fromLine) {
+      return headings[i].line;
+    }
   }
   return -1;
 }
 
 function findNextHeadingLine(document, fromLine) {
-  for (let i = fromLine + 1; i < document.lineCount; i++) {
-    if (getHeadingLevel(document.lineAt(i).text) > 0) return i;
+  const headings = getHeadingsCached(document);
+  // 順方向で、現在行より後の見出しを探す
+  for (let i = 0; i < headings.length; i++) {
+    if (headings[i].line > fromLine) {
+      return headings[i].line;
+    }
   }
   return -1;
 }
@@ -173,7 +156,7 @@ async function cmdMoveToNextHeading() {
 function findHeadingSection(editor) {
   const doc = editor.document;
   const currentLine = editor.selection.active.line;
-  const headings = getHeadings(doc);
+  const headings = getHeadingsCached(doc);
 
   // 現在行より上にある直近の見出しを探す（逆順探索）
   let startHeading = null;
@@ -403,12 +386,7 @@ class HeadingFoldingProvider {
     const lang = (document.languageId || "").toLowerCase();
     if (!(lang === "plaintext" || lang === "novel")) return [];
 
-    const heads = [];
-    for (let i = 0; i < document.lineCount; i++) {
-      const text = document.lineAt(i).text;
-      const lvl = getHeadingLevel(text);
-      if (lvl > 0) heads.push({ line: i, level: lvl });
-    }
+    const heads = getHeadingsCached(document);
     if (heads.length === 0) return [];
 
     const ranges = [];
@@ -535,14 +513,14 @@ function registerHeadlineSupport(
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        // キャッシュ更新（getHeadingsを呼ぶだけ）
-        getHeadings(e.document);
+        // キャッシュ更新（getHeadingsCachedを呼ぶだけ）
+        getHeadingsCached(e.document);
       }, 500);
     }),
 
     // 閉じたドキュメントのキャッシュを削除
     vscode.workspace.onDidCloseTextDocument((doc) => {
-      headingCache.delete(doc.uri.toString());
+      invalidateHeadingCache(doc);
     })
   );
 
@@ -557,8 +535,8 @@ function updateHeadingCountDecorations(ed, cfg) {
   // ...前段の言語・設定チェックは既存のまま...
   const c = cfg();
 
-  // ★ ここを差し替え：utils 側の「表示ルール準拠メトリクス」を使用
-  const { items } = getHeadingCharMetricsForDisplay(ed.document, c, vscode);
+  // ★ ここを差し替え：utils 側の「統合キャッシュ版」を使用
+  const { items } = getHeadingMetricsCached(ed.document, c, vscode);
 
   if (!items.length) {
     ed.setDecorations(countDeco, []);
