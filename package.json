@@ -664,10 +664,20 @@
             "description": ".md でもプレビューPOSハイライトを適用する"
           },
           "posNote.Preview.posHighlight.maxLines": {
-            "type": "number",
-            "default": 1000,
-            "minimum": 10,
-            "description": "プレビューでPOS着色する最大行数（パフォーマンス上限）"
+            "default": "none",
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 10
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            ],
+            "markdownDescription": "プレビューでPOS着色する最大行数（パフォーマンス上限）。`\"none\"` を指定すると全文を表示。"
           }
         }
       }

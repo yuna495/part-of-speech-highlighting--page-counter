@@ -347,20 +347,23 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
 
   // エディタのアクティブ行を常に中央へ
   function adjustScrollToActive(activeLine) {
-    const target =
-      content.querySelector('p[data-line="' + activeLine + '"]') ||
-      content.querySelector('p[data-line="' + lastActiveLine + '"]') ||
-      content.querySelector("p:last-of-type");
-    if (!target) return;
-    // content から見た要素中心
-    const targetCenter =
-      target.offsetLeft + (target.offsetWidth || target.clientWidth) / 2;
-    // 現在のビューポート中心
-    const viewCenter = content.scrollLeft + content.clientWidth / 2;
-    const delta = targetCenter - viewCenter;
-    if (Math.abs(delta) > 1) {
-      content.scrollLeft += delta;
-    }
+    // requestAnimationFrame を使用して、DOM が完全にレンダリングされてからスクロール
+    requestAnimationFrame(() => {
+      const target =
+        content.querySelector('p[data-line="' + activeLine + '"]') ||
+        content.querySelector('p[data-line="' + lastActiveLine + '"]') ||
+        content.querySelector("p:last-of-type");
+      if (!target) return;
+      // content から見た要素中心
+      const targetCenter =
+        target.offsetLeft + (target.offsetWidth || target.clientWidth) / 2;
+      // 現在のビューポート中心
+      const viewCenter = content.scrollLeft + content.clientWidth / 2;
+      const delta = targetCenter - viewCenter;
+      if (Math.abs(delta) > 1) {
+        content.scrollLeft += delta;
+      }
+    });
   }
 
   function upsertTokenStyle(cssText) {
@@ -498,6 +501,3 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
       .replaceAll(">", "&gt;");
   }
 })();
-
-
-

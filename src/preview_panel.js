@@ -309,7 +309,14 @@ class PreviewPanel {
     const posEnabled = !!cfg.get("posHighlight.enabled", true);
     const posModeOn = !!cfg.get("posHighlight.mode", true);
     const posActive = posEnabled && posModeOn;
-    const maxLines = cfg.get("posHighlight.maxLines", 5); // カーソル位置±5行のみに限定して高速化
+    /** @type {string | number | undefined} */
+    const rawMaxLines = cfg.get("posHighlight.maxLines");
+    const isNone =
+      typeof rawMaxLines === "string" &&
+      rawMaxLines.toLowerCase() === "none";
+    const maxLines = isNone
+      ? Number.POSITIVE_INFINITY // "none" で全文表示
+      : clampNumber(Number(rawMaxLines ?? 5), 1, Number.MAX_SAFE_INTEGER);
     const symbol = "|";
 
     const winStart = Math.max(0, activeLine - maxLines);
@@ -633,5 +640,3 @@ function inlineRestorePlaceholders(html, lists) {
 }
 
 module.exports = { PreviewPanel };
-
-
