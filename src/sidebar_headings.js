@@ -1,6 +1,6 @@
 // sidebar_headings.js
 const vscode = require("vscode");
-const { getHeadingLevel, getHeadingCharMetricsForDisplay, getHeadingMetricsCached } = require("./utils");
+const { getHeadingLevel, getHeadingMetricsCached } = require("./utils");
 const path = require("path");
 
 /** 1行から見出しテキスト本体を抽出（先頭 # と余分な空白を除去） */

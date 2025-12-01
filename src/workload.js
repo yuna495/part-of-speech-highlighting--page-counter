@@ -1022,7 +1022,10 @@ function applyExternalLen(docUri, curLen, opts = {}) {
     _imeGuardByDoc.set(docUri, guard);
   } else {
     guard.lastLen = curLen;
-    if (guard.timer) clearTimeout(guard.timer);
+    if (guard.timer) {
+      clearTimeout(guard.timer);
+      guard.timer = null;
+    }
   }
   guard.timer = setTimeout(() => commitImeGuard(docUri), guardMs);
 }
@@ -1046,6 +1049,17 @@ function initWorkload(context) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
       updateStatusBarText(cfg());
+    }),
+    // ドキュメントを閉じたらキャッシュとタイマーをクリア（メモリリーク対策）
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      const uri = doc.uri.toString();
+      _baselineLenByDoc.delete(uri);
+      // IME ガードのタイマーも確実にクリア
+      const guard = _imeGuardByDoc.get(uri);
+      if (guard?.timer) {
+        clearTimeout(guard.timer);
+      }
+      _imeGuardByDoc.delete(uri);
     })
   );
 

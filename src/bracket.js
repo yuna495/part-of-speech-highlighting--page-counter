@@ -74,8 +74,8 @@ function updateCaretCache(editor) {
     const rightChar = doc.getText(rightRange);
 
     _caretCacheByUri.set(uriKey, { pos, leftChar, rightChar });
-  } catch {
-    // noop（安全側）
+  } catch (err) {
+    console.warn('[bracket.js] updateCaretCache error:', err);
   }
 }
 
@@ -125,12 +125,14 @@ function maybeDeleteClosingOnBackspaceLite(e, opts = {}) {
       () => {
         _deletingPair = false;
       },
-      () => {
+      (err) => {
         _deletingPair = false;
+        console.warn('[bracket.js] Failed to delete closing bracket:', err);
       }
     );
-  } catch {
+  } catch (err) {
     _deletingPair = false;
+    console.warn('[bracket.js] maybeDeleteClosingOnBackspaceLite error:', err);
   }
 }
 
@@ -165,6 +167,10 @@ function registerBracketSupport(context, { cfg, isTargetDoc } = {}) {
       )
         return;
       updateCaretCache(e.textEditor);
+    }),
+    // ドキュメントを閉じたらキャッシュを削除（メモリリーク対策）
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      _caretCacheByUri.delete(doc.uri.toString());
     })
   );
 }

@@ -8,7 +8,7 @@ All notable changes to this extension are documented here.
 
 - notesetting.json の読み込みを utils.js に一本化し、各機能の設定参照を共通化
 - 見出し折りたたみレベルを notesetting.json の `headings_folding_level` で上書きできるように変更（0 の場合は設定の `posNote.headings.foldMinLevel` を使用）
-- 見出しジャンプを追加: `Ctrl+Alt+W` で直前の見出し行、`Ctrl+Alt+I` で直後の見出し行へ移動（.txt / .md / novel 対応）
+- 見出しジャンプを追加：`Ctrl+Alt+W` で直前の見出し行、`Ctrl+Alt+I` で直後の見出し行へ移動（.txt / .md / novel 対応）
 
 ### 修正
 
@@ -30,7 +30,7 @@ All notable changes to this extension are documented here.
 ### 追加
 
 - コンテナタイトル部分に「現在のフォルダに雛形を追加」ボタンを実装。
-  - plot/各種.mdとnotesetting.jsonファイルを追加。
+  - plot/各種**.md**と**notesetting.json**ファイルを追加。
 - サイドバーでのフォルダ・ファイルの右クリックメニューに「名前の変更」を追加。
 - 「ctrl + r」で選択部分のみにルビを振るショートカットキーを追加。
 - 「ctrl + '」で選択部分に引用符を振るショートカットキーを追加。
@@ -92,7 +92,7 @@ All notable changes to this extension are documented here.
 - **辞書ファイル**
   - ワークスペースの `.vscode/conversion.json` に加え、**編集中ファイルと同じフォルダ**の `conversion.json` も読み込み対象
   - 両者が存在する場合は**後勝ちマージ**で統合し、**同階層の `conversion.json` を優先**して適用
-  - 監視対象を `**/conversion.json` に拡張し、保存・作成・削除を自動検知 即時反映
+  - 監視対象を`**/conversion.json`に拡張し、保存・作成・削除を自動検知・即時反映
   - 任意の語句ペアを自由に登録可能（**簡易形式・双方向自動生成**）
     - 例（簡易形式・双方向対応）:
 
@@ -131,7 +131,7 @@ All notable changes to this extension are documented here.
   - 〇字・□字がそれぞれ 0 の場合は非表示。
   - 〇＝□ の場合（下位見出しを持たない場合）は「/ □字」を省略。
   - `.txt` / `.md` / `Novel` すべてに対応。
-  - 設定 `posNote.headings.showBodyCounts` により ON/OFF 切り替え可能（デフォルト: ON）。
+  - 設定 `posNote.headings.showBodyCounts` により ON/OFF 切り替え可能（デフォルト：ON）。
   - 計算方法はステータスバーの総文字数と同一。
 
 ## [2.2.4] - 2025/10/11
@@ -147,7 +147,7 @@ All notable changes to this extension are documented here.
 ### 修正
 
 - 縦書きプレビュー画面の修正。
-  - ルビ、傍点の表示。[三点リーダー2つ]セット「……」を行の中央に全角2文字分（4つセットに）。
+  - ルビ、傍点の表示。【三点リーダー2つ】セット「……」を行の中央に全角2文字分（4つセットに）。
   - コードフェンスによるコメントをプレビューにおいても同色ハイライト。
 - READMEの画像追加、内部リンク実装
 
@@ -191,7 +191,7 @@ All notable changes to this extension are documented here.
 ### 追加
 
 - **フォルダ内ファイル結合コマンド**
-  - エクスプローラーでフォルダを右クリックし、以下のメニューを利用可能に:
+  - エクスプローラーでフォルダを右クリックし、以下のメニューを利用可能に：
     - `POS/Note: フォルダ内の .txt を結合`
     - `POS/Note: フォルダ内の .md を結合`
   - 選択フォルダ直下にある `.txt` / `.md` ファイルを**ファイル名昇順**で結合し、同フォルダ直下に `combined.txt` / `combined.md` を出力
@@ -201,7 +201,7 @@ All notable changes to this extension are documented here.
 
 ### 変更
 
-- displayNameを「POS & Note (小説・論文執筆アシスト)」に変更。
+- displayNameを「POS & Note （小説・論文執筆アシスト）」に変更。
 - 説明文に「小説執筆向け」を追加。
 - 文字数カウントについて、全角スペースに追加して、見出し指定の「#」をカウントしないように設定。
 
@@ -261,7 +261,7 @@ All notable changes to this extension are documented here.
     - プレビュー内の行クリックでエディタにジャンプ、エディタ側で選択した行はプレビューでハイライトされる（双方向同期）
     - プレビュー内でも品詞ハイライトを適用可能
     - プレビューの描画・品詞ハイライトはエディタ保存時に反映される
-    - 品詞着色は「選択行を中心に ±`maxLines` 行」のみを解析対象とする動的モードに変更（既定: 1000 行）
+    - 品詞着色は「選択行を中心に ±`maxLines` 行」のみを解析対象とする動的モードに変更（既定：1000 行）
 
 ## [1.3.6] - 2025-08-27
 
@@ -309,7 +309,7 @@ All notable changes to this extension are documented here.
 - 追加
   - ステータスバーの文字数カウントに関するオプションを追加
     - **見出し行（# / ##）を総文字数に含めない**
-    - **スペース（半角・全角）を総文字数＆選択文字数に含めるかどうかの設定**（デフォルト: 含めない）
+    - **スペース（半角・全角）を総文字数＆選択文字数に含めるかどうかの設定**（デフォルト：含めない）
 - 修正
   - 内部処理を整理し、不要な関数を削除
 
@@ -325,7 +325,7 @@ All notable changes to this extension are documented here.
     - `Ctrl + [` による展開/折りたたみ
     - 一つでも見出しが展開され、変更されていれば「全折りたたみ」に切り替え、それ以外では「全展開」を実行
   - 見出しの一括折りたたみにおいて、**折りたたむ最小レベル**を指定できる設定を追加
-    - `posNote.headings.foldMinLevel`（既定: **2**）
+    - `posNote.headings.foldMinLevel`（既定：**2**）
     - 例）2 → `##` 以上を一括折りたたみ、3 → `###` 以上を一括折りたたみ
 
 - 修正
@@ -340,9 +340,9 @@ All notable changes to this extension are documented here.
 - 追加
   - 行末の禁則文字追加
   - **全角括弧の入力支援**
-    - 「『（［｛〈《【〔 ‘ “の**開き入力で自動閉じを補完**（常時ON）
+    - `「『（［｛〈《【〔 ‘ “`の**開き入力で自動閉じを補完**（常時ON）
     - **ネスト対応**：内側の開き入力でも外側の閉じが消えず、`「『』」` のように正しく構築
-    - **IME変換追従**：開き確定後に「→『」等へ変換すると、直後の閉じも `」→』` に自動置換
+    - **IME変換追従**：開き確定後に`「→『」`等へ変換すると、直後の閉じも `」→』` に自動置換
     - **Backspace 連動**：開きを削除した際、直後が対応する閉じなら自動で同時削除
   - **括弧ハイライトの統一（semantic token）**
     - **改行またぎ＆ネスト**対応で、開き→次の対応閉じまでを一括で `bracket` として色付け
@@ -374,7 +374,7 @@ All notable changes to this extension are documented here.
   - 旧オプション `posNote.enabledPos` とコマンド `posNote.togglePos` を削除
 - 既定値を `rowsPerNote=20` / `colsPerRow=20` に統一
 - `.md` ファイルの品詞ハイライトを独立して ON/OFF できる設定項目を追加
-  - `posNote.semantic.enabledMd`（デフォルト: true）
+  - `posNote.semantic.enabledMd`（デフォルト：true）
   - `.txt` / `Novel` 用の `posNote.semantic.enabled` とは別に制御可能
 - README の設定例を拡充（全品詞トークンのサンプルを記載）
 - README を更新し、新オプションの説明を追加
@@ -382,7 +382,7 @@ All notable changes to this extension are documented here.
 ## [1.0.1]
 
 - デコレーション方式を semantic token に統一
-  - 括弧と中身、記号（—、、。）を `bracket` / `symbol` としてハイライト可能に
+  - 括弧と中身、記号**— 、 、 。**を `bracket` / `symbol` としてハイライト可能に
   - 全角スペースは下線方式の semantic token で表示
 - ステータスバー更新処理を改善（入力時のカクつきを軽減）
 - 不要な旧デコ関数や設定を削除し、コードを整理
