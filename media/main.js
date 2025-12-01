@@ -136,6 +136,7 @@
       bgColor = "#111111",
       textColor = "#fafafa",
       activeBg = "rgba(255, 215, 0, 0.2)",
+      posModeOn = true,
       rubyHtmlList = [],
       ellipsisHtmlList = [],
       dashHtmlList = [],
@@ -157,6 +158,7 @@
       tokenCss,
       fontsize,
       fontfamily,
+      posModeOn,
     });
 
     if (isHtml) {
@@ -193,6 +195,7 @@
       activeBg = "rgba(255, 215, 0, 0.2)",
       fontsize,
       fontfamily,
+      posModeOn = true,
       rubyHtmlList = [],
       ellipsisHtmlList = [],
       dashHtmlList = [],
@@ -220,6 +223,7 @@
       tokenCss,
       fontsize,
       fontfamily,
+      posModeOn,
     });
 
     const updated = new Set();
@@ -261,12 +265,16 @@
     tokenCss = "",
     fontsize,
     fontfamily,
+    posModeOn = true,
   }) {
     content.style.backgroundColor = bgColor;
     content.style.color = textColor;
     content.style.setProperty("--active-bg", activeBg);
     content.style.setProperty("--font-size", fontsize || "14px");
     content.style.setProperty("--font-family", fontfamily ? `"${fontfamily}"` : "inherit");
+    if (document && document.body) {
+      document.body.setAttribute("data-pos-mode", posModeOn ? "on" : "off");
+    }
     upsertTokenStyle(tokenCss);
     upsertDynamicStyle(activeBg);
   }

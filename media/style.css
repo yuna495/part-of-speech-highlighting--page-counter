@@ -1,6 +1,14 @@
 ﻿/* media/style.css */
 :root {
   --vw-padding: 5px;
+  --ellipsis-color: #fd9bcc;
+  --dash-color: #fd9bcc;
+}
+
+/* POSハイライト無効時は句読点カラーを本文色に合わせる */
+body[data-pos-mode="off"] {
+  --ellipsis-color: currentColor;
+  --dash-color: currentColor;
 }
 
 html,
@@ -170,7 +178,7 @@ rt {
 
 /* 三点リーダ（…×N）を“縦書きの行の中央”に配置する */
 .ellipsis {
-  color: #fd9bcc;
+  color: var(--ellipsis-color);
   display: inline-block;
   width: 1em; /* 行幅1文字ぶんの箱 */
   text-align: center; /* 縦書き行内での中央揃え */
@@ -181,12 +189,12 @@ rt {
 }
 
 .dash {
-  color: #fd9bcc;
+  color: var(--dash-color);
   display: inline-block;
   width: 1em; /* 行幅1文字ぶんの箱 */
   text-align: center; /* 縦書き行内での中央揃え */
   letter-spacing: 0;
   /* ★位置調整 */
   position: relative;
-  right: -0.2em; /* ← 右にずらす。値は調整可能 */
+  right: -0.18em; /* ← 右にずらす。値は調整可能 */
 }
