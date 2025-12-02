@@ -19,3 +19,4 @@ vsc-extension-quickstart.md
 npm-debug.log*
 .github/
 **/.DS_Store
+**/*.py

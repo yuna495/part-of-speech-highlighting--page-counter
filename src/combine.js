@@ -1,18 +1,17 @@
-// src/combine.js
-// フォルダ直下の .txt / .md をファイル名順に結合し、同フォルダへ出力
-// - 右クリックされたフォルダの URI を受け取り、拡張子別に動作
-// - 連結時は OS 依存改行を '\n' に正規化、ファイル間に空行1つを挿入
-// - 既存の出力ファイルがあれば衝突回避（combined(1).ext, (2)...）
-// - 先頭/末尾の BOM は付与しない（UTF-8）
+﻿// src/combine.js
+// Combine .txt / .md files under a folder into one file.
+// - Normalize line endings to "\n" and insert one blank line between files.
+// - Avoid loading all files at once; stream sequentially to reduce memory use.
+// - Avoid BOM; write UTF-8 text.
 
 const vscode = require("vscode");
+const fs = require("fs");
 
-const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
 /**
- * 指定フォルダ直下の指定拡張子ファイルをファイル名昇順で取得
- * @returns {Promise<string[]>} 連結に使用するファイル名の配列
+ * List direct children that match an extension (case-insensitive).
+ * @returns {Promise<string[]>}
  */
 async function listFilesByExt(folderUri, ext /* ".txt" など */) {
   const entries = await vscode.workspace.fs.readDirectory(folderUri);
@@ -28,10 +27,9 @@ async function listFilesByExt(folderUri, ext /* ".txt" など */) {
 }
 
 /**
- * テキストを結合用に正規化:
- * - 改行コードを \n に統一
- * - 末尾に改行が無ければ付与
- * こうすることで複数ファイルを連結した際の段落崩れを防ぐ
+ * Normalize text for concatenation:
+ * - unify CRLF/CR to LF
+ * - ensure trailing LF
  */
 function normalizeTextForConcat(text) {
   const unified = text.replace(/\r\n?/g, "\n");
@@ -39,18 +37,13 @@ function normalizeTextForConcat(text) {
 }
 
 /**
- * フォルダにファイルを書き出す際、重複したら (1), (2)... を付けて回避
- * 既存ファイルを上書きしないよう安全側に振る
+ * Resolve duplicate output name by auto-numbering.
  */
-async function resolveCollisionFilename(
-  folderUri,
-  baseName /* "combined" */,
-  ext /* ".txt" */
-) {
+async function resolveCollisionFilename(folderUri, baseName /* "combined" */, ext) {
   let candidate = vscode.Uri.joinPath(folderUri, `${baseName}${ext}`);
   try {
     await vscode.workspace.fs.stat(candidate);
-    // 存在したら連番
+    // Exists: find an unused numbered variant
     let i = 1;
     while (true) {
       const c = vscode.Uri.joinPath(folderUri, `${baseName}(${i})${ext}`);
@@ -62,14 +55,12 @@ async function resolveCollisionFilename(
       }
     }
   } catch {
-    // 無ければそのまま
-    return candidate;
+    return candidate; // not exists
   }
 }
 
 /**
- * 中核: 結合処理
- * 実際の読み込み・正規化・書き出しを一括で面倒見る
+ * Core: sequentially read, normalize, and stream-write to reduce peak memory.
  */
 async function combineByExtension(folderUri, ext, outBaseName) {
   if (!folderUri) {
@@ -79,49 +70,50 @@ async function combineByExtension(folderUri, ext, outBaseName) {
     return;
   }
 
-  // 直下ファイルを列挙
   const files = await listFilesByExt(folderUri, ext);
   if (files.length === 0) {
-    vscode.window.showWarningMessage(
-      `このフォルダ直下に ${ext} ファイルが見つかりません。`
-    );
+    vscode.window.showWarningMessage(`このフォルダ直下に ${ext} ファイルが見つかりません。`);
     return;
   }
 
-  // 読み込み & 結合
-  // 読み込み & 結合
-  // 並列で読み込む
-  const readPromises = files.map(async (name) => {
+  const outUri = await resolveCollisionFilename(folderUri, outBaseName, ext);
+
+  let stream;
+  try {
+    stream = fs.createWriteStream(outUri.fsPath, { encoding: "utf8" });
+  } catch (e) {
+    vscode.window.showErrorMessage(`出力ファイルを開けませんでした: ${String(e)}`);
+    return;
+  }
+
+  let wroteAny = false;
+  for (const name of files) {
     const fileUri = vscode.Uri.joinPath(folderUri, name);
     try {
       const bin = await vscode.workspace.fs.readFile(fileUri);
       const text = decoder.decode(bin);
-      return normalizeTextForConcat(text);
+      const normalized = normalizeTextForConcat(text);
+      if (wroteAny) stream.write("\n"); // blank line between files
+      stream.write(normalized);
+      wroteAny = true;
     } catch (e) {
       vscode.window.showWarningMessage(`読み込み失敗: ${name} (${String(e)})`);
-      return null;
     }
+  }
+
+  await new Promise((resolve, reject) => {
+    stream.end(resolve);
+    stream.on("error", reject);
   });
 
-  const results = await Promise.all(readPromises);
-  // 失敗したものは除外
-  const parts = results.filter((r) => r !== null);
-
-  if (parts.length === 0) {
-    vscode.window.showWarningMessage("結合できる内容がありませんでした。");
+  if (!wroteAny) {
+    vscode.window.showWarningMessage("結合できる対象がありませんでした。");
+    try {
+      await vscode.workspace.fs.delete(outUri);
+    } catch {}
     return;
   }
 
-  // ファイル間に空行1つ（= \n 1行）を挿入
-  const joined = parts.join("\n");
-
-  // 出力ファイル名決定
-  const outUri = await resolveCollisionFilename(folderUri, outBaseName, ext);
-
-  // 書き出し
-  await vscode.workspace.fs.writeFile(outUri, encoder.encode(joined));
-
-  // 完了通知 & 開く
   vscode.window.showInformationMessage(`結合完了: ${outUri.fsPath}`);
   try {
     await vscode.commands.executeCommand("vscode.open", outUri);
@@ -129,8 +121,7 @@ async function combineByExtension(folderUri, ext, outBaseName) {
 }
 
 /**
- * 公開 API: .txt / .md 専用
- * 右クリックメニューから呼ばれたときに拡張子別の結合を実行する
+ * Public APIs for context menu commands
  */
 async function combineTxtInFolder(folderUri) {
   return combineByExtension(folderUri, ".txt", "combined");
