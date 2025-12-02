@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
@@ -389,7 +389,7 @@
         {
           "command": "posNote.Preview.open",
           "group": "navigation@100",
-          "when": "resourceExtname == .txt"
+          "when": "resourceExtname == .txt || resourceExtname == .md"
         }
       ],
       "explorer/context": [
@@ -755,6 +755,16 @@
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
       },
       {
+        "command": "posNote.headline.selectSection",
+        "key": "ctrl+3",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
+        "command": "posNote.headline.selectSectionBody",
+        "key": "ctrl+alt+3",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
         "command": "posNote.ruby.insertRuby",
         "key": "ctrl+alt+r",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
@@ -785,6 +795,11 @@
         "command": "posNote.convert.toKana",
         "key": "alt+.",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.convenient.countSelectedString",
+        "key": "ctrl+l",
+        "when": "editorTextFocus"
       }
     ]
   },
