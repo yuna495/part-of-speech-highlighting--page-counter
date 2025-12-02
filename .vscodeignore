@@ -19,8 +19,3 @@ vsc-extension-quickstart.md
 npm-debug.log*
 .github/
 **/.DS_Store
-.gemini/**
-task.md
-implementation_plan.md
-walkthrough.md
-**/*.test.js
