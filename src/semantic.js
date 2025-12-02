@@ -29,7 +29,7 @@ const tokenTypesArr = [
   "bracket",
   "character",
   "glossary",
-  "fwspace",
+  "space",
   "heading",
   "fencecomment",
 ];
@@ -105,21 +105,25 @@ function _escapeHtml(s) {
 }
 
 /**
- * editor.semanticTokenColorCustomizations.rules.fwspace から色を取得する。
+ * editor.semanticTokenColorCustomizations.rules.space から色を取得する。
  * - 文字列形式ならそのまま
- * - オブジェクト形式なら foreground を採用
+ * - オブジェクト形式なら:
+ *    highlight: true の場合のみ color を採用
  * - 取れなければ null
  */
-function _getFwspaceColorFromSettings() {
+function _getSpaceColorFromSettings() {
   try {
     const editorCfg = vscode.workspace.getConfiguration("editor");
     const custom = editorCfg.get("semanticTokenColorCustomizations") || {};
     const rules = custom?.rules || {};
-    const val = rules ? rules["fwspace"] : null;
+    const val = rules ? rules["space"] : null;
     if (!val) return null;
     if (typeof val === "string") return val;
-    if (typeof val === "object" && typeof val.foreground === "string") {
-      return val.foreground;
+    if (typeof val === "object") {
+      // highlight: true の場合のみ color を返す
+      if (val.highlight === true && typeof val.color === "string") {
+        return val.color;
+      }
     }
     return null;
   } catch {
@@ -565,64 +569,64 @@ class JapaneseSemanticProvider {
       wNote.onDidDelete(fire)
     );
 
-    // fwspace 背景ハイライト用
-    this._fwspaceDecoration = null;
-    this._fwspaceColor = null;
-    this._fwspaceRangesByDoc = new Map(); // key: docUri -> vscode.Range[]
+    // space 背景ハイライト用
+    this._spaceDecoration = null;
+    this._spaceColor = null;
+    this._spaceRangesByDoc = new Map(); // key: docUri -> vscode.Range[]
     context.subscriptions.push(
       vscode.workspace.onDidCloseTextDocument((doc) => {
-        this._fwspaceRangesByDoc.delete(doc.uri.toString());
+        this._spaceRangesByDoc.delete(doc.uri.toString());
       })
     );
   }
 
-  // fwspace 用の背景ハイライトを、設定色に合わせて生成・更新する
-  _ensureFwspaceDecoration() {
-    const color = _getFwspaceColorFromSettings();
+  // space 用の背景ハイライトを、設定色に合わせて生成・更新する
+  _ensureSpaceDecoration() {
+    const color = _getSpaceColorFromSettings();
     if (!color) {
-      if (this._fwspaceDecoration) {
-        this._fwspaceDecoration.dispose(); // dispose で既存描画も消す
+      if (this._spaceDecoration) {
+        this._spaceDecoration.dispose(); // dispose で既存描画も消す
       }
-      this._fwspaceDecoration = null;
-      this._fwspaceColor = null;
-      this._fwspaceRangesByDoc.clear();
+      this._spaceDecoration = null;
+      this._spaceColor = null;
+      this._spaceRangesByDoc.clear();
       return null;
     }
 
-    if (this._fwspaceDecoration && this._fwspaceColor === color) {
-      return this._fwspaceDecoration;
+    if (this._spaceDecoration && this._spaceColor === color) {
+      return this._spaceDecoration;
     }
 
-    if (this._fwspaceDecoration) {
-      this._fwspaceDecoration.dispose();
+    if (this._spaceDecoration) {
+      this._spaceDecoration.dispose();
     }
 
-    this._fwspaceDecoration = vscode.window.createTextEditorDecorationType({
+    this._spaceDecoration = vscode.window.createTextEditorDecorationType({
       backgroundColor: color,
       borderRadius: "2px",
     });
-    this._fwspaceColor = color;
-    return this._fwspaceDecoration;
+    this._spaceColor = color;
+    return this._spaceDecoration;
   }
 
   /**
-   * fwspace の背景ハイライトを適用する（部分更新対応）
+   * space の背景ハイライトを適用する（部分更新対応）
    * @param {import("vscode").TextDocument} document
    * @param {number} fromLine
    * @param {number} toLine
    * @param {import("vscode").Range[]} rangesForWindow
    */
-  _applyFwspaceDecorations(document, fromLine, toLine, rangesForWindow) {
-    const deco = this._ensureFwspaceDecoration();
+  _applySpaceDecorations(document, fromLine, toLine, rangesForWindow) {
+    const deco = this._ensureSpaceDecoration();
     if (!deco) return;
 
     const key = document.uri.toString();
-    const prev = this._fwspaceRangesByDoc.get(key) || [];
+    const prev = this._spaceRangesByDoc.get(key) || [];
     const kept = prev.filter(
       (r) => r.start.line < fromLine || r.start.line > toLine
     );
     const next = kept.concat(rangesForWindow);
-    this._fwspaceRangesByDoc.set(key, next);
+    this._spaceRangesByDoc.set(key, next);
 
     for (const ed of vscode.window.visibleTextEditors) {
       if (ed.document === document) {
@@ -795,7 +799,7 @@ class JapaneseSemanticProvider {
 
     // ★ ループは一つに統一（ネストしていた二重ループを削除）
     /** @type {import("vscode").Range[]} */
-    const fwspaceDecoRanges = [];
+    const spaceDecoRanges = [];
     let processedFrom = null;
     let processedTo = null;
 
@@ -865,9 +869,9 @@ class JapaneseSemanticProvider {
       const mask = dictRangesOutsideFence;
       const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
 
-      // (fwspace)
+      // (space)
       /** @type {Array<[number, number]>} */
-      const fwspaceRanges = [];
+      const spaceRanges = [];
       {
         // 半角スペース：2つセットはインデント扱いで非ハイライト。奇数個の余りだけ塗る。
         const reHalf = / +/g;
@@ -880,8 +884,8 @@ class JapaneseSemanticProvider {
             const s = runStart + runLen - 1;
             const e = s + 1;
             if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-              fwspaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
-              fwspaceDecoRanges.push(
+              spaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
+              spaceDecoRanges.push(
                 new vscode.Range(
                   new vscode.Position(line, s),
                   new vscode.Position(line, e)
@@ -898,8 +902,8 @@ class JapaneseSemanticProvider {
           const s = mFull.index;
           const e = s + 1;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-            fwspaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
-            fwspaceDecoRanges.push(
+            spaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
+            spaceDecoRanges.push(
               new vscode.Range(
                 new vscode.Position(line, s),
                 new vscode.Position(line, e)
@@ -939,9 +943,9 @@ class JapaneseSemanticProvider {
             segs,
             fenceSegs.map(([s, e]) => ({ start: s, end: e }))
           );
-          // ★追加：fwspace も括弧上書きから除外
+          // ★追加：space も括弧上書きから除外
           const maskForBracket = dictRangesOutsideFence.concat(
-            fwspaceRanges.map(([s, e]) => ({ start: s, end: e }))
+            spaceRanges.map(([s, e]) => ({ start: s, end: e }))
           );
           const rest = subtractMaskedIntervals(
             segsOutsideFence,
@@ -978,11 +982,11 @@ class JapaneseSemanticProvider {
     }
 
     if (processedFrom !== null && processedTo !== null) {
-      this._applyFwspaceDecorations(
+      this._applySpaceDecorations(
         document,
         processedFrom,
         processedTo,
-        fwspaceDecoRanges
+        spaceDecoRanges
       );
     }
 

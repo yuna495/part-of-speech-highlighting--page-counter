@@ -141,7 +141,7 @@
       },
       {
         "scopes": {
-          "fwspace": [
+          "space": [
             "whitespace"
           ]
         }
@@ -730,9 +730,9 @@
           "character": "#ff0000",
           "glossary": "#ffff00",
           "fencecomment": "#f0f0c0",
-          "fwspace": {
-            "underline": true,
-            "foreground": "#ff000044"
+          "space": {
+            "highlight": true,
+            "color": "#ff000044"
           },
           "heading": "#ff14e0"
         }

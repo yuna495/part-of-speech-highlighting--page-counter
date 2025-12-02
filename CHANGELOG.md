@@ -2,6 +2,17 @@
 
 All notable changes to this extension are documented here.
 
+## [2.3.5]
+
+### **注意**：ReadMeを確認してください
+
+- `fwspace` 設定を `space` に変更し、構造を `{ highlight: boolean, color: string }` に刷新しました。
+- **既存の `fwspace` 設定は無効になりますので、`space` に移行**してください。
+
+### 変更
+
+- インデント（偶数半角スペース）はハイライトしないように変更
+
 ## [2.3.4] - 2025/12/01
 
 ### 追加・変更

@@ -4,6 +4,17 @@
 
 - [品詞ごとの色分け（semantic token）](#highlight)
   - 括弧・記号・全角スペースの強調表示
+  - 全角スペースのハイライト設定について
+  v2.3.5 より、全角スペースのハイライト設定が `fwspace` から `space` に変更されました。
+  `editor.semanticTokenColorCustomizations` 内で以下のように設定します。
+
+  ```json
+  "space": {
+    "highlight": true,  // true で有効、false で無効
+    "color": "#ff000044" // ハイライトの色（RGBAなど）
+  }
+  ```
+
   - 括弧内ハイライトの ON/OFF 切り替え
   - [辞書登録による別途ハイライト](#dictionary)
 
@@ -421,14 +432,14 @@ setting.jsonにて、変更可能。数値はデフォルト値。
       "other"："#9e9e9e",       // その他
 
       // ユーザー辞書（最優先）
-      "charcter"：#ff0000,      // characters.json指定項目
-      "glossary"：#ffff00,      // glossary.json指定項目
+      "charcter"："#ff0000",      // characters.json指定項目
+      "glossary"："#ffff00",      // glossary.json指定項目
 
       // 特殊トークン
       "bracket"："#fd9bcc",     // 括弧と括弧内文書
-      "fwspace"：{                // 全角スペース
-        "underline"：true,
-        "foreground"："#ff000044"
+      "space"：{                // 全角スペース
+        "highlight"：true,      // 背景色を塗るかどうか
+        "color"："#ff000044"    // 色指定
       },
       "heading"："#ff14e0" ,     // 見出しカラー
       "fencecomment"："#f0f0c0", // コードフェンスカラー
