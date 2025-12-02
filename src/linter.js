@@ -8,7 +8,7 @@ const {
   findExclamQuestionSpaceDiagnostics,
   maskCodeBlocks,
   fenceStateBefore,
-} = require("./original");
+} = require("./linter_original_rules");
 
 let pluginText = null;
 try {
@@ -20,6 +20,7 @@ try {
 
 let pluginMarkdown = null;
 try {
+  // @ts-ignore
   pluginMarkdown = require("@textlint/textlint-plugin-markdown");
 } catch (e) {
   // markdown plugin は任意
@@ -107,7 +108,7 @@ function finishWithCachedCount(doc) {
 
 // ===== 2) 実行条件／トリガー共通化 =====
 function shouldLintOnSave(docUriString, reason) {
-  const cfg = vscode.workspace.getConfiguration("textlintKernelLinter");
+  const cfg = vscode.workspace.getConfiguration("posNote.linter");
   const lintOnAutoSave = cfg.get("lintOnAutoSave", false); // 既定: false
 
   // Auto Save を無効にしている場合は、手動保存のみ
@@ -197,9 +198,14 @@ const DEFAULT_RULES = {
     "3.1.2.全角文字どうし": false,
     "3.3.かっこ類と隣接する文字の間のスペースの有無": false,
     "4.2.9.ダッシュ(-)": false,
+    "4.3.1.丸かっこ（）": false,
+    "4.3.2.大かっこ［］": false,
+    "4.3.3.かぎかっこ「」": false,
+    "4.3.4.二重かぎかっこ『』": false,
     "4.3.5.二重引用符\" \"": false,
     "4.3.6.中かっこ{ }": false,
     "4.3.7.山かっこ<>": false,
+    "4.3.8.一重引用符' '": false,
   },
   "no-doubled-conjunction": true,
   "ja-no-abusage": true,
@@ -275,6 +281,9 @@ const normalizeRuleExport = (r) => {
   return null;
 };
 
+/**
+ * @returns {{ type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }}
+ */
 const normalizeRuleModule = (mod) => {
   const m = mod?.default ?? mod;
   if (m && typeof m.rules === "object") {
@@ -326,7 +335,7 @@ function buildKernelOptions() {
   // ユーザー設定を読み、デフォルトとマージ（ユーザー優先）
   let userRules = {};
   try {
-    const cfg = vscode.workspace.getConfiguration("textlintKernelLinter");
+    const cfg = vscode.workspace.getConfiguration("posNote.linter");
     userRules = cfg.get("rules") || {};
   } catch (e) {
     channel.appendLine("[warn] ユーザー設定 rules 読み込み失敗: " + e.message);
@@ -342,6 +351,7 @@ function buildKernelOptions() {
   const nested = Object.entries(mergedRules).filter(([k]) => !k.includes("/"));
 
   // どれが preset か知るため先に形だけ読み込む
+  /** @type {[string, { type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }][]} */
   const loadedModules = [];
   for (const [pkg, baseId] of OPTIONAL_RULES) {
     try {
@@ -578,7 +588,6 @@ async function lintDocumentIncremental(doc, collection) {
         ext,
         plugins,
         rules,
-        rulesConfig: {},
       });
       const diagnostics = toDiagnostics(uri, result.messages || []);
       // 句読点連続の独自診断を追加
@@ -600,7 +609,7 @@ async function lintDocumentIncremental(doc, collection) {
     const changed = computeChangedRanges(cached.textLines, nextLines);
     const prevErr = rangesFromPrevDiagnostics(nextLines, cached.diagnostics);
     const contextLines = vscode.workspace
-      .getConfiguration("textlintKernelLinter")
+      .getConfiguration("posNote.linter")
       .get("incrementalContext", 2);
 
     let targetRanges = [];
@@ -655,7 +664,6 @@ async function lintDocumentIncremental(doc, collection) {
         ext,
         plugins,
         rules,
-        rulesConfig: {},
       });
 
       // slice 内の 1-based loc を元行へオフセット

@@ -15,3 +15,12 @@ vsc-extension-quickstart.md
 **/*.test.*
 **/__tests__/**
 **/*.svg
+*.log
+npm-debug.log*
+.github/
+**/.DS_Store
+.gemini/**
+task.md
+implementation_plan.md
+walkthrough.md
+**/*.test.js

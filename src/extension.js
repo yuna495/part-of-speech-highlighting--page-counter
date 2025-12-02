@@ -70,6 +70,9 @@ function cfg() {
 
     // 括弧補完の方式
     bracketsBackspacePairDelete: c.get("brackets.backspacePairDelete", true), // ← 追加：互換モードでのみ true 推奨
+
+    // Linter
+    linterEnabled: c.get("linter.enabled", false),
   };
 }
 
@@ -97,6 +100,12 @@ function activate(context) {
   initHeadingSidebar(context, { cfg, isTargetDoc });
   initMinimapHighlight(context, { cfg, isTargetDoc });
   initSidebarUtilities(context);
+
+  // --- 9-1.5) Linter (Optional)
+  const linter = require("./linter");
+  if (cfg().linterEnabled) {
+    linter.activate(context);
+  }
 
   // --- 9-2) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });

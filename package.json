@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
@@ -619,6 +619,11 @@
             "type": "boolean",
             "default": true,
             "description": "禁則処理（行頭禁則）を有効化。"
+          },
+          "posNote.linter.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "文章校正（textlint）機能を有効化する（要再起動）。"
           }
         }
       },
@@ -788,7 +793,18 @@
     "package": "vsce package || echo 'Install @vscode/vsce if missing'"
   },
   "dependencies": {
-    "kuromoji": "^0.1.2"
+    "kuromoji": "^0.1.2",
+    "@textlint/kernel": "^13.4.1",
+    "@textlint/textlint-plugin-markdown": "^12.6.1",
+    "@textlint/textlint-plugin-text": "^12.6.1",
+    "textlint-rule-ja-no-abusage": "^3.0.0",
+    "textlint-rule-ja-no-redundant-expression": "^4.0.1",
+    "textlint-rule-ja-unnatural-alphabet": "^2.0.1",
+    "textlint-rule-max-ten": "^5.0.0",
+    "textlint-rule-no-doubled-conjunction": "^3.0.0",
+    "textlint-rule-no-doubled-joshi": "^5.1.0",
+    "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet": "^1.0.1",
+    "textlint-rule-preset-jtf-style": "^3.0.2"
   },
   "devDependencies": {
     "@types/node": "20.x",
