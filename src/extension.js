@@ -18,8 +18,7 @@ const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
-const { registerHeadlineSupport, refreshHeadingCounts } = require("./headline");
-const { registerHeadingSymbolProvider } = require("./headline_symbols");
+const { registerHeadlineSupport, refreshHeadingCounts, registerHeadingSymbolProvider } = require("./headline");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
 const { registerConversionCommands } = require("./conversion");
@@ -303,4 +302,3 @@ function deactivate() {
 }
 
 module.exports = { activate, deactivate };
-

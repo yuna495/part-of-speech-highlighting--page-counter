@@ -127,14 +127,11 @@ class HeadingsProvider {
     }
 
     const items = [];
-    for (let i = 0; i < doc.lineCount; i++) {
-      const text = doc.lineAt(i).text;
-      const lvl = getHeadingLevel(text);
-      if (lvl > 0) {
-        const label = stripHeadingMarkup(text);
-        const countText = countByLine.get(i) || "";
-        items.push(new HeadingNode(label, doc.uri, i, lvl, countText));
-      }
+    // metrics.items は既に見出し行のみのリストなので、これを回すだけで良い
+    for (const m of metrics) {
+      const label = stripHeadingMarkup(m.text);
+      const countText = countByLine.get(m.line) || "";
+      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
     }
     this._items = items;
     return items;

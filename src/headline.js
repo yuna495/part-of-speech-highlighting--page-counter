@@ -46,37 +46,45 @@ const foldDocVersionAtFold = new Map(); // key: uriString, value: document.versi
 // 現在行が「見出し level>=minLevel の本文」に含まれていれば、その見出し行番号を返す
 // 折りたたみ復元時にカーソル位置を安全に戻すための計算
 function findEnclosingHeadingLineFor(doc, line, minLevel) {
-  let hLine = -1,
-    hLevel = 0;
-  for (let i = line; i >= 0; i--) {
-    const lvl = getHeadingLevel(doc.lineAt(i).text);
-    if (lvl > 0) {
-      hLine = i;
-      hLevel = lvl;
-      break;
-    }
-  }
-  if (hLine < 0 || hLevel < Math.max(1, Math.min(6, minLevel))) return -1;
+  const headings = getHeadingsCached(doc);
+  const targetLevel = Math.max(1, Math.min(6, minLevel));
 
-  for (let j = hLine + 1; j < doc.lineCount; j++) {
-    const lvl2 = getHeadingLevel(doc.lineAt(j).text);
-    if (lvl2 > 0 && lvl2 <= hLevel) {
-      return line > hLine && line < j ? hLine : -1;
+  // 直近の上位見出しを探す（逆順探索）
+  let foundHeading = null;
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h.line <= line) {
+      if (h.level >= targetLevel) {
+        // 候補発見。ただし、これが「包含」しているか確認が必要
+        // つまり、次の「同レベル以上の見出し」より前であること
+        foundHeading = h;
+        // チェック用に次の見出しを探す
+        for (let j = i + 1; j < headings.length; j++) {
+          const next = headings[j];
+          if (next.level <= h.level) {
+            // 次の同レベル以上の見出しが、現在行(line)より前（あるいは同じ）なら、
+            // 現在行は foundHeading の範囲外（次のセクション）にある
+            if (next.line <= line) {
+              return -1;
+            }
+            break;
+          }
+        }
+        return h.line;
+      }
     }
   }
-  return line > hLine ? hLine : -1;
+  return -1;
 }
 
 // 見出しレベルが minLevel 以上の見出し「行番号」リスト
 // 全折/展開の対象行をまとめて選択するために使用
 function collectHeadingLinesByMinLevel(document, minLevel) {
-  const lines = [];
-  for (let i = 0; i < document.lineCount; i++) {
-    const text = document.lineAt(i).text;
-    const lvl = getHeadingLevel(text);
-    if (lvl > 0 && lvl >= Math.max(1, Math.min(6, minLevel))) lines.push(i);
-  }
-  return lines;
+  const headings = getHeadingsCached(document);
+  const targetLevel = Math.max(1, Math.min(6, minLevel));
+  return headings
+    .filter((h) => h.level >= targetLevel)
+    .map((h) => h.line);
 }
 
 // 見出しジャンプ用ヘルパー（最適化版：キャッシュを利用）
@@ -440,6 +448,104 @@ class HeadingFoldingProvider {
 }
 
 /**
+ * # をシンボル化する Provider
+ * - レベル1..6を階層化して DocumentSymbol ツリーを返す
+ * - Markdown は VS Code 既定があるため対象外（衝突回避）
+ */
+class HeadingSymbolProvider {
+  // DocumentSymbolProvider インターフェースの実装本体
+  provideDocumentSymbols(document, token) {
+    if (token?.isCancellationRequested) return [];
+
+    // 言語フィルタ（.txt / novel のみ）
+    const lang = (document.languageId || "").toLowerCase();
+    if (!(lang === "plaintext" || lang === "novel")) {
+      return [];
+    }
+
+    // 見出し行の収集（キャッシュ利用）
+    const heads = getHeadingsCached(document);
+    if (heads.length === 0) return [];
+
+    // 行→範囲→DocumentSymbol を生成し、レベルでネストさせる
+    const syms = [];
+    const stack = []; // { level, sym }
+
+    for (let idx = 0; idx < heads.length; idx++) {
+      const { line, level, text } = heads[idx];
+
+      // endLine の計算（次の同レベル以上の見出し直前まで）
+      let endLine = document.lineCount - 1;
+      for (let j = idx + 1; j < heads.length; j++) {
+        if (heads[j].level <= level) {
+          endLine = heads[j].line - 1;
+          break;
+        }
+      }
+
+      // タイトル文字列を整形（先頭 # を除去して trim）
+      const title = text.replace(/^#+\s*/, "").trim() || `Heading L${level}`;
+
+      // 表示に使う kind は Section が最も自然（Namespace でも可）
+      const range = new vscode.Range(
+        line,
+        0,
+        endLine,
+        document.lineAt(endLine).text.length
+      );
+      const selectionRange = new vscode.Range(
+        line,
+        0,
+        line,
+        document.lineAt(line).text.length
+      );
+      const sym = new vscode.DocumentSymbol(
+        title,
+        "", // detail は空に（必要なら文字数など入れても可）
+        vscode.SymbolKind.Namespace,
+        range,
+        selectionRange
+      );
+
+      // スタックを使って親子関係を形成
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        syms.push(sym);
+      } else {
+        stack[stack.length - 1].sym.children.push(sym);
+      }
+      stack.push({ level, sym });
+    }
+
+    return syms;
+  }
+}
+
+/**
+ * Provider 登録
+ * アウトライン・パンくず・Sticky Scroll などに見出しを供給する
+ */
+function registerHeadingSymbolProvider(context) {
+  const selector = [
+    { language: "plaintext", scheme: "file" },
+    { language: "plaintext", scheme: "untitled" },
+    { language: "novel", scheme: "file" },
+    { language: "novel", scheme: "untitled" },
+    { language: "Novel", scheme: "file" }, // 保険
+    { language: "Novel", scheme: "untitled" }, // 保険
+  ];
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSymbolProvider(
+      selector,
+      new HeadingSymbolProvider()
+    )
+  );
+}
+
+/**
  * 見出し機能の初期化（コマンド／プロバイダ／イベントをまとめて登録）
  * @param {vscode.ExtensionContext} context
  * @param {{ cfg: () => any, isTargetDoc: (doc:any, c:any)=>boolean, sb: any, semProvider?: { fireDidChange?: ()=>void } }} opt
@@ -570,5 +676,6 @@ function updateHeadingCountDecorations(ed, cfg) {
 
 module.exports = {
   registerHeadlineSupport,
+  registerHeadingSymbolProvider,
   refreshHeadingCounts,
 };

@@ -1,11 +1,12 @@
-// status_bar.js
-// ステータスバー：ページ/行（原稿用紙風）、文字数（選択→なければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
+﻿// status_bar.js
+// ステータスバー：ページ/行（原稿用紙風。文字数＝選択がなければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
 // ＋ 同フォルダ・同拡張子「他ファイル」合算文字数（トグル可）
 
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
+const { TextDecoder } = require("util");
 
 const {
   getHeadingLevel,
@@ -15,37 +16,36 @@ const {
   loadNoteSettingForDoc,
   getHeadingMetricsCached,
 } = require("./utils");
-// const { getHeadingCharMetricsCached } = require("./headline_symbols"); // 廃止
 
 // ------- 内部 state -------
 let _statusBarItem = null;
 let _limitItem = null; // 期限表示用
 let _debouncer = null;
 let _idleRecomputeTimer = null;
-let _enabledNote = true; // ページ情報表示のON/OFF（トグル用）
+let _enabledNote = true; // ページ表示のON/OFF（トグル用）
 let _metrics = null; // computeNoteMetrics の結果（キャッシュ）
-let _deltaFromHEAD = { key: null, value: null }; // ファイル単体の±
+let _deltaFromHEAD = { key: null, value: null }; // ファイル単体の差分
 let _helpers = null; // { cfg, isTargetDoc }
 let _folderSumChars = null; // 同フォルダ・同拡張子（他ファイル）合算文字数
 let _precountTotalForThisTick = null; // 一時的に受け取る表示用総文字数
 
-// デフォルトの禁則文字（行頭禁止）
+// デフォルトの禁則先頭文字（行頭禁止）
 const DEFAULT_BANNED_START = [
-  "」",
-  "）",
-  "『",
-  "』",
-  "》",
-  "】",
-  "。",
   "、",
+  "。", // 句点・読点
+  "，",
+  "．",
+  "？",
+  "！",
+  "」",
+  "』",
+  "】",
+  "〉",
+  "》",
   "’",
   "”",
-  "！",
-  "？",
   "…",
-  "—",
-  "―",
+  "‥",
   "ぁ",
   "ぃ",
   "ぅ",
@@ -56,9 +56,6 @@ const DEFAULT_BANNED_START = [
   "ょ",
   "っ",
   "ー",
-  "々",
-  "ゞ",
-  "ゝ",
   "ァ",
   "ィ",
   "ゥ",
@@ -70,7 +67,7 @@ const DEFAULT_BANNED_START = [
   "ッ",
 ];
 
-// 設定から禁則文字リストを取得し、未設定なら既定値を返す
+// 設定から禁則リストを取得し、未設定なら既定値を返す
 function getBannedStart() {
   const config = vscode.workspace.getConfiguration("posNote");
   const userValue = config.get("kinsoku.bannedStart");
@@ -100,7 +97,7 @@ function initStatusBar(context, helpers) {
   );
   context.subscriptions.push(_limitItem);
 
-  // 初回：アクティブエディタの情報で初期化
+  // 初回：アクティブエディタの有無で初期化
   const refreshLimit = async (doc) => {
     try {
       await updateLimitStatusFor(doc);
@@ -162,15 +159,7 @@ function initStatusBar(context, helpers) {
 }
 
 // ------- 低レベル util -------
-// 改行を除いた文字数を Array.from ベースで数える
-function countCharsNoLF(text) {
-  return Array.from((text || "").replace(/\r\n/g, "\n")).filter(
-    (ch) => ch !== "\n"
-  ).length;
-}
-
 // 3桁区切りフォーマッタ（日本語ロケール）
-// 3桁区切りで整形するフォーマッタ（日本語ロケール）
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
@@ -319,7 +308,7 @@ function computeNoteMetrics(doc, c, selection) {
   // 全文（CRLF→LF 正規化）
   const fullText = doc.getText().replace(/\r\n/g, "\n");
 
-  // 共有ロジックに一本化（キャッシュ付き）
+  // 見出しロジックに一本化（キャッシュ付き）
   const { items, total } = getHeadingMetricsCached(doc, c, vscode);
   const totalChars =
     items.length > 0 ? total : countCharsForDisplay(fullText, c);
@@ -384,7 +373,7 @@ function readFileAtHEAD(gitRoot, relPath) {
 }
 // 現在/HEAD（編集中ファイル単体）
 // HEAD と現在編集中ファイルの文字数差分を得るため HEAD 側文字数を計算
-function _computeFileCharsAtHEAD(editor) {
+function _computeFileCharsAtHEAD(editor, c) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
   if (!fsPath) return { key: null, value: null };
@@ -396,19 +385,21 @@ function _computeFileCharsAtHEAD(editor) {
   const content = readFileAtHEAD(gitRoot, rel);
   if (content == null) return { key: fsPath, value: null };
 
-  return { key: fsPath, value: countCharsNoLF(content) };
+  return { key: fsPath, value: countCharsForDisplay(content, c) };
 }
 // 現在編集中ファイルの文字数を取得
-function _computeFileCharsCurrent(editor) {
+function _computeFileCharsCurrent(editor, c) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
   if (!fsPath) return { key: null, value: null };
-  return { key: fsPath, value: countCharsNoLF(doc.getText()) };
+  return { key: fsPath, value: countCharsForDisplay(doc.getText(), c) };
 }
 // HEAD と現在の文字数差を再計算して内部キャッシュに保持する
 function _recomputeFileDelta(editor) {
-  const head = _computeFileCharsAtHEAD(editor);
-  const curr = _computeFileCharsCurrent(editor);
+  const { cfg } = _helpers;
+  const c = cfg();
+  const head = _computeFileCharsAtHEAD(editor, c);
+  const curr = _computeFileCharsCurrent(editor, c);
   if (head.key) {
     _deltaFromHEAD.key = head.key;
     _deltaFromHEAD.value =
@@ -421,48 +412,44 @@ function _recomputeFileDelta(editor) {
 // ------- ★追加：同フォルダ・同拡張子（他ファイル）合算 -------
 // 同フォルダ・同拡張子の合算（★編集中ファイルも含む。未保存の変更も反映）
 // 同フォルダ・同拡張子のファイルを巡回して総文字数を合算する
-function computeFolderSumChars(editor, c) {
+async function computeFolderSumChars(editor, c) {
   try {
     const doc = editor?.document;
     const uri = doc?.uri;
     if (!uri || uri.scheme !== "file") return null;
 
     const currentPath = uri.fsPath;
-    const dir = path.dirname(currentPath);
+    const dirUri = uri.with({ path: path.dirname(uri.path) });
     const ext = path.extname(currentPath).toLowerCase();
     if (!ext) return null;
 
     // 1) まず編集中のドキュメントをカウント（未保存の内容も反映）
-    //    他ファイルと同じカウント規則（countCharsForDisplay）を使用
     let sum = countCharsForDisplay(doc.getText(), c);
 
     // 2) 同フォルダにある同拡張子の"他ファイル"を加算
-    const names = fs.readdirSync(dir);
-    for (const name of names) {
-      if (path.extname(name).toLowerCase() !== ext) continue;
+    // 非同期で取得
+    const entries = await vscode.workspace.fs.readDirectory(dirUri);
 
-      const full = path.join(dir, name);
-      // ファイルのみ対象
-      let st;
+    // 読み込みプロミスを生成
+    const promises = entries.map(async ([name, type]) => {
+      if (type !== vscode.FileType.File) return 0;
+      if (path.extname(name).toLowerCase() !== ext) return 0;
+
+      const fileUri = vscode.Uri.joinPath(dirUri, name);
+      // 自分自身はスキップ（fsPathで比較）
+      if (fileUri.fsPath === currentPath) return 0;
+
       try {
-        st = fs.statSync(full);
+        const bin = await vscode.workspace.fs.readFile(fileUri);
+        const content = new TextDecoder("utf-8").decode(bin);
+        return countCharsForDisplay(content, c);
       } catch {
-        continue;
+        return 0;
       }
-      if (!st.isFile()) continue;
+    });
 
-      // 自分はすでに加算済みなのでスキップ
-      if (path.resolve(full) === path.resolve(currentPath)) continue;
-
-      // 他ファイルも countCharsForDisplay を厳密適用
-      let content;
-      try {
-        content = fs.readFileSync(full, "utf8");
-      } catch {
-        continue;
-      }
-      sum += countCharsForDisplay(content, c);
-    }
+    const counts = await Promise.all(promises);
+    for (const n of counts) sum += n;
 
     return sum;
   } catch {
@@ -471,7 +458,7 @@ function computeFolderSumChars(editor, c) {
 }
 
 // 表示対象かつ設定ONの場合にフォルダ合算文字数を更新する
-function recomputeFolderSum(editor) {
+async function recomputeFolderSum(editor) {
   const { cfg, isTargetDoc } = _helpers;
   if (!editor) {
     _folderSumChars = null;
@@ -486,7 +473,16 @@ function recomputeFolderSum(editor) {
     _folderSumChars = null;
     return;
   }
-  _folderSumChars = computeFolderSumChars(editor, c);
+
+  // 非同期計算
+  const sum = await computeFolderSumChars(editor, c);
+
+  // 計算完了時点でエディタが変わっていなければ適用
+  const currentEd = vscode.window.activeTextEditor;
+  if (currentEd && currentEd.document.uri.toString() === editor.document.uri.toString()) {
+    _folderSumChars = sum;
+    updateStatusBar(currentEd);
+  }
 }
 
 // ------- メイン処理（公開APIで呼ばれる） -------
@@ -517,10 +513,10 @@ function updateStatusBar(editor) {
     return;
   }
 
-  // 「小説対象の文書か」を先に判定
+  // 「小説対象の文字列か」を先に判定
   const targetDoc = isTargetDoc(editor.document, c);
 
-  // 1) ページ情報は「対象文書かつ有効時のみ」
+  // 1) ページ表示は「対象文字列かつ有効時のみ」
   let headPart = "";
   if (targetDoc && c.enabledNote && _enabledNote) {
     const mm = _metrics ?? {
@@ -535,7 +531,7 @@ function updateStatusBar(editor) {
     )}（${fmt(c.rowsPerNote)}×${fmt(c.colsPerRow)}）`;
   }
 
-  // 2) 字=選択文字数（未選択時は全体）…拡張子を問わず常に可
+  // 2) 選択文字数（非選択時は全体）…拡張子を問わず常に可
   let selPart = "";
   if (c.showSelectedChars) {
     const selections = editor.selections?.length
@@ -554,7 +550,7 @@ function updateStatusBar(editor) {
 
     const shown = selCnt > 0 ? selCnt : baseTotal;
 
-    // 同フォルダ合算は従来どおり「対象文書時のみ」
+    // 同フォルダ合算は従来どおり「対象文字列時のみ」
     if (targetDoc && c.showFolderSum && _folderSumChars != null) {
       selPart = `${fmt(shown)}字 / ${fmt(_folderSumChars)}`;
     } else {
@@ -570,7 +566,7 @@ function updateStatusBar(editor) {
     deltaPart = ` ${sign}${fmt(Math.abs(d))}`;
   }
 
-  // 4) いずれも空なら隠す（例: 全表示オフ）
+  // 4) どれも空なら隠す（例: 全表示オフ）
   if (!headPart && !selPart && !deltaPart) {
     _statusBarItem.hide();
     return;
@@ -586,24 +582,24 @@ function updateStatusBar(editor) {
   // 6) ツールチップ
   const tips = [];
   if (headPart)
-    tips.push("選択位置/全体ページ｜行=最終文字が最後のページの何行目か");
+    tips.push("選択位置/全体ページ＋末尾文字が最後のページの何行目か");
   if (c.showSelectedChars)
     tips.push(
       targetDoc && c.showFolderSum
-        ? "字=選択文字数（改行除外）※未選択時は全体文字数／同フォルダ同拡張子 合算（編集中ファイルを含む）"
-        : "字=選択文字数（改行除外）※未選択時は全体文字数"
+        ? "選択文字数（改行除外）※未選択時は全体文字数＋同フォルダ同拡張子合算（編集中ファイルを含む）"
+        : "選択文字数（改行除外）※未選択時は全体文字数"
     );
   if (c.showDeltaFromHEAD) tips.push("±=HEAD(直近コミット)からの増減");
-  _statusBarItem.tooltip = tips.join("｜");
+  _statusBarItem.tooltip = tips.join(" / ");
 
-  // 7) クリックコマンドはページ情報があるときのみ
+  // 7) クリックコマンドはページ表示があるときのみ
   _statusBarItem.command = headPart ? "posNote.setNoteSize" : undefined;
 
   // 8) 表示
   _statusBarItem.show();
 }
 
-// 入力の度に連続して再計算しすぎないよう、更新処理をディレイさせる
+// 入力頻度に応じて再計算しすぎないよう、更新処理をディレイさせる
 function scheduleUpdate(editor) {
   const { cfg } = _helpers;
   const c = cfg();
@@ -620,7 +616,7 @@ function scheduleUpdate(editor) {
 }
 
 // ------- events hooks -------
-// 保存時に最新情報へ更新する（対象ファイルのみ）
+// 保存時に最新差分へ更新する（対象ファイルのみ）
 function recomputeOnSaveIfNeeded(savedDoc) {
   const ed = vscode.window.activeTextEditor;
   if (!ed || savedDoc !== ed.document) return;
@@ -629,7 +625,7 @@ function recomputeOnSaveIfNeeded(savedDoc) {
   recomputeFolderSum(ed);
   updateStatusBar(ed);
 }
-// アクティブエディタが切り替わったときに差分や合算をリフレッシュ
+// アクティブエディタが切り替わったときに差分・合算をリフレッシュ
 function onActiveEditorChanged(ed) {
   if (!ed) return;
   _recomputeFileDelta(ed);
@@ -639,14 +635,14 @@ function onActiveEditorChanged(ed) {
 }
 // 選択変更に応じて文字数・ページ情報を更新
 function onSelectionChanged(editor) {
-  // 選択だけでは合算は再計算しない（重いI/Oを避ける）
+  // 選択だけでは合算を再計算しない（重いI/Oを避ける）
   recomputeAndCacheMetrics(editor);
   updateStatusBar(editor);
 }
 // 設定変更を反映し、必要な再計算を行う
 function onConfigChanged(editor) {
   recomputeAndCacheMetrics(editor);
-  recomputeFolderSum(editor); // （設定変更に追随）
+  recomputeFolderSum(editor); // 設定変更に追随
   scheduleUpdate(editor);
 }
 
@@ -664,7 +660,7 @@ async function cmdToggleNote() {
   _enabledNote = !_enabledNote;
   updateStatusBar(vscode.window.activeTextEditor);
   vscode.window.showInformationMessage(
-    `ページカウンタ: ${_enabledNote ? "有効化" : "無効化"}`
+    `ページカウンタ: ${_enabledNote ? "有効" : "無効"}`
   );
 }
 // コマンド: 原稿用紙の行数・列数をインタラクティブに変更する
@@ -702,9 +698,7 @@ async function cmdSetNoteSize() {
     recomputeFolderSum(ed);
     updateStatusBar(ed);
   }
-  vscode.window.showInformationMessage(
-    `行×列を ${rows}×${cols} に変更しました`
-  );
+  vscode.window.showInformationMessage(`行×桁を ${rows}×${cols} に変更しました`);
 }
 
 module.exports = { initStatusBar, getBannedStart, scheduleUpdateWithPrecount };

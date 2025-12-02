@@ -1,6 +1,6 @@
 // minimap_highlight.js
 const vscode = require("vscode");
-const { getHeadingLevel } = require("./utils");
+const { getHeadingLevel, getHeadingsCached } = require("./utils");
 
 /** 見出しレベルごとに別デコレーション（ミニマップ前景色） */
 // レベルごとに異なる色を割り当てて可視化するための設定を生成する
@@ -29,17 +29,18 @@ function makeDecorationTypes() {
 
 /** 現在のエディタから見出し行の Range を抽出（レベル別） */
 // H1〜H6 で配列を分け、デコレーションにそのまま渡せる形にする
+// H1〜H6 で配列を分け、デコレーションにそのまま渡せる形にする
 function collectHeadingRanges(editor) {
   const doc = editor.document;
+  const headings = getHeadingsCached(doc);
   const byLevel = [[], [], [], [], [], []]; // H1..H6
-  for (let i = 0; i < doc.lineCount; i++) {
-    const text = doc.lineAt(i).text;
-    const lv = getHeadingLevel(text);
-    if (lv > 0) {
-      // isWholeLine:true なので 0〜0 でも行全体に効く
-      const pos = new vscode.Position(i, 0);
-      byLevel[Math.min(lv, 6) - 1].push(new vscode.Range(pos, pos));
-    }
+
+  for (const h of headings) {
+    // isWholeLine:true なので 0〜0 でも行全体に効く
+    const pos = new vscode.Position(h.line, 0);
+    // h.level は 1〜6 が保証されているはずだが念のため clamp
+    const lvIdx = Math.min(Math.max(h.level, 1), 6) - 1;
+    byLevel[lvIdx].push(new vscode.Range(pos, pos));
   }
   return byLevel;
 }

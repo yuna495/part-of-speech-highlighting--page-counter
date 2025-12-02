@@ -89,17 +89,23 @@ async function combineByExtension(folderUri, ext, outBaseName) {
   }
 
   // 読み込み & 結合
-  const parts = [];
-  for (const name of files) {
+  // 読み込み & 結合
+  // 並列で読み込む
+  const readPromises = files.map(async (name) => {
     const fileUri = vscode.Uri.joinPath(folderUri, name);
     try {
       const bin = await vscode.workspace.fs.readFile(fileUri);
       const text = decoder.decode(bin);
-      parts.push(normalizeTextForConcat(text));
+      return normalizeTextForConcat(text);
     } catch (e) {
       vscode.window.showWarningMessage(`読み込み失敗: ${name} (${String(e)})`);
+      return null;
     }
-  }
+  });
+
+  const results = await Promise.all(readPromises);
+  // 失敗したものは除外
+  const parts = results.filter((r) => r !== null);
 
   if (parts.length === 0) {
     vscode.window.showWarningMessage("結合できる内容がありませんでした。");

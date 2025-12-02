@@ -9,6 +9,7 @@ All notable changes to this extension are documented here.
 - notesetting.json の読み込みを utils.js に一本化し、各機能の設定参照を共通化
 - 見出し折りたたみレベルを notesetting.json の `headings_folding_level` で上書きできるように変更（0 の場合は設定の `posNote.headings.foldMinLevel` を使用）
 - 見出しジャンプを追加：`Ctrl+Alt+W` で直前の見出し行、`Ctrl+Alt+I` で直後の見出し行へ移動（.txt / .md / novel 対応）
+- プレビュー画面の自動更新設定の追加（デフォルト：true）
 
 ### 修正
 
