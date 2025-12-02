@@ -869,13 +869,36 @@ class JapaneseSemanticProvider {
       /** @type {Array<[number, number]>} */
       const fwspaceRanges = [];
       {
-        const re = /[ 　]/g;
-        let m;
-        while ((m = re.exec(text)) !== null) {
-          const s = m.index,
-            e = s + 1;
+        // 半角スペース：2つセットはインデント扱いで非ハイライト。奇数個の余りだけ塗る。
+        const reHalf = / +/g;
+        let mHalf;
+        while ((mHalf = reHalf.exec(text)) !== null) {
+          const runStart = mHalf.index;
+          const runLen = mHalf[0].length;
+          // 余りが1のときだけ最後の1文字をハイライト対象にする
+          if (runLen % 2 === 1) {
+            const s = runStart + runLen - 1;
+            const e = s + 1;
+            if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+              fwspaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
+              fwspaceDecoRanges.push(
+                new vscode.Range(
+                  new vscode.Position(line, s),
+                  new vscode.Position(line, e)
+                )
+              );
+            }
+          }
+        }
+
+        // 全角スペース：従来通り1文字ごとにハイライト
+        const reFull = /　/g;
+        let mFull;
+        while ((mFull = reFull.exec(text)) !== null) {
+          const s = mFull.index;
+          const e = s + 1;
           if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-            fwspaceRanges.push([s, e]); //括弧上書きから外すためのマスク
+            fwspaceRanges.push([s, e]); // 括弧上書きから外すためのマスク
             fwspaceDecoRanges.push(
               new vscode.Range(
                 new vscode.Position(line, s),
