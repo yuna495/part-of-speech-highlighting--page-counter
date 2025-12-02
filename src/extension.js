@@ -1,4 +1,4 @@
-﻿// ===========================================
+// ===========================================
 //  日本語 品詞ハイライト（Semantic）＋ページカウンタ 拡張メイン
 //  - semantic.js: 形態素解析 → Semantic Tokens
 //  - status_bar.js: 原稿用紙風ページ/文字数・禁則処理
@@ -133,7 +133,8 @@ function activate(context) {
     vscode.commands.registerCommand("posNote.Preview.open", () => {
       PreviewPanel.show(context.extensionUri, context);
     }),
-    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
+    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
+      PreviewPanel.refresh({ forceFull: true, showSpinner: true });
     }),
     vscode.commands.registerCommand("posNote.combineTxt", (resourceUri) => {
       // エクスプローラーで右クリックしたフォルダ URI が渡ってくる
@@ -223,7 +224,19 @@ function activate(context) {
       if (ed && ed.document === doc) {
         sb.recomputeOnSaveIfNeeded(doc);
         refreshHeadingCounts(ed, cfg);
-        // プレビューの再描画（保存時のみ）
+        // プレビューの再描画（設定でONのとき）
+        const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
+        if (previewCfg.get("autoRefreshOnSave", true)) {
+          const cp = PreviewPanel.currentPanel;
+          const sameDoc =
+            cp &&
+            ((cp._docUri &&
+              doc.uri.toString() === cp._docUri.toString()) ||
+              (!cp._docUri && cp._editor?.document === doc));
+          if (sameDoc) {
+            PreviewPanel.refresh({ forceFull: true, showSpinner: true });
+          }
+        }
       }
     }),
 

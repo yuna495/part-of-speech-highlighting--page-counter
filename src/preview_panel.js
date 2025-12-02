@@ -1,4 +1,4 @@
-﻿// preview_panel.js
+// preview_panel.js
 // VS Code Extension: posNote — vertical preview (update on save)
 // Origin: Novel Preview -> renamed to posNote.*
 
@@ -256,6 +256,30 @@ class PreviewPanel {
       console.error("PreviewPanel.highlight failed:", e);
     }
   }
+  /**
+   * 外部からの明示リフレッシュ要求（保存時の自動更新など）
+   * forceFull: true で差分キャッシュを破棄してフル再描画
+   * showSpinner: true なら Webview 側にスピナー開始を通知
+   */
+  static refresh({ forceFull = true, showSpinner = true } = {}) {
+    const p = this.currentPanel;
+    if (!p || !p._panel) return;
+
+    if (showSpinner) {
+      try {
+        p._panel.webview.postMessage({
+          type: "setRefreshing",
+          payload: { spinning: true },
+        });
+      } catch (e) {
+        console.error("PreviewPanel.refresh spinner notify failed:", e);
+      }
+    }
+
+    if (forceFull) p._prevPreview = null;
+    p._update(false, forceFull);
+  }
+
 
   // preview_panel.js 内
   // プレビューデータを組み立てて Webview へ送信する中核処理

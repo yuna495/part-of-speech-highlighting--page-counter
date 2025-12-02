@@ -668,6 +668,11 @@
             "default": false,
             "markdownDescription": "プレビューにカーソル（縦線）を表示するか。false で非表示。"
           },
+          "posNote.Preview.autoRefreshOnSave": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "保存時にプレビューを自動更新するかどうか。false にしても手動更新ボタンは利用できます。"
+          },
           "posNote.Preview.posHighlight.enabled": {
             "type": "boolean",
             "default": true,
