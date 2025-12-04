@@ -1,8 +1,9 @@
 const vscode = require("vscode");
 const path = require("path");
+const { getSidebarBaseDirUri } = require("./sidebar_util");
 
 const PLOT_DIR = "plot";
-const STORY_FILE = "story.md";
+const STORY_FILE = "board.md";
 const CARD_DIR = "card";
 // sidebar_util.js の defaultPlotMd と同じ初期テンプレート
 const DEFAULT_PLOT_MD = [
@@ -851,6 +852,12 @@ class BoardStore {
 }
 
 async function resolveRootUri() {
+  // サイドバーで表示中のコンテナ直下を最優先
+  try {
+    const pinned = getSidebarBaseDirUri?.();
+    if (pinned) return pinned;
+  } catch {}
+
   const ed = vscode.window.activeTextEditor;
   if (ed) {
     const uri = ed.document.uri;
@@ -973,12 +980,12 @@ function buildPlotMarkdown(columns, cards) {
       const card = cards[id] || { id, title: id, description: "", characters: [], time: "", tags: [] };
       const title = card.title || id;
       lines.push(`- ${title}`);
-      lines.push("  - description");
+      lines.push("  - description:");
       lines.push(`    ${card.description || ""}`);
-      lines.push("  - characters");
+      lines.push("  - characters:");
       lines.push(`    ${(Array.isArray(card.characters) ? card.characters : []).join(", ")}`);
-      lines.push(`  - time：${card.time || ""}`);
-      lines.push(`  - tags：${(Array.isArray(card.tags) ? card.tags : []).join(", ")}`);
+      lines.push(`  - time: ${card.time || ""}`);
+      lines.push(`  - tags: ${(Array.isArray(card.tags) ? card.tags : []).join(", ")}`);
       lines.push(""); // カード間1行
     }
     if (lines[lines.length - 1] !== "") lines.push(""); // 列間も1行

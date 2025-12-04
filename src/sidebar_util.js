@@ -879,4 +879,4 @@ function defaultNovelTxt() {
   ].join("\n");
 }
 
-module.exports = { initSidebarUtilities };
+module.exports = { initSidebarUtilities, getSidebarBaseDirUri };
