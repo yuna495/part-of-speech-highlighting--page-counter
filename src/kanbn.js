@@ -6,6 +6,7 @@ const STORY_FILE = "story.md";
 const CARD_DIR = "card";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
+const DEFAULT_PALETTE = ["#00aa55", "#ffcc00", "#ff4444", "#3388ff"];
 
 function initKanbn(context) {
   context.subscriptions.push(
@@ -141,6 +142,7 @@ class KanbnPanel {
   }
 
   html() {
+    const paletteLiteral = JSON.stringify(getColumnColors());
     return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -198,10 +200,7 @@ class KanbnPanel {
       }
     });
 
-    const palette = [
-      "#1b2a41", "#1f4068", "#162447", "#0f4c75", "#205072",
-      "#2d6e7e", "#355c7d", "#4a6fa5", "#566074", "#5b507a"
-    ];
+    const palette = ${paletteLiteral};
 
     function render() {
       boardEl.innerHTML = "";
@@ -610,10 +609,29 @@ function makeId(prefix) {
 function defaultColumns() {
   return [
     { id: "act1", name: "Act1", cards: [] },
-    { id: "act2-1", name: "Act2-1", cards: [] },
-    { id: "act2-2", name: "Act2-2", cards: [] },
+    { id: "act2", name: "Act2", cards: [] },
     { id: "act3", name: "Act3", cards: [] },
+    { id: "act4", name: "Act4", cards: [] },
   ];
+}
+
+function getColumnColors() {
+  const cfg = vscode.workspace.getConfiguration("posNote");
+  const user = cfg.get("kanbn.columnColors");
+  let colors = [];
+  if (Array.isArray(user)) {
+    colors = user.filter((c) => typeof c === "string" && c.trim().length);
+  } else if (user && typeof user === "object") {
+    const rows = Object.keys(user)
+      .filter((k) => /^row\d+$/i.test(k))
+      .sort((a, b) => parseInt(a.replace(/\D/g, ""), 10) - parseInt(b.replace(/\D/g, ""), 10));
+    colors = rows
+      .map((k) => user[k])
+      .filter((c) => typeof c === "string" && c.trim().length);
+  }
+  colors = colors.map((c) => c.trim());
+  if (!colors.length) return DEFAULT_PALETTE;
+  return colors.slice(0, 10);
 }
 
 module.exports = { initKanbn };

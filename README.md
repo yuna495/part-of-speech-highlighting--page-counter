@@ -443,7 +443,13 @@ setting.jsonにて、変更可能。数値はデフォルト値。
       },
       "heading"："#ff14e0" ,     // 見出しカラー
       "fencecomment"："#f0f0c0", // コードフェンスカラー
-    }
+    },
+    "posNote.kanbn.columnColors": [
+      "#00aa5530",
+      "#ffcc0030",
+      "#ff444430",
+      "#3388ff30"
+    ],
   },
   "posNote.semantic.enabled"：true,
   "posNote.semantic.enabledMd"：true,

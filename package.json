@@ -720,6 +720,24 @@
             "markdownDescription": "プレビューでPOS着色する最大行数（パフォーマンス上限）。`\"none\"` を指定すると全文を表示。"
           }
         }
+      },
+      {
+        "title": "POS & Note: プロットボード",
+        "properties": {
+          "posNote.kanbn.columnColors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "#00aa5530",
+              "#ffcc0030",
+              "#ff444430",
+              "#3388ff30"
+            ],
+            "markdownDescription": "プロットボードの列背景色。左から順に適用し、足りない場合は繰り返します（最大10色程度）。"
+          }
+        }
       }
     ],
     "configurationDefaults": {
