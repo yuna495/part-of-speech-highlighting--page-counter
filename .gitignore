@@ -31,6 +31,7 @@ Desktop.ini
 
 # --- VSIX パッケージ ---
 *.vsix
+.tmp_vsix/
 
 # --- Code Runner 一時ファイル（VS Code 拡張）---
 tempCodeRunnerFile.*

@@ -1,33 +1,12 @@
 const vscode = require("vscode");
 const path = require("path");
-const { getSidebarBaseDirUri } = require("./sidebar_util");
+const { getSidebarBaseDirUri, defaultPlotMd } = require("./sidebar_util");
 
 const PLOT_DIR = "plot";
 const STORY_FILE = "board.md";
 const CARD_DIR = "card";
 // sidebar_util.js の defaultPlotMd と同じ初期テンプレート
-const DEFAULT_PLOT_MD = [
-  "# 『』",
-  "",
-  "## テーマ",
-  "",
-  "## 舞台・背景",
-  "",
-  "### 時代背景",
-  "",
-  "### 舞台",
-  "",
-  "### その他",
-  "",
-  "## その他設定",
-  "",
-  "## 作品紹介",
-  "",
-  "- キャッチコピー",
-  "",
-  "- 紹介文",
-  "",
-].join("\n");
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
 // 列カラー用のデフォルトパレット（黒っぽい緑・黄・赤・青をさらに少し暗く）
@@ -240,9 +219,9 @@ class KanbnPanel {
     .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
     .tag[draggable="true"] { cursor:grab; }
-    .characters .tag { background:#2e8b57; }
+    .characters .tag { background:#ff14e080; color:#fff; }
     .time { margin-top:6px; font-size:11px; color:#ddd; }
-    .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff7777; color:#ffaaaa; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
+    .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff14e0; color:#fd9bcc; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
     .trash.active { background:#552222; color:#ffdddd; border-color:#ffdddd; }
   </style>
 </head>
@@ -1010,7 +989,7 @@ class BoardStore {
       const buf = await vscode.workspace.fs.readFile(plotUri);
       existing = decoder.decode(buf);
     } catch {
-      existing = DEFAULT_PLOT_MD;
+      existing = defaultPlotMd();
     }
     let next;
     const first = existing.indexOf(markerTop);
