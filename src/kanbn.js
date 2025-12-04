@@ -4,10 +4,33 @@ const path = require("path");
 const PLOT_DIR = "plot";
 const STORY_FILE = "story.md";
 const CARD_DIR = "card";
+// sidebar_util.js の defaultPlotMd と同じ初期テンプレート
+const DEFAULT_PLOT_MD = [
+  "# 『』",
+  "",
+  "## テーマ",
+  "",
+  "## 舞台・背景",
+  "",
+  "### 時代背景",
+  "",
+  "### 舞台",
+  "",
+  "### その他",
+  "",
+  "## その他設定",
+  "",
+  "## 作品紹介",
+  "",
+  "- キャッチコピー",
+  "",
+  "- 紹介文",
+  "",
+].join("\n");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
-// 列カラー用のデフォルトパレット
-const DEFAULT_PALETTE = ["#00aa55", "#ffcc00", "#ff4444", "#3388ff"];
+// 列カラー用のデフォルトパレット（黒っぽい緑・黄・赤・青をさらに少し暗く）
+const DEFAULT_PALETTE = ["#0c2f24", "#3a3109", "#300c10", "#0c1f38"];
 // タグストライプ用のデフォルトパレット（緑・黄・赤・青の中間色）
 const DEFAULT_TAG_PALETTE = ["#8dc63f", "#f5a623", "#c45dd8", "#2fa8c9"];
 
@@ -136,6 +159,25 @@ class KanbnPanel {
           await BoardStore.deleteColumnHard(this.rootUri, msg.columnId);
           await this.refresh();
           break;
+        case "exportPlot":
+          const ans = await vscode.window.showWarningMessage(
+            "plot.md に書き出します（既存部分は上書きされます）。よろしいですか？",
+            { modal: true },
+            "書き出し"
+          );
+          if (ans !== "書き出し") {
+            this.panel.webview.postMessage({ type: "exportResult", ok: false, error: "キャンセルされました" });
+            return;
+          }
+          try {
+            await BoardStore.exportPlot(this.rootUri);
+            this.panel.webview.postMessage({ type: "exportResult", ok: true });
+          } catch (err) {
+            vscode.window.showErrorMessage(`plot.md 書き出しに失敗しました: ${err.message}`);
+            this.panel.webview.postMessage({ type: "exportResult", ok: false, error: err.message });
+          }
+          await this.refresh();
+          break;
         default:
           break;
       }
@@ -172,6 +214,7 @@ class KanbnPanel {
     .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; }
     .card { position:relative; padding:10px 10px 10px 14px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
     .card::before { content:""; position:absolute; inset:0 auto 0 0; width:6px; border-radius:8px 0 0 8px; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
+    .card::after  { content:""; position:absolute; inset:0 0 0 auto; width:6px; border-radius:0 8px 8px 0; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
     .card.dragging { opacity:0.6; }
     .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
@@ -185,7 +228,8 @@ class KanbnPanel {
   <div class="toolbar">
     <button id="add-column">列を追加</button>
     <button id="refresh" class="sub icon-btn" title="再読み込み">⟳</button>
-    <div id="trash" class="trash" title="ここにドロップで削除">🗑 ドロップで削除</div>
+    <button id="export" class="sub" title="plot.md に書き出し">plot.md に出力</button>
+    <div id="trash" class="trash" title="ここにドロップで削除">🗑 カード・列をドロップで削除</div>
   </div>
   <div id="board" class="board"></div>
   <script>
@@ -199,6 +243,13 @@ class KanbnPanel {
       setLoading(true);
       vscode.postMessage({ type: "ready" });
     };
+    const exportBtn = document.getElementById("export");
+    if (exportBtn) {
+      exportBtn.onclick = () => {
+        setLoading(true);
+        vscode.postMessage({ type: "exportPlot" });
+      };
+    }
     const trashEl = document.getElementById("trash");
 
     boardEl.addEventListener("dragover", (e) => {
@@ -219,6 +270,7 @@ class KanbnPanel {
       trashEl.addEventListener(evName, (e) => {
         if (acceptsTrash(e.dataTransfer)) {
           e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
           trashEl.classList.add("active");
         }
       });
@@ -229,8 +281,8 @@ class KanbnPanel {
     trashEl.addEventListener("drop", (e) => {
       e.preventDefault();
       trashEl.classList.remove("active");
-      const colId = e.dataTransfer.getData("text/column");
-      const cardId = e.dataTransfer.getData("text/plain");
+      const colId = e.dataTransfer.getData("text/column") || e.dataTransfer.getData("application/kanbn-column");
+      const cardId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/kanbn-card");
       if (colId) {
         vscode.postMessage({ type: "deleteColumnHard", columnId: colId });
       } else if (cardId) {
@@ -244,6 +296,13 @@ class KanbnPanel {
         state = { columns: msg.columns, cards: msg.cards };
         setLoading(false);
         render();
+      } else if (msg.type === "exportResult") {
+        setLoading(false);
+        if (msg.ok) {
+          alert("plot.md へ書き出しました。");
+        } else {
+          alert("書き出しに失敗しました: " + (msg.error || ""));
+        }
       }
     });
 
@@ -275,6 +334,7 @@ class KanbnPanel {
         header.addEventListener("dragstart", (e) => {
           colEl.classList.add("dragging");
           e.dataTransfer.setData("text/column", col.id);
+          e.dataTransfer.setData("application/kanbn-column", col.id);
           e.dataTransfer.effectAllowed = "move";
         });
         header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
@@ -303,18 +363,19 @@ class KanbnPanel {
       el.dataset.id = id;
         el.innerHTML =
           '<div class="card-title">' + (card.title || id) + "</div>" +
-          (card.tags && card.tags.length
-            ? '<div class="tags">' + card.tags.map((t) => '<span class="tag">' + t + "</span>").join("") + "</div>"
-            : "") +
           (card.characters && card.characters.length
             ? '<div class="tags characters">' + card.characters.map((c) => '<span class="tag">' + c + "</span>").join("") + "</div>"
             : "") +
           (card.time
             ? '<div class="time">🕒 ' + card.time + "</div>"
+            : "") +
+          (card.tags && card.tags.length
+            ? '<div class="tags">' + card.tags.map((t) => '<span class="tag">' + t + "</span>").join("") + "</div>"
             : "");
           el.addEventListener("dragstart", (e) => {
             el.classList.add("dragging");
             e.dataTransfer.setData("text/plain", id);
+            e.dataTransfer.setData("text/kanbn-card", id);
             e.dataTransfer.effectAllowed = "move";
           });
           el.addEventListener("dragend", () => el.classList.remove("dragging"));
@@ -354,7 +415,12 @@ class KanbnPanel {
     }
 
     function acceptsTrash(dt) {
-      return dt && (dt.types.includes("text/column") || dt.types.includes("text/plain"));
+      return dt && (
+        dt.types.includes("text/column") ||
+        dt.types.includes("application/kanbn-column") ||
+        dt.types.includes("text/kanbn-card") ||
+        dt.types.includes("text/plain")
+      );
     }
 
     function quickCardMenu(cardId) {
@@ -444,7 +510,13 @@ class BoardStore {
         if (h2) {
           if (current) cols.push(current);
           const name = h2[1].trim();
-          current = { id: slugify(name), name, cards: [] };
+          let baseId = slugify(name);
+          let id = baseId;
+          let n = 2;
+          while (cols.some((c) => c.id === id)) {
+            id = `${baseId}-${n++}`;
+          }
+          current = { id, name, cards: [] };
           continue;
         }
         if (current) {
@@ -491,9 +563,9 @@ class BoardStore {
             id,
             title: id,
             description: "",
-            tags: [],
             characters: [],
             time: "",
+            tags: [],
           };
         }
       }
@@ -519,8 +591,14 @@ class BoardStore {
     const dir = vscode.Uri.joinPath(root, PLOT_DIR, CARD_DIR);
     await vscode.workspace.fs.createDirectory(dir);
     const uri = this.cardUri(root, card.id);
+    // tags を最後に書き出して JSON 上も末尾に配置
     const payload = {
-      ...card,
+      id: card.id,
+      title: card.title,
+      description: card.description,
+      characters: card.characters,
+      time: card.time,
+      tags: card.tags,
     };
     await vscode.workspace.fs.writeFile(
       uri,
@@ -542,9 +620,9 @@ class BoardStore {
       id: makeId("card"),
       title,
       description: description || "",
-      tags: splitTags(tagsInput),
       characters: [],
       time: "",
+      tags: splitTags(tagsInput),
     };
     await this.writeCard(root, card);
     const cols = await this.readStory(root);
@@ -573,9 +651,9 @@ class BoardStore {
       id: cardId,
       title: cardId,
       description: "",
-      tags: [],
       characters: [],
       time: "",
+      tags: [],
     };
     await this.writeCard(root, card);
     const doc = await vscode.workspace.openTextDocument(
@@ -686,6 +764,39 @@ class BoardStore {
     cols.splice(target, 0, col);
     await this.writeStory(root, cols);
   }
+
+  static async exportPlot(root) {
+    const { columns, cards } = await this.loadBoard(root);
+    const block = buildPlotMarkdown(columns, cards);
+    const marker = "<!-- posNote:このブロックは出力時に自動上書きされます。手動編集は消えます。 -->";
+    const wrapped = `${marker}\n${block}\n${marker}`;
+    const plotUri = vscode.Uri.joinPath(root, PLOT_DIR, "plot.md");
+    // フォルダがなければ作成
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(root, PLOT_DIR));
+    let existing = "";
+    try {
+      const buf = await vscode.workspace.fs.readFile(plotUri);
+      existing = decoder.decode(buf);
+    } catch {
+      existing = DEFAULT_PLOT_MD;
+    }
+    let next;
+    const first = existing.indexOf(marker);
+    const last = existing.lastIndexOf(marker);
+    if (first !== -1 && last !== -1 && first !== last) {
+      next = existing.slice(0, first) + wrapped + existing.slice(last + marker.length);
+    } else if (existing.trim().length) {
+      next = `${existing.trimEnd()}\n\n${wrapped}\n`;
+    } else {
+      next = `${wrapped}\n`;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(plotUri, encoder.encode(next));
+      vscode.window.showInformationMessage("plot.md に書き出しました");
+    } catch (err) {
+      vscode.window.showErrorMessage(`plot.md の書き出しに失敗しました: ${err.message}`);
+    }
+  }
 }
 
 async function resolveRootUri() {
@@ -728,12 +839,17 @@ function splitTags(input) {
 }
 
 function slugify(str) {
-  return (
-    str
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-+|-+$)/g, "") || `col-${Date.now()}`
-  );
+  const s = str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-+|-+$)/g, "");
+  if (s) return s;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return "col-" + (hash >>> 0).toString(16);
 }
 
 function makeId(prefix) {
@@ -795,3 +911,26 @@ function getTagColors() {
 }
 
 module.exports = { initKanbn };
+
+function buildPlotMarkdown(columns, cards) {
+  const lines = [];
+  lines.push("## 構成", "");
+  for (const col of columns) {
+    lines.push(`### ${col.name}`);
+    lines.push("");
+    for (const id of col.cards || []) {
+      const card = cards[id] || { id, title: id, description: "", characters: [], time: "", tags: [] };
+      const title = card.title || id;
+      lines.push(`- ${title}`);
+      lines.push("  - description");
+      lines.push(`    ${card.description || ""}`);
+      lines.push("  - characters");
+      lines.push(`    ${(Array.isArray(card.characters) ? card.characters : []).join(", ")}`);
+      lines.push(`  - time：${card.time || ""}`);
+      lines.push(`  - tags：${(Array.isArray(card.tags) ? card.tags : []).join(", ")}`);
+      lines.push(""); // カード間1行
+    }
+    if (lines[lines.length - 1] !== "") lines.push(""); // 列間も1行
+  }
+  return lines.join("\n");
+}

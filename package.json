@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -28,8 +28,7 @@
     "onLanguage:plaintext",
     "onLanguage:novel",
     "onLanguage:markdown",
-    "onLanguage:Novel",
-    "onCommand:posNote.utilities.refreshView"
+    "onLanguage:Novel"
   ],
   "contributes": {
     "viewsContainers": {
@@ -741,12 +740,22 @@
               "type": "string"
             },
             "default": [
-              "#00aa5530",
-              "#ffcc0030",
-              "#ff444430",
-              "#3388ff30"
+              "#0c2f24",
+              "#3a3109",
+              "#300c10",
+              "#0c1f38"
             ],
             "markdownDescription": "プロットボードの列背景色。左から順に適用し、足りない場合は繰り返します（最大10色程度）。"
+          },
+          "posNote.kanbn.tagsColors": {
+            "type": "object",
+            "default": {
+              "出会い": "#8dc63f",
+              "イベント": "#f5a623",
+              "トラブル": "#c45dd8",
+              "解決": "#2fa8c9"
+            },
+            "markdownDescription": "プロットボードのタグ色マップ。タグ名をキーにカラーコードを指定。左から3色までストライプ表示。"
           }
         }
       }
