@@ -980,12 +980,24 @@ function buildPlotMarkdown(columns, cards) {
       const card = cards[id] || { id, title: id, description: "", characters: [], time: "", tags: [] };
       const title = card.title || id;
       lines.push(`- ${title}`);
-      lines.push("  - description:");
-      lines.push(`    ${card.description || ""}`);
-      lines.push("  - characters:");
-      lines.push(`    ${(Array.isArray(card.characters) ? card.characters : []).join(", ")}`);
-      lines.push(`  - time: ${card.time || ""}`);
-      lines.push(`  - tags: ${(Array.isArray(card.tags) ? card.tags : []).join(", ")}`);
+      if (card.description) {
+        lines.push("  - description:");
+        lines.push(`    ${card.description}`);
+      }
+      const chars = Array.isArray(card.characters) ? card.characters.filter(Boolean) : [];
+      if (chars.length) {
+        lines.push("  - characters:");
+        lines.push(`    ${chars.join(", ")}`);
+      }
+      if (card.time) {
+        lines.push("  - time:");
+        lines.push(`    ${card.time}`);
+      }
+      const tags = Array.isArray(card.tags) ? card.tags.filter(Boolean) : [];
+      if (tags.length) {
+        lines.push("  - tags:");
+        lines.push(`    ${tags.join(", ")}`);
+      }
       lines.push(""); // カード間1行
     }
     if (lines[lines.length - 1] !== "") lines.push(""); // 列間も1行
