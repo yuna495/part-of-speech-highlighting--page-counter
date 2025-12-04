@@ -179,6 +179,14 @@ class KanbnPanel {
           }
           await this.refresh();
           break;
+        case "addTag":
+          await BoardStore.addTag(this.rootUri, msg.cardId, msg.tag);
+          await this.refresh();
+          break;
+        case "removeTag":
+          await BoardStore.removeTag(this.rootUri, msg.cardId, msg.tag);
+          await this.refresh();
+          break;
         default:
           break;
       }
@@ -187,13 +195,15 @@ class KanbnPanel {
 
   async refresh() {
     const data = await BoardStore.loadBoard(this.rootUri);
-    this.panel.webview.postMessage({ type: "data", ...data });
+    const columnColors = getColumnColors();
+    const tagColorsPayload = getTagColorsPayload();
+    this.panel.webview.postMessage({ type: "data", ...data, columnColors, tagColorsPayload });
     this.panel.title = `プロットボード - ${path.basename(this.rootUri.fsPath)}`;
   }
 
   html() {
     const paletteLiteral = JSON.stringify(getColumnColors());
-    const tagPaletteLiteral = JSON.stringify(getTagColors());
+    const tagPaletteLiteral = JSON.stringify(getTagColorsPayload());
     return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -202,7 +212,11 @@ class KanbnPanel {
   <style>
     :root { color-scheme: light dark; }
     body { margin:0; padding:12px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#111; color:#eee; }
-    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; color:#fff; }
+    .tag-chip { padding:2px 8px; border-radius:999px; background:#333; color:#000; font-size:12px; cursor:grab; user-select:none; }
+    .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; }
+    .tag-chip { padding:2px 8px; border-radius:999px; background:#333; font-size:12px; cursor:grab; user-select:none; }
     button { background:#2d7dff; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
     button.sub { background:#444; }
     .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
@@ -225,6 +239,7 @@ class KanbnPanel {
     .card.dragging { opacity:0.6; }
     .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
+    .tag[draggable="true"] { cursor:grab; }
     .characters .tag { background:#2e8b57; }
     .time { margin-top:6px; font-size:11px; color:#ddd; }
     .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff7777; color:#ffaaaa; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
@@ -236,12 +251,14 @@ class KanbnPanel {
     <button id="add-column">列を追加</button>
     <button id="refresh" class="sub icon-btn" title="再読み込み">⟳</button>
     <button id="export" class="sub" title="plot.md に書き出し">plot.md に出力</button>
+    <div id="tag-palette" class="tag-palette"><span class="label">登録タグ：</span></div>
     <div id="trash" class="trash" title="ここにドロップで削除">🗑 カード・列をドロップで削除</div>
   </div>
   <div id="board" class="board"></div>
   <script>
     const vscode = acquireVsCodeApi();
-    let state = { columns: [], cards: {} };
+  let state = { columns: [], cards: {} };
+  const paletteEl = document.getElementById("tag-palette");
     let loading = false;
 
     const boardEl = document.getElementById("board");
@@ -260,10 +277,27 @@ class KanbnPanel {
     const trashEl = document.getElementById("trash");
 
     boardEl.addEventListener("dragover", (e) => {
+      if (e.dataTransfer.types.includes("application/kanbn-tag-remove")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        return;
+      }
+      // タグ追加のドラッグはスルー（カードで受ける）
+      if (e.dataTransfer.types.includes("application/kanbn-tag")) return;
       if (!e.dataTransfer.types.includes("text/column")) return;
       e.preventDefault();
     });
     boardEl.addEventListener("drop", (e) => {
+      const removePayload = e.dataTransfer.getData("application/kanbn-tag-remove");
+      if (removePayload) {
+        e.preventDefault();
+        const { cardId, tag } = JSON.parse(removePayload);
+        // カード外でドロップされたら削除
+        if (!e.target.closest || !e.target.closest(".card")) {
+          vscode.postMessage({ type: "removeTag", cardId, tag });
+        }
+        return;
+      }
       if (!e.dataTransfer.types.includes("text/column")) return;
       e.preventDefault();
       const columnId = e.dataTransfer.getData("text/column");
@@ -302,8 +336,24 @@ class KanbnPanel {
       const msg = ev.data;
       if (msg.type === "data") {
         state = { columns: msg.columns, cards: msg.cards };
+        // 設定更新
+        if (msg.columnColors) palette = msg.columnColors;
+        if (msg.tagColorsPayload) {
+          tagColorsPayload = msg.tagColorsPayload;
+          tagColors = tagColorsPayload.map;
+          hasUserTagColors = tagColorsPayload.userProvided;
+          // tagOrder再構築
+          for (const key in tagOrder) delete tagOrder[key];
+          if (tagColors) {
+            Object.keys(tagColors).forEach((k, i) => {
+              if (k === "other") return;
+              tagOrder[k] = i;
+            });
+          }
+        }
         setLoading(false);
         render();
+        renderPalette();
       } else if (msg.type === "exportResult") {
         setLoading(false);
         if (msg.ok) {
@@ -314,8 +364,17 @@ class KanbnPanel {
       }
     });
 
-    const palette = ${paletteLiteral};
-    const tagColors = ${tagPaletteLiteral};
+    let palette = ${paletteLiteral};
+    let tagColorsPayload = ${tagPaletteLiteral};
+    let tagColors = tagColorsPayload.map;
+    let hasUserTagColors = tagColorsPayload.userProvided;
+    const tagOrder = {};
+    if (tagColors) {
+      Object.keys(tagColors).forEach((k, i) => {
+        if (k === "other") return;
+        tagOrder[k] = i;
+      });
+    }
     const DEFAULT_TAG_PALETTE = ${JSON.stringify(DEFAULT_TAG_PALETTE)};
 
     function render() {
@@ -399,6 +458,13 @@ class KanbnPanel {
       el.className = "card";
       el.draggable = true;
       el.dataset.id = id;
+
+        const sortedTags = (Array.isArray(card.tags) ? card.tags : []).map((t, idx) => ({
+          tag: t,
+          idx,
+          ord: tagOrder[t] ?? 9999 + idx,
+        })).sort((a, b) => (a.ord === b.ord ? a.idx - b.idx : a.ord - b.ord));
+
         el.innerHTML =
           '<div class="card-title">' + (card.title || id) + "</div>" +
           (card.characters && card.characters.length
@@ -407,22 +473,52 @@ class KanbnPanel {
           (card.time
             ? '<div class="time">🕒 ' + card.time + "</div>"
             : "") +
-          (card.tags && card.tags.length
-            ? '<div class="tags">' + card.tags.map((t) => '<span class="tag">' + t + "</span>").join("") + "</div>"
+          (sortedTags.length
+            ? '<div class="tags">' + sortedTags
+                .map((o) => {
+                  const color = tagColors && tagColors[o.tag];
+                  const style = color ? ' style="background:' + color + ';color:#000;"' : "";
+                  return '<span class="tag" draggable="true" data-tag="' + o.tag + '"' + style + ">" + o.tag + "</span>";
+                })
+                .join("") + "</div>"
             : "");
-          el.addEventListener("dragstart", (e) => {
-            el.classList.add("dragging");
-            e.dataTransfer.setData("text/plain", id);
-            e.dataTransfer.setData("text/kanbn-card", id);
-            e.dataTransfer.effectAllowed = "move";
-          });
-          el.addEventListener("dragend", () => el.classList.remove("dragging"));
+      el.addEventListener("dragstart", (e) => {
+        el.classList.add("dragging");
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.setData("text/kanbn-card", id);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      el.addEventListener("dragend", () => el.classList.remove("dragging"));
+      el.addEventListener("dragover", (e) => {
+        if (e.dataTransfer.types.includes("application/kanbn-tag")) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      });
+      el.addEventListener("drop", (e) => {
+        const tag = e.dataTransfer.getData("application/kanbn-tag");
+        if (tag) {
+          e.preventDefault();
+          e.stopPropagation();
+          vscode.postMessage({ type: "addTag", cardId: id, tag });
+          return;
+        }
+      });
           el.addEventListener("dblclick", () => vscode.postMessage({ type: "openCard", cardId: id }));
           el.addEventListener("contextmenu", (e) => {
             e.preventDefault();
             quickCardMenu(id);
           });
           applyTagStripe(el, card, tagColors);
+          el.querySelectorAll(".tag").forEach((tagEl) => {
+            const tag = tagEl.getAttribute("data-tag") || tagEl.textContent;
+            tagEl.addEventListener("dragstart", (e) => {
+              e.stopPropagation();
+              e.dataTransfer.setData("application/kanbn-tag-remove", JSON.stringify({ cardId: id, tag }));
+              e.dataTransfer.effectAllowed = "move";
+            });
+          });
           cardsEl.appendChild(el);
         });
 
@@ -436,6 +532,36 @@ class KanbnPanel {
 
         btns.querySelector('[data-act="add-card"]').onclick = () =>
           vscode.postMessage({ type: "addCard", columnId: col.id });
+      });
+    }
+
+    function renderPalette() {
+      if (!paletteEl) return;
+      // ラベル以外（チップ）を削除
+      const chips = paletteEl.querySelectorAll(".tag-chip");
+      chips.forEach(c => c.remove());
+
+      // ラベルがない場合は再生成（念のため）
+      if (!paletteEl.querySelector(".label")) {
+        const lbl = document.createElement("span");
+        lbl.className = "label";
+        lbl.textContent = "登録タグ：";
+        paletteEl.prepend(lbl);
+      }
+      const entries = Object.entries(tagColors || {})
+        .filter(([k, v]) => k !== "other" && String(v).toLowerCase() !== "none");
+      entries.forEach(([tag, color]) => {
+        const chip = document.createElement("span");
+        chip.className = "tag-chip";
+        chip.textContent = tag;
+        chip.style.background = color || "#555";
+        chip.style.color = color ? "#000" : "#fff";
+        chip.draggable = true;
+        chip.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("application/kanbn-tag", tag);
+          e.dataTransfer.effectAllowed = "copy";
+        });
+        paletteEl.appendChild(chip);
       });
     }
 
@@ -673,6 +799,30 @@ class BoardStore {
       encoder.encode(JSON.stringify(payload, null, 2))
     );
     return payload;
+  }
+
+  static async addTag(root, cardId, tag) {
+    if (!tag) return;
+    const card = (await this.readCard(root, cardId)) || {
+      id: cardId,
+      title: cardId,
+      description: "",
+      characters: [],
+      time: "",
+      tags: [],
+    };
+    const tags = Array.isArray(card.tags) ? [...card.tags] : [];
+    if (!tags.includes(tag)) tags.push(tag);
+    card.tags = tags;
+    await this.writeCard(root, card);
+  }
+
+  static async removeTag(root, cardId, tag) {
+    if (!tag) return;
+    const card = await this.readCard(root, cardId);
+    if (!card) return;
+    card.tags = (Array.isArray(card.tags) ? card.tags : []).filter((t) => t !== tag);
+    await this.writeCard(root, card);
   }
 
   static async addCard(root, columnId) {
@@ -957,10 +1107,16 @@ function defaultColumns() {
 
 function getColumnColors() {
   const cfg = vscode.workspace.getConfiguration("posNote");
-  const user = cfg.get("kanbn.columnColors");
+  const inspect = cfg.inspect("kanbn.columnColors");
+  const user =
+    inspect?.workspaceFolderValue ??
+    inspect?.workspaceValue ??
+    inspect?.globalValue ??
+    undefined;
   let colors = [];
   if (Array.isArray(user)) {
     colors = user.filter((c) => typeof c === "string" && c.trim().length);
+    if (user !== undefined && colors.length) return colors.map((c) => c.trim()).slice(0, 10);
   } else if (user && typeof user === "object") {
     const rows = Object.keys(user)
       .filter((k) => /^row\d+$/i.test(k))
@@ -968,35 +1124,46 @@ function getColumnColors() {
     colors = rows
       .map((k) => user[k])
       .filter((c) => typeof c === "string" && c.trim().length);
+    if (user !== undefined && colors.length) return colors.map((c) => c.trim()).slice(0, 10);
   }
+  // ユーザー指定が無い場合のみデフォルトを返す
   colors = colors.map((c) => c.trim());
   if (!colors.length) return DEFAULT_PALETTE;
   return colors.slice(0, 10);
 }
 
-function getTagColors() {
+function getTagColorsPayload() {
   const cfg = vscode.workspace.getConfiguration("posNote");
-  const user = cfg.get("kanbn.tagsColors");
-  if (Array.isArray(user)) {
-    const arr = user.filter((v) => typeof v === "string" && v.trim().length);
-    if (arr.length) {
-      return Object.fromEntries(arr.map((v, i) => [String(i + 1), v.trim()]));
-    }
-  } else if (user && typeof user === "object") {
-    const pairs = Object.entries(user).filter(
-      ([, v]) => typeof v === "string" && v.trim().length
+  const inspect = cfg.inspect("kanbn.tagsColors");
+  const user =
+    inspect?.workspaceFolderValue ??
+    inspect?.workspaceValue ??
+    inspect?.globalValue ??
+    undefined; // defaultValue は無視し、ユーザー指定があるか判定
+
+  const normalizeEntries = (entries) =>
+    Object.fromEntries(
+      entries
+        .filter(([, v]) => typeof v === "string" && v.trim().length) // none も残す
+        .map(([k, v]) => [String(k), v.trim()])
     );
-    if (pairs.length) {
-      return Object.fromEntries(
-        pairs.map(([k, v]) => [String(k), v.trim()])
-      );
-    }
+
+  if (Array.isArray(user)) {
+    const entries = user.map((v, i) => [String(i + 1), v]);
+    return { map: normalizeEntries(entries), userProvided: true };
   }
-  const fallback = {};
-  DEFAULT_TAG_PALETTE.forEach((c, idx) => {
-    fallback[String(idx + 1)] = c;
-  });
-  return fallback;
+  if (user && typeof user === "object") {
+    const norm = normalizeEntries(Object.entries(user));
+    return { map: norm, userProvided: true };
+  }
+
+  const fallback = {
+    "出会い": DEFAULT_TAG_PALETTE[0],
+    "イベント": DEFAULT_TAG_PALETTE[1],
+    "トラブル": DEFAULT_TAG_PALETTE[2],
+    "解決": DEFAULT_TAG_PALETTE[3],
+  };
+  return { map: fallback, userProvided: false };
 }
 
 module.exports = { initKanbn };
