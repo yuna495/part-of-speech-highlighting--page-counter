@@ -599,7 +599,7 @@ class KanbnPanel {
         return;
       }
       const colors = [];
-      const getColor = (tag, idxForFallback) => {
+      const getColor = (tag) => {
         if (tagColorsMap && typeof tagColorsMap === "object") {
           if (tagColorsMap[tag]) {
             if (String(tagColorsMap[tag]).toLowerCase() === "none") return null;
@@ -609,13 +609,11 @@ class KanbnPanel {
             if (String(tagColorsMap.other).toLowerCase() === "none") return null;
             return tagColorsMap.other;
           }
-          const fallbackKey = String(idxForFallback + 1);
-          if (tagColorsMap[fallbackKey]) return tagColorsMap[fallbackKey];
         }
-        return DEFAULT_TAG_PALETTE[idxForFallback % DEFAULT_TAG_PALETTE.length];
+        return null; // 未登録タグは着色しない
       };
       for (const tag of tags) {
-        const color = getColor(tag, colors.length);
+        const color = getColor(tag);
         if (color) colors.push(color);
         if (colors.length >= 3) break;
       }

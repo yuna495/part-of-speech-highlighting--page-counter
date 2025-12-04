@@ -4,6 +4,20 @@ All notable changes to this extension are documented here.
 
 ## [2.3.5]
 
+- ストーリープロットボード
+  - サイドビューの下側コンテナに、プロットボードの表示アイコン
+  - 列・カードのドラッグ＆ドロップで順序入れ替え・ゴミ箱ドロップで削除
+  - カードをダブルクリックで、内容を編集可
+  - カード登録内容`タイトル・内容・搭乗人物・時間・タグ）./plot/card/~~~.json
+  - 右端は固定TBD列（削除・移動不可、出力対象外、常に暗グレー）
+  - タグ色設定 `posNote.kanbn.tagsColors` で登録タグに色付け（未登録タグは無色）
+  - 上部パレットのタグをカードへドラッグで付与、カードのタグアイコンを外にドロップで削除
+  - 当拡張機能で追加できるplot.mdへの出力（選択項目のみ出力、既存ブロックを上書き）
+  - 列色設定 `posNote.kanbn.columnColors` で列色を設定可
+- その他
+  - 更新ボタンでWebviewをリフレッシュ
+  - `.tmp_vsix` を git / VSIX から除外
+
 ### **注意**：ReadMeを確認してください
 
 - `fwspace` 設定を `space` に変更し、構造を `{ highlight: boolean, color: string }` に刷新しました。
