@@ -712,6 +712,10 @@ class BoardStore {
     try {
       await vscode.workspace.fs.delete(this.cardUri(root, cardId));
     } catch {}
+    // サイドバーのコンテナを最新化
+    try {
+      await vscode.commands.executeCommand("posNote.utilities.refreshView");
+    } catch {}
   }
 
   static async openCard(root, cardId) {
@@ -744,7 +748,7 @@ class BoardStore {
   static async addColumn(root, afterId) {
     const name = await vscode.window.showInputBox({
       prompt: "列名",
-      placeHolder: "例) アイデア",
+      placeHolder: "例）シーン名",
     });
     if (!name) return;
     const cols = await this.readStory(root);
