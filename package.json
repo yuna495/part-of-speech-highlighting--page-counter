@@ -1,6 +1,6 @@
 {
   "name": "part-of-speech-highlighting---page-counter",
-  "displayName": "POS & Note",
+  "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
   "version": "2.3.4",
   "publisher": "yuna495",
@@ -360,6 +360,11 @@
         "command": "posNote.revealInOS",
         "title": "外部エクスプローラーで表示",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "posNote.kanbn.openBoard",
+        "title": "POS/Note: プロットボードを開く",
+        "icon": "$(layout)"
       }
     ],
     "menus": {
@@ -383,6 +388,11 @@
           "command": "posNote.combineMdHere",
           "when": "view == novelUtilities",
           "group": "navigation@11"
+        },
+        {
+          "command": "posNote.kanbn.openBoard",
+          "when": "view == novelUtilities",
+          "group": "navigation@20"
         }
       ],
       "editor/title": [
@@ -499,7 +509,7 @@
     },
     "configuration": [
       {
-        "title": "POS & Note - ハイライト",
+        "title": "POS & Note: ハイライト",
         "properties": {
           "posNote.semantic.enabled": {
             "type": "boolean",
@@ -524,7 +534,7 @@
         }
       },
       {
-        "title": "POS & Note - 見出し機能",
+        "title": "POS & Note: 見出し機能",
         "properties": {
           "posNote.headings.folding.enabled": {
             "type": "boolean",
@@ -546,7 +556,7 @@
         }
       },
       {
-        "title": "POS & Note - 純作業量",
+        "title": "POS & Note: 純作業量",
         "properties": {
           "posNote.workload.enabled": {
             "type": "boolean",
@@ -576,7 +586,7 @@
         }
       },
       {
-        "title": "POS & Note - ステータスバー",
+        "title": "POS & Note: ステータスバー",
         "properties": {
           "posNote.enabledNote": {
             "type": "boolean",
@@ -628,7 +638,7 @@
         }
       },
       {
-        "title": "POS & Note - 更新ディレイ",
+        "title": "POS & Note: 更新ディレイ",
         "properties": {
           "posNote.debounceMs": {
             "type": "number",
@@ -644,7 +654,7 @@
         }
       },
       {
-        "title": "POS & Note - プレビュー",
+        "title": "POS & Note: プレビュー",
         "properties": {
           "posNote.Preview.backgroundColor": {
             "type": "string",

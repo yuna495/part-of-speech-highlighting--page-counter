@@ -174,7 +174,7 @@ workspace/
 - **期限表示（v2.3.2）**
   - notesetting.jsonに記載された日付までの残り日数表示。
     - 値を"null"にすると期限表示は非表示。
-    - limit のフォーマットは YYYY-M-D（例："2026-1-1"）で記述します。
+    - limit のフォーマットは YYYY-M-D（例："2026-1-1"、"2026/1/1"）で記述します。
     - notesetting.json記入例
 
     ```json
@@ -293,7 +293,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
   ```json
   {
-    "limit"："XXXX-XX-XX",
+    "limit"："YYYY-MM-DD",
     "headings_folding_level"：0,
     "characters"：[
       "a",

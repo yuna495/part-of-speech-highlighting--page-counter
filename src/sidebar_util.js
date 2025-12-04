@@ -794,8 +794,8 @@ function defaultPlotCharactersMd() {
     "",
     "### 1",
     "",
-    "- 性別:",
-    "- 年齢:",
+    "- 性別：",
+    "- 年齢：",
     "- 見た目",
     "",
     "- 特徴",
@@ -810,8 +810,8 @@ function defaultPlotCharactersMd() {
     "",
     "### 1",
     "",
-    "- 性別:",
-    "- 年齢:",
+    "- 性別：",
+    "- 年齢：",
     "- 見た目",
     "",
     "- 特徴",
@@ -874,7 +874,7 @@ function defaultPlotMd() {
 
 function defaultNoteSetting() {
   return {
-    limit: "XXXX-XX-XX",
+    limit: "YYYY-MM-DD",
     headings_folding_level: 0,
     characters: ["a", "b"],
     glossary: ["A", "B"],

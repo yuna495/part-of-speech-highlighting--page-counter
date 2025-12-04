@@ -14,6 +14,7 @@ const { initStatusBar, getBannedStart } = require("./status_bar");
 const { initWorkload } = require("./workload");
 const { initHeadingSidebar } = require("./sidebar_headings");
 const { initSidebarUtilities } = require("./sidebar_util");
+const { initKanbn } = require("./kanbn");
 const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
@@ -100,6 +101,7 @@ function activate(context) {
   initHeadingSidebar(context, { cfg, isTargetDoc });
   initMinimapHighlight(context, { cfg, isTargetDoc });
   initSidebarUtilities(context);
+  initKanbn(context);
 
   // --- 9-1.5) Linter (Optional)
   const linter = require("./linter");
