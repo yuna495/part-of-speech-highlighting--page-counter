@@ -207,11 +207,13 @@ class KanbnPanel {
     .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
     .loading { animation: spin 0.8s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
-    .board { display:flex; gap:12px; align-items:flex-start; overflow-x:auto; }
-    .column { width:260px; border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; }
+    .board { display:flex; gap:12px; align-items:stretch; overflow-x:auto; }
+    .column { width:260px; display:flex; flex-direction:column; min-height:calc(100vh - 80px); background:transparent; }
+    .column-body { background:var(--col-bg, #222); border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; display:flex; flex-direction:column; }
+    .column-filler { flex:1; }
     .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
     .column-title { font-weight:700; }
-    .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; }
+    .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; flex:1; padding-bottom:12px; }
     .card { position:relative; padding:10px 10px 10px 14px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
     .card::before { content:""; position:absolute; inset:0 auto 0 0; width:6px; border-radius:8px 0 0 8px; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
     .card::after  { content:""; position:absolute; inset:0 0 0 auto; width:6px; border-radius:0 8px 8px 0; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
@@ -316,7 +318,10 @@ class KanbnPanel {
         const colEl = document.createElement("div");
         colEl.className = "column";
         colEl.dataset.id = col.id;
-        colEl.style.background = palette[idx % palette.length];
+
+        const body = document.createElement("div");
+        body.className = "column-body";
+        body.style.setProperty("--col-bg", palette[idx % palette.length]);
 
         const header = document.createElement("header");
         const title = document.createElement("div");
@@ -327,7 +332,7 @@ class KanbnPanel {
         const btns = document.createElement("div");
         btns.innerHTML = '<button class="sub" data-act="add-card">＋</button>';
         header.appendChild(btns);
-        colEl.appendChild(header);
+        body.appendChild(header);
 
         // 列ドラッグはヘッダーのみをハンドルにする
         header.draggable = true;
@@ -346,8 +351,26 @@ class KanbnPanel {
         const cardsEl = document.createElement("div");
         cardsEl.className = "cards";
         cardsEl.dataset.columnId = col.id;
-        cardsEl.addEventListener("dragover", (e) => e.preventDefault());
+        cardsEl.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        });
         cardsEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const cardId = e.dataTransfer.getData("text/plain");
+          if (!cardId) return;
+          const idxCard = dropIndex(cardsEl, e.clientY);
+          vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
+        });
+        // カード以外の領域（列の余白）でもドロップできるように列要素にもリスナーを追加
+        colEl.addEventListener("dragover", (e) => {
+          if (!acceptsCard(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        });
+        colEl.addEventListener("drop", (e) => {
+          if (!acceptsCard(e.dataTransfer)) return;
           e.preventDefault();
           const cardId = e.dataTransfer.getData("text/plain");
           if (!cardId) return;
@@ -388,7 +411,11 @@ class KanbnPanel {
           cardsEl.appendChild(el);
         });
 
-        colEl.appendChild(cardsEl);
+        body.appendChild(cardsEl);
+        colEl.appendChild(body);
+        const filler = document.createElement("div");
+        filler.className = "column-filler";
+        colEl.appendChild(filler);
         boardEl.appendChild(colEl);
 
         btns.querySelector('[data-act="add-card"]').onclick = () =>
@@ -398,18 +425,33 @@ class KanbnPanel {
 
     function dropIndex(container, y) {
       const cards = Array.from(container.querySelectorAll(".card"));
+      if (!cards.length) return 0;
+      const firstRect = cards[0].getBoundingClientRect();
+      const lastRect = cards[cards.length - 1].getBoundingClientRect();
+      if (y < firstRect.top) return 0;
+      if (y > lastRect.bottom) return cards.length; // 列の下側余白でも末尾に
       for (let i = 0; i < cards.length; i++) {
         const r = cards[i].getBoundingClientRect();
-        if (y < r.top + r.height / 2) return i;
+        const upper = r.top + r.height * 0.5;
+        const lower = r.bottom - r.height * 0.5;
+        if (y < upper) return i;           // 上50%で前に
+        if (y >= lower && y <= r.bottom) return i + 1; // 下50%で後ろに
       }
       return cards.length;
     }
 
+    function acceptsCard(dt) {
+      return dt && (dt.types.includes("text/plain") || dt.types.includes("text/kanbn-card"));
+    }
+
     function dropColumnIndex(container, x) {
       const cols = Array.from(container.querySelectorAll(".column"));
+      if (!cols.length) return 0;
+      // 判定幅を広げるため、幅の70%ゾーンで前後を決定
       for (let i = 0; i < cols.length; i++) {
         const r = cols[i].getBoundingClientRect();
-        if (x < r.left + r.width / 2) return i;
+        const mid = r.left + r.width * 0.5;
+        if (x < mid) return i;
       }
       return cols.length;
     }
@@ -435,19 +477,27 @@ class KanbnPanel {
         el.style.setProperty("--tag-stripe-opacity", 0);
         return;
       }
-      const colors = tags
-        .slice(0, 3)
-        .map((tag, idx) => {
-          if (tagColorsMap && typeof tagColorsMap === "object" && tagColorsMap[tag]) {
+      const colors = [];
+      const getColor = (tag, idxForFallback) => {
+        if (tagColorsMap && typeof tagColorsMap === "object") {
+          if (tagColorsMap[tag]) {
+            if (String(tagColorsMap[tag]).toLowerCase() === "none") return null;
             return tagColorsMap[tag];
           }
-          const fallbackKey = String(idx + 1);
-          if (tagColorsMap && typeof tagColorsMap === "object" && tagColorsMap[fallbackKey]) {
-            return tagColorsMap[fallbackKey];
+          if (tagColorsMap.other) {
+            if (String(tagColorsMap.other).toLowerCase() === "none") return null;
+            return tagColorsMap.other;
           }
-          return DEFAULT_TAG_PALETTE[idx % DEFAULT_TAG_PALETTE.length];
-        })
-        .filter(Boolean);
+          const fallbackKey = String(idxForFallback + 1);
+          if (tagColorsMap[fallbackKey]) return tagColorsMap[fallbackKey];
+        }
+        return DEFAULT_TAG_PALETTE[idxForFallback % DEFAULT_TAG_PALETTE.length];
+      };
+      for (const tag of tags) {
+        const color = getColor(tag, colors.length);
+        if (color) colors.push(color);
+        if (colors.length >= 3) break;
+      }
       if (!colors.length) {
         el.style.setProperty("--tag-stripe-opacity", 0);
         return;
@@ -627,7 +677,7 @@ class BoardStore {
     await this.writeCard(root, card);
     const cols = await this.readStory(root);
     const col = cols.find((c) => c.id === columnId) || cols[0];
-    col.cards.unshift(card.id);
+    col.cards.push(card.id);
     await this.writeStory(root, cols);
   }
 
@@ -740,7 +790,7 @@ class BoardStore {
     const col = cols.find((c) => c.id === columnId);
     if (!col) return;
     const ok = await vscode.window.showWarningMessage(
-      `列とそのカードを削除しますか？\n${col.name}`,
+      `列またはカードを削除しますか？\n${col.name}`,
       { modal: true },
       "削除"
     );
@@ -768,8 +818,9 @@ class BoardStore {
   static async exportPlot(root) {
     const { columns, cards } = await this.loadBoard(root);
     const block = buildPlotMarkdown(columns, cards);
-    const marker = "<!-- posNote:このブロックは出力時に自動上書きされます。手動編集は消えます。 -->";
-    const wrapped = `${marker}\n${block}\n${marker}`;
+    const markerTop = "<!-- P/N:この行以下は出力時に自動上書きされます。手動編集も消えます。 -->";
+    const markerBottom = "<!-- P/N:この行以上は出力時に自動上書きされます。手動編集も消えます。 -->";
+    const wrapped = `${markerTop}\n${block}\n${markerBottom}`;
     const plotUri = vscode.Uri.joinPath(root, PLOT_DIR, "plot.md");
     // フォルダがなければ作成
     await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(root, PLOT_DIR));
@@ -781,10 +832,10 @@ class BoardStore {
       existing = DEFAULT_PLOT_MD;
     }
     let next;
-    const first = existing.indexOf(marker);
-    const last = existing.lastIndexOf(marker);
-    if (first !== -1 && last !== -1 && first !== last) {
-      next = existing.slice(0, first) + wrapped + existing.slice(last + marker.length);
+    const first = existing.indexOf(markerTop);
+    const last = existing.lastIndexOf(markerBottom);
+    if (first !== -1 && last !== -1 && first < last) {
+      next = existing.slice(0, first) + wrapped + existing.slice(last + markerBottom.length);
     } else if (existing.trim().length) {
       next = `${existing.trimEnd()}\n\n${wrapped}\n`;
     } else {
