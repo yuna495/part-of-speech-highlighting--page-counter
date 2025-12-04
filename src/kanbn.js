@@ -6,7 +6,10 @@ const STORY_FILE = "story.md";
 const CARD_DIR = "card";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
+// 列カラー用のデフォルトパレット
 const DEFAULT_PALETTE = ["#00aa55", "#ffcc00", "#ff4444", "#3388ff"];
+// タグストライプ用のデフォルトパレット（緑・黄・赤・青の中間色）
+const DEFAULT_TAG_PALETTE = ["#8dc63f", "#f5a623", "#c45dd8", "#2fa8c9"];
 
 function initKanbn(context) {
   context.subscriptions.push(
@@ -147,6 +150,7 @@ class KanbnPanel {
 
   html() {
     const paletteLiteral = JSON.stringify(getColumnColors());
+    const tagPaletteLiteral = JSON.stringify(getTagColors());
     return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -166,7 +170,8 @@ class KanbnPanel {
     .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
     .column-title { font-weight:700; }
     .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; }
-    .card { padding:10px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
+    .card { position:relative; padding:10px 10px 10px 14px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
+    .card::before { content:""; position:absolute; inset:0 auto 0 0; width:6px; border-radius:8px 0 0 8px; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
     .card.dragging { opacity:0.6; }
     .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
@@ -243,6 +248,8 @@ class KanbnPanel {
     });
 
     const palette = ${paletteLiteral};
+    const tagColors = ${tagPaletteLiteral};
+    const DEFAULT_TAG_PALETTE = ${JSON.stringify(DEFAULT_TAG_PALETTE)};
 
     function render() {
       boardEl.innerHTML = "";
@@ -316,6 +323,7 @@ class KanbnPanel {
             e.preventDefault();
             quickCardMenu(id);
           });
+          applyTagStripe(el, card, tagColors);
           cardsEl.appendChild(el);
         });
 
@@ -350,9 +358,44 @@ class KanbnPanel {
     }
 
     function quickCardMenu(cardId) {
-      const pick = confirm("削除しますか？") ? "delete" : "open";
+      const pick = confirm("削除しますか？ (OKで削除 / キャンセルでカードを開く)") ? "delete" : "open";
       if (pick === "delete") vscode.postMessage({ type: "deleteCard", cardId });
       else vscode.postMessage({ type: "openCard", cardId });
+    }
+
+    function applyTagStripe(el, card, tagColorsMap) {
+      const tags = Array.isArray(card.tags) ? card.tags : [];
+      if (!tags.length) {
+        el.style.setProperty("--tag-stripe-opacity", 0);
+        return;
+      }
+      const colors = tags
+        .slice(0, 3)
+        .map((tag, idx) => {
+          if (tagColorsMap && typeof tagColorsMap === "object" && tagColorsMap[tag]) {
+            return tagColorsMap[tag];
+          }
+          const fallbackKey = String(idx + 1);
+          if (tagColorsMap && typeof tagColorsMap === "object" && tagColorsMap[fallbackKey]) {
+            return tagColorsMap[fallbackKey];
+          }
+          return DEFAULT_TAG_PALETTE[idx % DEFAULT_TAG_PALETTE.length];
+        })
+        .filter(Boolean);
+      if (!colors.length) {
+        el.style.setProperty("--tag-stripe-opacity", 0);
+        return;
+      }
+      const step = 100 / colors.length;
+      const stops = colors
+        .map((c, i) => {
+          const start = i * step;
+          const end = (i + 1) * step;
+          return c + " " + start + "% " + end + "%";
+        })
+        .join(", ");
+      el.style.setProperty("--tag-stripe", "linear-gradient(to bottom, " + stops + ")");
+      el.style.setProperty("--tag-stripe-opacity", 1);
     }
 
     function setLoading(flag) {
@@ -448,8 +491,8 @@ class BoardStore {
             id,
             title: id,
             description: "",
-            tags: [""],
-            characters: [""],
+            tags: [],
+            characters: [],
             time: "",
           };
         }
@@ -724,6 +767,31 @@ function getColumnColors() {
   colors = colors.map((c) => c.trim());
   if (!colors.length) return DEFAULT_PALETTE;
   return colors.slice(0, 10);
+}
+
+function getTagColors() {
+  const cfg = vscode.workspace.getConfiguration("posNote");
+  const user = cfg.get("kanbn.tagsColors");
+  if (Array.isArray(user)) {
+    const arr = user.filter((v) => typeof v === "string" && v.trim().length);
+    if (arr.length) {
+      return Object.fromEntries(arr.map((v, i) => [String(i + 1), v.trim()]));
+    }
+  } else if (user && typeof user === "object") {
+    const pairs = Object.entries(user).filter(
+      ([, v]) => typeof v === "string" && v.trim().length
+    );
+    if (pairs.length) {
+      return Object.fromEntries(
+        pairs.map(([k, v]) => [String(k), v.trim()])
+      );
+    }
+  }
+  const fallback = {};
+  DEFAULT_TAG_PALETTE.forEach((c, idx) => {
+    fallback[String(idx + 1)] = c;
+  });
+  return fallback;
 }
 
 module.exports = { initKanbn };
