@@ -208,10 +208,14 @@ class KanbnPanel {
     .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
     .loading { animation: spin 0.8s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
-    .board { display:flex; gap:12px; align-items:stretch; overflow-x:auto; }
-    .column { width:260px; display:flex; flex-direction:column; min-height:calc(100vh - 80px); background:transparent; }
+    .board { display:flex; gap:12px; align-items:stretch; overflow-x:auto; --col-base:300px; --col-min:120px; --col-max:500px; }
+    .column { flex:1 1 var(--col-base); min-width:var(--col-min); max-width:var(--col-max); display:flex; flex-direction:column; min-height:calc(100vh - 80px); background:transparent; }
+    /* TBDは常に他列のおおよそ1/2幅になるよう grow を0.5、basisを1/2に設定し、縮小も許可 */
+    .column.tbd { flex:0.5 1 calc(var(--col-base) / 2); min-width:calc(var(--col-min) / 2); max-width:calc(var(--col-max) / 2); }
     .column-body { background:var(--col-bg, #222); border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; display:flex; flex-direction:column; }
-    .column-filler { flex:1; }
+    .column-filler { flex:1; background:transparent; }
+    .column.tbd .column-body { flex:1; }
+    .column.tbd .column-filler { flex:0; }
     .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
     .column-title { font-weight:700; }
     .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; flex:1; padding-bottom:12px; }
@@ -287,6 +291,7 @@ class KanbnPanel {
       const colId = e.dataTransfer.getData("text/column") || e.dataTransfer.getData("application/kanbn-column");
       const cardId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/kanbn-card");
       if (colId) {
+        if (colId === "tbd") return;
         vscode.postMessage({ type: "deleteColumnHard", columnId: colId });
       } else if (cardId) {
         vscode.postMessage({ type: "deleteCard", cardId });
@@ -315,14 +320,21 @@ class KanbnPanel {
 
     function render() {
       boardEl.innerHTML = "";
+      let colorIdx = 0;
       state.columns.forEach((col, idx) => {
         const colEl = document.createElement("div");
         colEl.className = "column";
+        if (col.id === "tbd") colEl.classList.add("tbd");
         colEl.dataset.id = col.id;
 
         const body = document.createElement("div");
         body.className = "column-body";
-        body.style.setProperty("--col-bg", palette[idx % palette.length]);
+        if (col.id === "tbd") {
+          body.style.setProperty("--col-bg", "#303030");
+        } else {
+          body.style.setProperty("--col-bg", palette[colorIdx % palette.length]);
+          colorIdx++;
+        }
 
         const header = document.createElement("header");
         const title = document.createElement("div");
@@ -336,14 +348,16 @@ class KanbnPanel {
         body.appendChild(header);
 
         // 列ドラッグはヘッダーのみをハンドルにする
-        header.draggable = true;
-        header.addEventListener("dragstart", (e) => {
-          colEl.classList.add("dragging");
-          e.dataTransfer.setData("text/column", col.id);
-          e.dataTransfer.setData("application/kanbn-column", col.id);
-          e.dataTransfer.effectAllowed = "move";
-        });
-        header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
+        header.draggable = col.id !== "tbd";
+        if (col.id !== "tbd") {
+          header.addEventListener("dragstart", (e) => {
+            colEl.classList.add("dragging");
+            e.dataTransfer.setData("text/column", col.id);
+            e.dataTransfer.setData("application/kanbn-column", col.id);
+            e.dataTransfer.effectAllowed = "move";
+          });
+          header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
+        }
         // ダブルクリックで列名変更
         header.addEventListener("dblclick", () => {
           vscode.postMessage({ type: "renameColumn", columnId: col.id });
@@ -416,6 +430,7 @@ class KanbnPanel {
         colEl.appendChild(body);
         const filler = document.createElement("div");
         filler.className = "column-filler";
+        if (col.id === "tbd") filler.style.setProperty("--col-bg", "#303030");
         colEl.appendChild(filler);
         boardEl.appendChild(colEl);
 
@@ -581,6 +596,8 @@ class BoardStore {
       }
       if (current) cols.push(current);
       if (!cols.length) throw new Error("no columns");
+      const hasTbd = cols.some((c) => c.id === "tbd");
+      if (!hasTbd) cols.unshift({ id: "tbd", name: "TBD", cards: [] });
       return cols;
     } catch {
       return defaultColumns();
@@ -762,6 +779,10 @@ class BoardStore {
   }
 
   static async deleteColumn(root, columnId) {
+    if (columnId === "tbd") {
+      vscode.window.showWarningMessage("TBD 列は削除できません");
+      return;
+    }
     const cols = await this.readStory(root);
     if (cols.length <= 1) {
       vscode.window.showWarningMessage("列が1つのため削除できません");
@@ -783,6 +804,10 @@ class BoardStore {
   }
 
   static async deleteColumnHard(root, columnId) {
+    if (columnId === "tbd") {
+      vscode.window.showWarningMessage("TBD 列は削除できません");
+      return;
+    }
     const cols = await this.readStory(root);
     if (cols.length <= 1) {
       vscode.window.showWarningMessage("列が1つのため削除できません");
@@ -807,11 +832,12 @@ class BoardStore {
   }
 
   static async moveColumn(root, columnId, toIndex) {
+    if (columnId === "tbd") return;
     const cols = await this.readStory(root);
     const idx = cols.findIndex((c) => c.id === columnId);
     if (idx < 0) return;
     const [col] = cols.splice(idx, 1);
-    const target = Math.max(0, Math.min(toIndex, cols.length));
+    const target = Math.max(1, Math.min(toIndex, cols.length)); // 0 は tbd 用に予約
     cols.splice(target, 0, col);
     await this.writeStory(root, cols);
   }
@@ -917,6 +943,7 @@ function makeId(prefix) {
 
 function defaultColumns() {
   return [
+    { id: "tbd", name: "TBD", cards: [] },
     { id: "act1", name: "Act1", cards: [] },
     { id: "act2", name: "Act2", cards: [] },
     { id: "act3", name: "Act3", cards: [] },
@@ -974,6 +1001,7 @@ function buildPlotMarkdown(columns, cards) {
   const lines = [];
   lines.push("## 構成", "");
   for (const col of columns) {
+    if (col.id === "tbd") continue;
     lines.push(`### ${col.name}`);
     lines.push("");
     for (const id of col.cards || []) {
