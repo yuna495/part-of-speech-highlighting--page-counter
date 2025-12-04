@@ -129,6 +129,10 @@ class KanbnPanel {
           await BoardStore.deleteColumn(this.rootUri, msg.columnId);
           await this.refresh();
           break;
+        case "deleteColumnHard":
+          await BoardStore.deleteColumnHard(this.rootUri, msg.columnId);
+          await this.refresh();
+          break;
         default:
           break;
       }
@@ -154,30 +158,43 @@ class KanbnPanel {
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
     button { background:#2d7dff; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
     button.sub { background:#444; }
+    .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
+    .loading { animation: spin 0.8s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
     .board { display:flex; gap:12px; align-items:flex-start; overflow-x:auto; }
     .column { width:260px; border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; }
     .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
     .column-title { font-weight:700; }
     .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; }
-    .card { padding:10px; background:#222; border:1px solid #333; border-radius:8px; cursor:grab; }
+    .card { padding:10px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
     .card.dragging { opacity:0.6; }
     .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
+    .characters .tag { background:#2e8b57; }
+    .time { margin-top:6px; font-size:11px; color:#ddd; }
+    .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff7777; color:#ffaaaa; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
+    .trash.active { background:#552222; color:#ffdddd; border-color:#ffdddd; }
   </style>
 </head>
 <body>
   <div class="toolbar">
     <button id="add-column">列を追加</button>
-    <button id="refresh" class="sub">再読み込み</button>
+    <button id="refresh" class="sub icon-btn" title="再読み込み">⟳</button>
+    <div id="trash" class="trash" title="ここにドロップで削除">🗑 ドロップで削除</div>
   </div>
   <div id="board" class="board"></div>
   <script>
     const vscode = acquireVsCodeApi();
     let state = { columns: [], cards: {} };
+    let loading = false;
 
     const boardEl = document.getElementById("board");
     document.getElementById("add-column").onclick = () => vscode.postMessage({ type: "addColumn" });
-    document.getElementById("refresh").onclick = () => vscode.postMessage({ type: "ready" });
+    document.getElementById("refresh").onclick = () => {
+      setLoading(true);
+      vscode.postMessage({ type: "ready" });
+    };
+    const trashEl = document.getElementById("trash");
 
     boardEl.addEventListener("dragover", (e) => {
       if (!e.dataTransfer.types.includes("text/column")) return;
@@ -192,10 +209,35 @@ class KanbnPanel {
       vscode.postMessage({ type: "moveColumn", columnId, toIndex: idx });
     });
 
+    // ゴミ箱ドロップ
+    ["dragover", "dragenter"].forEach((evName) => {
+      trashEl.addEventListener(evName, (e) => {
+        if (acceptsTrash(e.dataTransfer)) {
+          e.preventDefault();
+          trashEl.classList.add("active");
+        }
+      });
+    });
+    ["dragleave", "dragend"].forEach((evName) => {
+      trashEl.addEventListener(evName, () => trashEl.classList.remove("active"));
+    });
+    trashEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      trashEl.classList.remove("active");
+      const colId = e.dataTransfer.getData("text/column");
+      const cardId = e.dataTransfer.getData("text/plain");
+      if (colId) {
+        vscode.postMessage({ type: "deleteColumnHard", columnId: colId });
+      } else if (cardId) {
+        vscode.postMessage({ type: "deleteCard", cardId });
+      }
+    });
+
     window.addEventListener("message", (ev) => {
       const msg = ev.data;
       if (msg.type === "data") {
         state = { columns: msg.columns, cards: msg.cards };
+        setLoading(false);
         render();
       }
     });
@@ -217,10 +259,7 @@ class KanbnPanel {
         header.appendChild(title);
 
         const btns = document.createElement("div");
-        btns.innerHTML =
-          '<button class="sub" data-act="add-card">＋</button>' +
-          '<button class="sub" data-act="rename-col">名</button>' +
-          '<button class="sub" data-act="delete-col">削</button>';
+        btns.innerHTML = '<button class="sub" data-act="add-card">＋</button>';
         header.appendChild(btns);
         colEl.appendChild(header);
 
@@ -232,6 +271,10 @@ class KanbnPanel {
           e.dataTransfer.effectAllowed = "move";
         });
         header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
+        // ダブルクリックで列名変更
+        header.addEventListener("dblclick", () => {
+          vscode.postMessage({ type: "renameColumn", columnId: col.id });
+        });
 
         const cardsEl = document.createElement("div");
         cardsEl.className = "cards";
@@ -245,17 +288,23 @@ class KanbnPanel {
           vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
         });
 
-        col.cards.forEach((id) => {
-          const card = state.cards[id] || { id, title: id, tags: [] };
-          const el = document.createElement("div");
-          el.className = "card";
-          el.draggable = true;
-          el.dataset.id = id;
-          el.innerHTML =
-            '<div class="card-title">' + (card.title || id) + "</div>" +
-            (card.tags && card.tags.length
-              ? '<div class="tags">' + card.tags.map((t) => '<span class="tag">' + t + "</span>").join("") + "</div>"
-              : "");
+    col.cards.forEach((id) => {
+        const card = state.cards[id] || { id, title: id, tags: [] };
+      const el = document.createElement("div");
+      el.className = "card";
+      el.draggable = true;
+      el.dataset.id = id;
+        el.innerHTML =
+          '<div class="card-title">' + (card.title || id) + "</div>" +
+          (card.tags && card.tags.length
+            ? '<div class="tags">' + card.tags.map((t) => '<span class="tag">' + t + "</span>").join("") + "</div>"
+            : "") +
+          (card.characters && card.characters.length
+            ? '<div class="tags characters">' + card.characters.map((c) => '<span class="tag">' + c + "</span>").join("") + "</div>"
+            : "") +
+          (card.time
+            ? '<div class="time">🕒 ' + card.time + "</div>"
+            : "");
           el.addEventListener("dragstart", (e) => {
             el.classList.add("dragging");
             e.dataTransfer.setData("text/plain", id);
@@ -275,10 +324,6 @@ class KanbnPanel {
 
         btns.querySelector('[data-act="add-card"]').onclick = () =>
           vscode.postMessage({ type: "addCard", columnId: col.id });
-        btns.querySelector('[data-act="rename-col"]').onclick = () =>
-          vscode.postMessage({ type: "renameColumn", columnId: col.id });
-        btns.querySelector('[data-act="delete-col"]').onclick = () =>
-          vscode.postMessage({ type: "deleteColumn", columnId: col.id });
       });
     }
 
@@ -300,10 +345,22 @@ class KanbnPanel {
       return cols.length;
     }
 
+    function acceptsTrash(dt) {
+      return dt && (dt.types.includes("text/column") || dt.types.includes("text/plain"));
+    }
+
     function quickCardMenu(cardId) {
       const pick = confirm("削除しますか？") ? "delete" : "open";
       if (pick === "delete") vscode.postMessage({ type: "deleteCard", cardId });
       else vscode.postMessage({ type: "openCard", cardId });
+    }
+
+    function setLoading(flag) {
+      loading = flag;
+      const btn = document.getElementById("refresh");
+      if (!btn) return;
+      if (loading) btn.classList.add("loading");
+      else btn.classList.remove("loading");
     }
 
     vscode.postMessage({ type: "ready" });
@@ -327,6 +384,7 @@ class BoardStore {
       await vscode.workspace.fs.stat(storyUri);
       return;
     } catch {}
+    // 初回起動時に必要なフォルダ/ファイルを生成
     const defaultCols = defaultColumns();
     await this.writeStory(root, defaultCols);
   }
@@ -390,7 +448,9 @@ class BoardStore {
             id,
             title: id,
             description: "",
-            tags: [],
+            tags: [""],
+            characters: [""],
+            time: "",
           };
         }
       }
@@ -418,8 +478,6 @@ class BoardStore {
     const uri = this.cardUri(root, card.id);
     const payload = {
       ...card,
-      created: card.created || new Date().toISOString(),
-      updated: new Date().toISOString(),
     };
     await vscode.workspace.fs.writeFile(
       uri,
@@ -442,6 +500,8 @@ class BoardStore {
       title,
       description: description || "",
       tags: splitTags(tagsInput),
+      characters: [],
+      time: "",
     };
     await this.writeCard(root, card);
     const cols = await this.readStory(root);
@@ -471,6 +531,8 @@ class BoardStore {
       title: cardId,
       description: "",
       tags: [],
+      characters: [],
+      time: "",
     };
     await this.writeCard(root, card);
     const doc = await vscode.workspace.openTextDocument(
@@ -548,6 +610,30 @@ class BoardStore {
     await this.writeStory(root, next);
   }
 
+  static async deleteColumnHard(root, columnId) {
+    const cols = await this.readStory(root);
+    if (cols.length <= 1) {
+      vscode.window.showWarningMessage("列が1つのため削除できません");
+      return;
+    }
+    const col = cols.find((c) => c.id === columnId);
+    if (!col) return;
+    const ok = await vscode.window.showWarningMessage(
+      `列とそのカードを削除しますか？\n${col.name}`,
+      { modal: true },
+      "削除"
+    );
+    if (ok !== "削除") return;
+    // カードファイル削除
+    for (const cardId of col.cards || []) {
+      try {
+        await vscode.workspace.fs.delete(this.cardUri(root, cardId));
+      } catch {}
+    }
+    const next = cols.filter((c) => c.id !== columnId);
+    await this.writeStory(root, next);
+  }
+
   static async moveColumn(root, columnId, toIndex) {
     const cols = await this.readStory(root);
     const idx = cols.findIndex((c) => c.id === columnId);
@@ -564,8 +650,14 @@ async function resolveRootUri() {
   if (ed) {
     const uri = ed.document.uri;
     if (uri.scheme === "file") {
-      const dir = path.dirname(uri.fsPath);
-      return vscode.Uri.file(dir);
+      const fileDir = path.dirname(uri.fsPath);
+      const baseName = path.basename(fileDir);
+      // もし親フォルダが plot なら一つ上（小説タイトル階層）をルートとする
+      if (baseName.toLowerCase() === "plot") {
+        return vscode.Uri.file(path.dirname(fileDir));
+      }
+      // そうでなければファイルと同じ階層をルートとし、そこに plot/ を切る
+      return vscode.Uri.file(fileDir);
     }
     const ws = vscode.workspace.getWorkspaceFolder(uri);
     if (ws) return ws.uri;
@@ -603,7 +695,7 @@ function slugify(str) {
 
 function makeId(prefix) {
   const rand = Math.random().toString(16).slice(2, 6);
-  return `${prefix}-${Date.now()}-${rand}`;
+  return `${Date.now()}-${rand}`;
 }
 
 function defaultColumns() {

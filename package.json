@@ -28,7 +28,8 @@
     "onLanguage:plaintext",
     "onLanguage:novel",
     "onLanguage:markdown",
-    "onLanguage:Novel"
+    "onLanguage:Novel",
+    "onCommand:posNote.utilities.refreshView"
   ],
   "contributes": {
     "viewsContainers": {
@@ -365,6 +366,11 @@
         "command": "posNote.kanbn.openBoard",
         "title": "POS/Note: プロットボードを開く",
         "icon": "$(layout)"
+      },
+      {
+        "command": "posNote.utilities.refreshView",
+        "title": "POS/Note: サイドバー更新",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -393,6 +399,11 @@
           "command": "posNote.kanbn.openBoard",
           "when": "view == novelUtilities",
           "group": "navigation@20"
+        },
+        {
+          "command": "posNote.utilities.refreshView",
+          "when": "view == novelUtilities",
+          "group": "navigation@0"
         }
       ],
       "editor/title": [

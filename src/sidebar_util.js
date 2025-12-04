@@ -24,6 +24,13 @@ function initSidebarUtilities(context) {
     vscode.window.registerTreeDataProvider("novelUtilities", provider)
   );
 
+  // 手動リフレッシュコマンド
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.utilities.refreshView", () =>
+      provider.refresh()
+    )
+  );
+
   // === 追加: TreeViewタイトルを動的に変更 ===
   const treeView = vscode.window.createTreeView("novelUtilities", {
     treeDataProvider: provider,
