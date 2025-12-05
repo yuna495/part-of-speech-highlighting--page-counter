@@ -5,6 +5,7 @@ pnpm-debug.log*
 yarn-error.log*
 *.log
 logs/
+.venv/
 
 # lockfile は基本コミット推奨（消したいならこの行を削除）
 # （= ここでは ignore しない）
@@ -23,6 +24,7 @@ dist/
 coverage/
 .nyc_output/
 .eslintcache
+eslint.config.mjs
 
 # --- OS依存 ---
 .DS_Store

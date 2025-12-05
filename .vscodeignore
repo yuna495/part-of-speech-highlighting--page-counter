@@ -3,6 +3,7 @@
 .git/**
 scripts/**
 test/**
+.venv/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
@@ -17,6 +18,7 @@ vsc-extension-quickstart.md
 **/*.svg
 *.log
 npm-debug.log*
+*.vsix
 .github/
 **/.DS_Store
 **/*.py

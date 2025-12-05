@@ -205,14 +205,14 @@ function collectHeadingRanges(editor) {
 const _minimapCache = new Map();
 
 /** ミニマップ反映（変更がない場合はスキップ） */
-function applyMinimapDecorations(editor, decoTypes) {
+function applyMinimapDecorations(editor, decoTypes, force = false) {
   const doc = editor.document;
   const uri = doc.uri.toString();
   const ver = doc.version;
 
   // キャッシュ確認
   const cached = _minimapCache.get(uri);
-  if (cached && cached.version === ver) {
+  if (!force && cached && cached.version === ver) {
     return; // 変更なし
   }
 
@@ -249,10 +249,9 @@ function initHeadings(context, helpers) {
   });
 
   // --- Common Logic ---
-  // --- Common Logic ---
   let debounceUpdate = null;
 
-  function updateAll(ed) {
+  function updateAll(ed, forceMinimap = false) {
     if (!ed) return;
     if (debounceUpdate) clearTimeout(debounceUpdate);
 
@@ -263,7 +262,7 @@ function initHeadings(context, helpers) {
         // Minimap update
         const c = helpers.cfg();
         if (helpers.isTargetDoc(ed.document, c)) {
-            applyMinimapDecorations(ed, decoTypes);
+            applyMinimapDecorations(ed, decoTypes, forceMinimap);
         }
     }, 200);
   }
@@ -277,7 +276,7 @@ function initHeadings(context, helpers) {
     // ミニマップ手動更新（必要なら）
     vscode.commands.registerCommand("posNote.headings.minimapRefresh", () => {
       const ed = vscode.window.activeTextEditor;
-      if (ed) updateAll(ed);
+      if (ed) updateAll(ed, true);
     })
   );
 
@@ -286,7 +285,7 @@ function initHeadings(context, helpers) {
   updateAll(vscode.window.activeTextEditor);
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor((ed) => updateAll(ed)),
+    vscode.window.onDidChangeActiveTextEditor((ed) => updateAll(ed, true)),
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
@@ -296,7 +295,7 @@ function initHeadings(context, helpers) {
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("posNote")) {
-        updateAll(vscode.window.activeTextEditor);
+        updateAll(vscode.window.activeTextEditor, true);
       }
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
