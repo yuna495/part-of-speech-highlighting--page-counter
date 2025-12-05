@@ -344,15 +344,15 @@ function mapKuromojiToSemantic(tk) {
 
 /** 1行テキストと kuromoji トークン列から、表層形のオフセットを列挙 */
 // yield で (開始, 終了, トークン) を順に返すジェネレータ
+/** 1行テキストと kuromoji トークン列から、表層形のオフセットを列挙 */
+// yield で (開始, 終了, トークン) を順に返すジェネレータ
+// word_position (1-based index) を使用して高速化
 function* enumerateTokenOffsets(lineText, tokens) {
-  let cur = 0;
   for (const tk of tokens) {
-    const s = tk.surface_form || "";
-    if (!s) continue;
-    const i = lineText.indexOf(s, cur);
-    if (i === -1) continue;
-    yield { start: i, end: i + s.length, tk };
-    cur = i + s.length;
+    if (!tk.word_position) continue; // 念のため
+    const start = tk.word_position - 1;
+    const end = start + (tk.surface_form ? tk.surface_form.length : 0);
+    yield { start, end, tk };
   }
 }
 
@@ -428,21 +428,41 @@ async function loadLocalDictForDoc(docUri) {
     const key = data ? `note:${mtimeMs}` : "none";
 
     if (cache && cache.key === key) {
-      return { chars: cache.chars, glos: cache.glos };
+      return cache.val;
     }
 
-    if (!data) {
-      const val = { key, chars: new Set(), glos: new Set() };
-      _localDictCache.set(dir, val);
-      return { chars: val.chars, glos: val.glos };
+    // 辞書データ構築
+    let chars = new Set();
+    let glos = new Set();
+    if (data) {
+      const { chars: c, glos: g } = await loadWordsFromNoteSetting(data);
+      chars = c;
+      glos = g;
     }
 
-    const { chars, glos } = await loadWordsFromNoteSetting(data);
-    const val = { key, chars, glos };
-    _localDictCache.set(dir, val);
-    return { chars, glos };
+    // 正規表現と種別マップを生成
+    const needles = [];
+    for (const w of chars) needles.push({ w, k: "character" });
+    for (const w of glos) needles.push({ w, k: "glossary" });
+    // 長い順にソート（最長一致）
+    needles.sort((a, b) => b.w.length - a.w.length);
+
+    // エスケープして結合
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = needles.map((n) => escapeRe(n.w)).join("|");
+    const regex = pattern ? new RegExp(pattern, "g") : null;
+
+    // 単語 -> 種別 のマップ（重複時は needles の順序＝chars優先）
+    const kindMap = new Map();
+    for (const { w, k } of needles) {
+      if (!kindMap.has(w)) kindMap.set(w, k);
+    }
+
+    const val = { chars, glos, regex, kindMap };
+    _localDictCache.set(dir, { key, val });
+    return val;
   } catch {
-    return { chars: new Set(), glos: new Set() };
+    return { chars: new Set(), glos: new Set(), regex: null, kindMap: new Map() };
   }
 }
 
@@ -452,43 +472,22 @@ async function loadLocalDictForDoc(docUri) {
  * - 返値: [{start, end, kind:"character"|"glossary"}]
  * 品詞ハイライトよりも優先して強調するための区間情報
  */
-function matchDictRanges(lineText, charsSet, glosSet) {
+/**
+ * 行テキストから、辞書語の**非重複**マッチを抽出
+ * - RegExp を使用して高速化
+ * - 返値: [{start, end, kind:"character"|"glossary"}]
+ */
+function matchDictRanges(lineText, regex, kindMap) {
   const res = [];
-  if (!lineText) return res;
+  if (!lineText || !regex) return res;
 
-  // 検索語（長い順）
-  const needles = [];
-  for (const w of charsSet) needles.push({ w, k: "character" });
-  for (const w of glosSet) needles.push({ w, k: "glossary" });
-  needles.sort((a, b) => b.w.length - a.w.length);
-
-  const used = new Array(lineText.length).fill(false);
-  const canPlace = (s, e) => {
-    for (let i = s; i < e; i++) {
-      if (used[i]) return false;
-    }
-    return true;
-  };
-  const mark = (s, e) => {
-    for (let i = s; i < e; i++) {
-      used[i] = true;
-    }
-  };
-
-  for (const { w, k } of needles) {
-    let idx = 0;
-    while (w && (idx = lineText.indexOf(w, idx)) !== -1) {
-      const s = idx,
-        e = idx + w.length;
-      if (canPlace(s, e)) {
-        mark(s, e);
-        res.push({ start: s, end: e, kind: k });
-      }
-      idx = e;
-    }
+  regex.lastIndex = 0;
+  let m;
+  while ((m = regex.exec(lineText)) !== null) {
+    const w = m[0];
+    const kind = kindMap.get(w) || "other";
+    res.push({ start: m.index, end: m.index + w.length, kind });
   }
-  // 左→右に整列
-  res.sort((a, b) => a.start - b.start);
   return res;
 }
 
@@ -575,9 +574,14 @@ class JapaneseSemanticProvider {
     this._spaceDecoration = null;
     this._spaceColor = null;
     this._spaceRangesByDoc = new Map(); // key: docUri -> vscode.Range[]
+
+    // トークンキャッシュ (行単位)
+    this._tokenCache = new Map(); // key: docUri -> Map<lineIndex, { text: string, tokens: any[] }>
+
     context.subscriptions.push(
       vscode.workspace.onDidCloseTextDocument((doc) => {
         this._spaceRangesByDoc.delete(doc.uri.toString());
+        this._tokenCache.delete(doc.uri.toString());
       })
     );
   }
@@ -709,16 +713,15 @@ class JapaneseSemanticProvider {
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
 
-    /** @type {Set<string>} */
-    let charWords = new Set();
-    /** @type {Set<string>} */
-    let gloWords = new Set();
+    /** @type {RegExp|null} */
+    let dictRegex = null;
+    /** @type {Map<string, string>} */
+    let dictKindMap = new Map();
 
-    const noteLoaded = await loadNoteSettingForDoc(document);
-    if (noteLoaded?.data) {
-      const r = await loadWordsFromNoteSetting(noteLoaded.data);
-      charWords = r.chars;
-      gloWords = r.glos;
+    const noteLoaded = await loadLocalDictForDoc(document.uri);
+    if (noteLoaded) {
+      dictRegex = noteLoaded.regex;
+      dictKindMap = noteLoaded.kindMap;
     }
 
     // 以降、既存の有効/無効判定やトークン生成ロジックはそのまま
@@ -851,10 +854,8 @@ class JapaneseSemanticProvider {
       const nonFenceSpans = restForLine(fenceSegs);
 
       // ▼ (1) ローカル辞書マッチ（最優先）
-      const dictRanges =
-        charWords.size || gloWords.size
-          ? matchDictRanges(text, charWords, gloWords)
-          : [];
+      // ▼ (1) ローカル辞書マッチ（最優先）
+      const dictRanges = matchDictRanges(text, dictRegex, dictKindMap);
 
       // (B) 「辞書マスク」もフェンス外に限定して作成
       const dictRangesOutsideFence = subtractMaskedIntervals(
@@ -961,8 +962,27 @@ class JapaneseSemanticProvider {
       }
 
       // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
+      // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
       if (tokenizer && text.trim()) {
-        const tokens = tokenizer.tokenize(text);
+        // キャッシュ確認
+        const docKey = document.uri.toString();
+        let docCache = this._tokenCache.get(docKey);
+        if (!docCache) {
+          docCache = new Map();
+          this._tokenCache.set(docKey, docCache);
+        }
+
+        let tokens;
+        const cachedLine = docCache.get(line);
+        if (cachedLine && cachedLine.text === text) {
+          tokens = cachedLine.tokens;
+        } else {
+          tokens = tokenizer.tokenize(text);
+          docCache.set(line, { text, tokens });
+          // 簡易的なキャッシュサイズ制限（行数が多すぎたらクリア）
+          if (docCache.size > 5000) docCache.clear();
+        }
+
         for (const seg of enumerateTokenOffsets(text, tokens)) {
           const start = seg.start,
             end = seg.end;
@@ -1203,15 +1223,17 @@ async function toPosHtml(text, context, opts = {}) {
   }
 
   // 同フォルダ辞書（無ければ空集合＝未適用）
-  let charWords = new Set(),
-    gloWords = new Set();
+  /** @type {RegExp|null} */
+  let dictRegex = null;
+  /** @type {Map<string, string>} */
+  let dictKindMap = new Map();
+
   if (docUri) {
-    const got = await loadLocalDictForDoc(docUri).catch(() => ({
-      chars: new Set(),
-      glos: new Set(),
-    }));
-    charWords = got?.chars || new Set();
-    gloWords = got?.glos || new Set();
+    const got = await loadLocalDictForDoc(docUri);
+    if (got) {
+      dictRegex = got.regex;
+      dictKindMap = got.kindMap;
+    }
   }
 
   // 補助レンダラ
@@ -1339,10 +1361,7 @@ async function toPosHtml(text, context, opts = {}) {
     }
 
     // 同フォルダ辞書マッチ（既存）
-    const dictRanges =
-      charWords.size || gloWords.size
-        ? matchDictRanges(line, charWords, gloWords)
-        : [];
+    const dictRanges = matchDictRanges(line, dictRegex, dictKindMap);
 
     // プレースホルダーマッチ（行内）
     const phRanges = [];
@@ -1469,12 +1488,36 @@ function buildPreviewCssFromEditorRules() {
       return `.pos-fencecomment{color:#f0f0c0;}\n`;
     }
 
+    // デフォルト色定義（VS Code のテーマに依存せず、最低限の色を定義）
+    const defaultColors = {
+      noun: "#f0a0a0",
+      verb: "#a0f0a0",
+      adjective: "#a0a0f0",
+      adverb: "#f0f0a0",
+      particle: "#a0f0f0",
+      auxiliary: "#f0a0f0",
+      prenoun: "#f0c0a0",
+      conjunction: "#c0f0a0",
+      interjection: "#a0c0f0",
+      symbol: "#c0c0c0",
+      other: "#ffffff",
+      character: "#ff8080",
+      glossary: "#80ff80",
+      bracket: "#ffd700",
+      heading: "#ff14e0",
+      fencecomment: "#f0f0c0",
+    };
+
     const mapSimple = (key, cls) => {
       const val = rules[key];
-      if (!val) return "";
-      if (typeof val === "string") return `.${cls}{color:${val};}\n`;
-      if (typeof val === "object" && typeof val.foreground === "string")
-        return `.${cls}{color:${val.foreground};}\n`;
+      if (val) {
+        if (typeof val === "string") return `.${cls}{color:${val};}\n`;
+        if (typeof val === "object" && typeof val.foreground === "string")
+          return `.${cls}{color:${val.foreground};}\n`;
+      }
+      // フォールバック
+      const def = defaultColors[key];
+      if (def) return `.${cls}{color:${def};}\n`;
       return "";
     };
 
