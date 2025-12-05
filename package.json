@@ -375,34 +375,29 @@
     "menus": {
       "view/title": [
         {
-          "command": "posNote.createNewNovel",
+          "command": "posNote.utilities.refreshView",
           "when": "view == novelUtilities",
-          "group": "navigation@1"
+          "group": "navigation@0"
         },
         {
           "command": "posNote.createScaffoldHere",
           "when": "view == novelUtilities",
-          "group": "navigation@2"
-        },
-        {
-          "command": "posNote.combineTxtHere",
-          "when": "view == novelUtilities",
-          "group": "navigation@10"
-        },
-        {
-          "command": "posNote.combineMdHere",
-          "when": "view == novelUtilities",
-          "group": "navigation@11"
+          "group": "navigation@5"
         },
         {
           "command": "posNote.kanbn.openBoard",
           "when": "view == novelUtilities",
-          "group": "navigation@20"
+          "group": "navigation@10"
         },
         {
-          "command": "posNote.utilities.refreshView",
+          "command": "posNote.combineTxtHere",
           "when": "view == novelUtilities",
-          "group": "navigation@0"
+          "group": "navigation@19"
+        },
+        {
+          "command": "posNote.combineMdHere",
+          "when": "view == novelUtilities",
+          "group": "navigation@20"
         }
       ],
       "editor/title": [
@@ -412,12 +407,17 @@
           "when": "resourceExtname == .txt || resourceExtname == .md"
         }
       ],
-      "explorer/context": [
-        {
-          "command": "posNote.combineTxt",
-          "group": "navigation@50",
-          "when": "explorerResourceIsFolder == true"
-        },
+  "explorer/context": [
+    {
+      "command": "posNote.createNewNovel",
+      "group": "navigation@49",
+      "when": "explorerResourceIsFolder == true"
+    },
+    {
+      "command": "posNote.combineTxt",
+      "group": "navigation@50",
+      "when": "explorerResourceIsFolder == true"
+    },
         {
           "command": "posNote.combineMd",
           "group": "navigation@51",

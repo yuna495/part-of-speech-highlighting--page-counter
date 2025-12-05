@@ -1,11 +1,15 @@
 const vscode = require("vscode");
 const path = require("path");
-const { getSidebarBaseDirUri, defaultPlotMd } = require("./sidebar_util");
+const {
+  getSidebarBaseDirUri,
+  defaultPlotMd,
+  defaultBoardMd,
+} = require("./sidebar_util");
 
 const PLOT_DIR = "plot";
 const STORY_FILE = "board.md";
 const CARD_DIR = "card";
-// sidebar_util.js の defaultPlotMd と同じ初期テンプレート
+// sidebar_util.js の初期テンプレート群を利用
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
@@ -662,9 +666,15 @@ class BoardStore {
       await vscode.workspace.fs.stat(storyUri);
       return;
     } catch {}
-    // 初回起動時に必要なフォルダ/ファイルを生成
-    const defaultCols = defaultColumns();
-    await this.writeStory(root, defaultCols);
+    // 初回起動時に必要なフォルダ/ファイルを生成（sidebar_util の初期テンプレートを利用）
+    const plotDir = vscode.Uri.joinPath(root, PLOT_DIR);
+    try {
+      await vscode.workspace.fs.createDirectory(plotDir);
+    } catch {}
+    await vscode.workspace.fs.writeFile(
+      storyUri,
+      encoder.encode(defaultBoardMd())
+    );
   }
 
   static async readStory(root) {

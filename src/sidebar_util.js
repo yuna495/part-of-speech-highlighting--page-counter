@@ -1,13 +1,12 @@
 // src/sidebar_util.js
 // サイドバー
 //
-// 1) 最上段に「新しい小説を作成」ボタン風アイテム
-// 2) アクティブエディタのファイルと「同じフォルダ」を簡易エクスプローラ表示
-//    - 同フォルダ直下の *.json を列挙
-//    - plot/ は展開可能（配下のファイル/フォルダを列挙）
-// 3) 各項目クリックで当該リソースをエディタで開く
+// 1) アクティブエディタのファイルと「同じフォルダ」を簡易エクスプローラ表示
+//    - 同フォルダ直下に *.json を含む
+//    - plot/ は展開可能で配下のファイル/フォルダを列挙
+// 2) クリックで当該リソースをエディタで開く
 //
-// 既存 NewNovel 雛形作成機能も維持
+// NewNovel 雛形作成機能はコマンド／エクスプローラーのコンテキストメニューから呼び出し
 
 const vscode = require("vscode");
 const path = require("path");
@@ -55,10 +54,19 @@ function initSidebarUtilities(context) {
 
   // --- コマンド: 新しい小説を作成
   context.subscriptions.push(
-    vscode.commands.registerCommand("posNote.createNewNovel", async () => {
-      await createNewNovelScaffold();
-      vscode.window.showInformationMessage("NewNovel フォルダを作成しました");
-      provider.refresh();
+    vscode.commands.registerCommand("posNote.createNewNovel", async (arg) => {
+      const base = await resolveBaseForNewNovel(arg);
+      if (!base) {
+        vscode.window.showWarningMessage("作成先フォルダを解決できませんでした");
+        return;
+      }
+      const created = await createNewNovelScaffold(base);
+      if (created) {
+        vscode.window.showInformationMessage(
+          `NewNovel フォルダを作成しました: ${created.fsPath}`
+        );
+        provider.refresh();
+      }
     })
   );
 
@@ -504,6 +512,31 @@ async function resolveBaseForSibling(arg) {
   return null;
 }
 
+// 新しい小説の作成先を解決（引数フォルダ優先 → ワークスペース先頭 → ダイアログ）
+async function resolveBaseForNewNovel(arg) {
+  const uri = asUri(arg);
+  if (uri) {
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (stat.type === vscode.FileType.Directory) return uri;
+      if (stat.type === vscode.FileType.File) {
+        return vscode.Uri.file(path.dirname(uri.fsPath));
+      }
+    } catch {}
+  }
+
+  const ws = vscode.workspace.workspaceFolders;
+  if (ws && ws.length) return ws[0].uri;
+
+  const picked = await vscode.window.showOpenDialog({
+    canSelectFiles: false,
+    canSelectFolders: true,
+    canSelectMany: false,
+    openLabel: "NewNovel を作成するフォルダを選択",
+  });
+  return picked?.[0] ?? null;
+}
+
 async function setClipboardEntry(op, uri) {
   const payload = { op, paths: [uri.fsPath] };
   await vscode.env.clipboard.writeText(CLIP_PREFIX + JSON.stringify(payload));
@@ -647,8 +680,18 @@ async function createScaffoldInFolder(baseUri) {
   } catch {
     // 既にあれば無視
   }
+  // card/ サブフォルダを用意（既存でも OK）
+  try {
+    await fs.createDirectory(vscode.Uri.joinPath(plotUri, "card"));
+  } catch {
+    // 既にあれば無視
+  }
 
   // 既存の Markdown はそのまま維持
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(plotUri, "board.md"),
+    toUint8(defaultBoardMd())
+  );
   await writeFileIfNotExists(
     vscode.Uri.joinPath(plotUri, "characters.md"),
     toUint8(defaultPlotCharactersMd())
@@ -696,32 +739,39 @@ function getSidebarBaseDirUri() {
 }
 
 // ====== NewNovel 雛形 ======
-async function createNewNovelScaffold() {
-  const ws = vscode.workspace.workspaceFolders;
-  let baseUri;
+async function createNewNovelScaffold(baseUri) {
+  const fs = vscode.workspace.fs;
+  let targetBase = baseUri;
 
-  if (!ws || ws.length === 0) {
-    const picked = await vscode.window.showOpenDialog({
-      canSelectFiles: false,
-      canSelectFolders: true,
-      canSelectMany: false,
-      openLabel: "ここに NewNovel を作成",
-    });
-    if (!picked || picked.length === 0) {
-      vscode.window.showWarningMessage("フォルダが選択されませんでした");
-      return;
-    }
-    baseUri = picked[0];
-  } else {
-    baseUri = ws[0].uri;
+  if (!targetBase) {
+    targetBase = await resolveBaseForNewNovel(null);
+    if (!targetBase) return null;
   }
 
-  const fs = vscode.workspace.fs;
-  const targetUri = await uniqueFolder(baseUri, "NewNovel");
+  // ファイル指定なら親フォルダを利用
+  try {
+    const stat = await fs.stat(targetBase);
+    if (stat.type === vscode.FileType.File) {
+      targetBase = vscode.Uri.file(path.dirname(targetBase.fsPath));
+    }
+  } catch {
+    vscode.window.showWarningMessage("フォルダを解決できませんでした");
+    return null;
+  }
+
+  const targetUri = await uniqueFolder(targetBase, "NewNovel");
 
   const plotUri = vscode.Uri.joinPath(targetUri, "plot");
   await fs.createDirectory(plotUri);
+  // card/ サブフォルダを用意（既存でも OK）
+  try {
+    await fs.createDirectory(vscode.Uri.joinPath(plotUri, "card"));
+  } catch {}
 
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(plotUri, "board.md"),
+    toUint8(defaultBoardMd())
+  );
   await writeFileIfNotExists(
     vscode.Uri.joinPath(plotUri, "characters.md"),
     toUint8(defaultPlotCharactersMd())
@@ -740,6 +790,7 @@ async function createNewNovelScaffold() {
   );
 
   await vscode.commands.executeCommand("revealInExplorer", targetUri);
+  return targetUri;
 }
 
 async function uniqueFolder(parentUri, baseName) {
@@ -769,6 +820,23 @@ async function writeFileIfNotExists(uri, contentUint8) {
 
 function toUint8(str) {
   return new TextEncoder().encode(str);
+}
+
+function defaultBoardMd() {
+  return [
+    "# PlotBoard",
+    "",
+    "## TBD",
+    "",
+    "## Act1",
+    "",
+    "## Act2",
+    "",
+    "## Act3",
+    "",
+    "## Act4",
+    "",
+  ].join("\n");
 }
 
 // ---- デフォルト雛形（ユーザー指定の成形） ----
@@ -848,6 +916,10 @@ function defaultPlotMd() {
     "",
     "## その他設定",
     "",
+    "<!-- P/N:この行以下は出力時に自動上書きされます。手動編集も消えます。 -->",
+    "",
+    "<!-- P/N:この行以上は出力時に自動上書きされます。手動編集も消えます。 -->",
+    "",
     "## 作品紹介",
     "",
     "- キャッチコピー",
@@ -872,11 +944,16 @@ function defaultNoteSetting() {
 
 function defaultNovelTxt() {
   return [
-    "# タイトル",
+    "# 章",
     "",
     "　——ここから本文を開始してください。",
     "　章見出しは `# `、節は `## ` のように Markdown 形式。",
   ].join("\n");
 }
 
-module.exports = { initSidebarUtilities, getSidebarBaseDirUri, defaultPlotMd };
+module.exports = {
+  initSidebarUtilities,
+  getSidebarBaseDirUri,
+  defaultPlotMd,
+  defaultBoardMd,
+};
