@@ -25,8 +25,10 @@ let _enabledNote = true; // ページ表示のON/OFF（トグル用）
 let _metrics = null; // computeNoteMetrics の結果（キャッシュ）
 let _deltaFromHEAD = { key: null, value: null }; // ファイル単体の差分
 let _helpers = null; // { cfg, isTargetDoc }
-let _folderSumChars = null; // 同フォルダ・同拡張子（他ファイル）合算文字数
-let _precountTotalForThisTick = null; // 一時的に受け取る表示用総文字数
+// 同フォルダ・同拡張子（他ファイル）合算文字数
+let _folderSumChars = null;
+let _precountTotalForThisTick = null;
+let _docMetricsCache = new Map(); // uri -> { version, data: { ... } }
 
 // デフォルトの禁則先頭文字（行頭禁止）
 const DEFAULT_BANNED_START = [
@@ -320,6 +322,7 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   t = stripClosedCodeFences(t);
 
   // 《...》括弧内を除去
+  // 正規表現を定数化しておいたほうが早そうだが、頻度次第。念のため定数利用も検討
   t = t.replace(/《.*?》/g, "");
 
   const lines = t.split("\n");
@@ -352,13 +355,17 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
 }
 
 /**
- * 原稿用紙表示に必要なメトリクスをまとめて算出する。
- * @param {vscode.TextDocument} doc 対象ドキュメント
- * @param {object} c 設定
- * @param {vscode.Selection} selection 現在の選択
- * @returns {{totalChars:number,totalWrappedRows:number,totalNotes:number,currentNote:number,lastLineInLastNote:number}}
+ * 文書全体のメトリクスを計算（キャッシュ対応）。
  */
-function computeNoteMetrics(doc, c, selection) {
+function getDocMetricsCached(doc, c) {
+  const uri = doc.uri.toString();
+  const ver = doc.version;
+  const cached = _docMetricsCache.get(uri);
+
+  if (cached && cached.version === ver && cached.cfgHash === JSON.stringify(c)) {
+    return cached.data;
+  }
+
   // 全文（CRLF→LF 正規化）
   const fullText = doc.getText().replace(/\r\n/g, "\n");
 
@@ -367,7 +374,7 @@ function computeNoteMetrics(doc, c, selection) {
   const totalChars =
     items.length > 0 ? total : countCharsForDisplay(fullText, c);
 
-  // 2) ページ/行：従来どおり「全文」で計算（見出しを含む）
+  // ページ/行：従来どおり「全文」で計算（見出しを含む）
   const totalWrappedRows = wrappedRowsForText(
     fullText,
     c.colsPerRow,
@@ -376,8 +383,36 @@ function computeNoteMetrics(doc, c, selection) {
   );
   const totalNotes = Math.max(1, Math.ceil(totalWrappedRows / c.rowsPerNote));
 
-  // 3) 現在ページ：選択位置までのテキストで従来どおり計算（全文ベース）
+  const rem = totalWrappedRows % c.rowsPerNote;
+  const lastLineInLastNote = rem === 0 ? c.rowsPerNote : rem;
+
+  const data = {
+    totalChars,
+    totalWrappedRows,
+    totalNotes,
+    lastLineInLastNote
+  };
+
+  _docMetricsCache.set(uri, { version: ver, cfgHash: JSON.stringify(c), data });
+  return data;
+}
+
+/**
+ * 原稿用紙表示に必要なメトリクスをまとめて算出する。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @param {object} c 設定
+ * @param {vscode.Selection} selection 現在の選択
+ * @returns {{totalChars:number,totalWrappedRows:number,totalNotes:number,currentNote:number,lastLineInLastNote:number}}
+ */
+function computeNoteMetrics(doc, c, selection) {
+  // 1) 全体メトリクス取得（キャッシュ済みなら高速）
+  const base = getDocMetricsCached(doc, c);
+
+  // 2) 現在ページ：選択位置までのテキストで計算
+  // ここは常にカーソル位置に依存するためキャッシュしにくい（prefixが変わるため）
   const prefixText = editorPrefixText(doc, selection);
+  // prefixTextが非常に大きい場合ここがボトルネックになるが、
+  // 全体計算(wrapperRowsForText(fullText))をスキップできるだけで半分以下のコストになる。
   const currRows = wrappedRowsForText(
     prefixText,
     c.colsPerRow,
@@ -386,18 +421,12 @@ function computeNoteMetrics(doc, c, selection) {
   );
   const currentNote = Math.max(
     1,
-    Math.min(totalNotes, Math.ceil(currRows / c.rowsPerNote))
+    Math.min(base.totalNotes, Math.ceil(currRows / c.rowsPerNote))
   );
 
-  const rem = totalWrappedRows % c.rowsPerNote;
-  const lastLineInLastNote = rem === 0 ? c.rowsPerNote : rem;
-
   return {
-    totalChars,
-    totalWrappedRows,
-    totalNotes,
+    ...base,
     currentNote,
-    lastLineInLastNote,
   };
 }
 
@@ -735,8 +764,12 @@ function onActiveEditorChanged(ed) {
  */
 function onSelectionChanged(editor) {
   // 選択だけでは合算を再計算しない（重いI/Oを避ける）
-  recomputeAndCacheMetrics(editor);
-  updateStatusBar(editor);
+  // 以前はここで recomputeAndCacheMetrics(editor) を即時呼んでいたが、
+  // 文字入力やカーソル移動のたびに走るのは重いので scheduleUpdate に任せる。
+  // ただし、ページ番号即時更新のためには metrics 更新が必要。
+  // 分割キャッシュ化により recomputeAndCacheMetrics は軽量化したので
+  // ここは呼んでも良いが、連続移動を考慮して scheduleUpdate する。
+  scheduleUpdate(editor);
 }
 /**
  * 設定変更を反映し、必要な再計算を行う。
