@@ -27,6 +27,34 @@ const lastSaveReason = new Map(); // 保存理由（Auto Save をスキップ判
 const docCache = new Map(); // uriString -> { textLines: string[], diagnostics: vscode.Diagnostic[] }
 let lintStatusItem = null; // vscode.StatusBarItem
 let lintRunning = 0; // ネスト対策用カウンタ
+// キャッシュ: Kernel Instance, Options
+let _cachedKernel = null;
+let _cachedOptions = null;
+
+/** TextlintKernel インスタンスを取得（キャッシュ利用） */
+function getKernel() {
+  if (!_cachedKernel) {
+    _cachedKernel = new TextlintKernel();
+  }
+  return _cachedKernel;
+}
+
+/** ルール等のオプションを取得（キャッシュ利用） */
+function getOptions() {
+  if (!_cachedOptions) {
+    _cachedOptions = buildKernelOptions(channel);
+  }
+  return _cachedOptions;
+}
+
+/** 設定変更・拡張無効化時などにキャッシュをクリア */
+function invalidateKernelCache() {
+  _cachedKernel = null;
+  _cachedOptions = null;
+  channel.appendLine("[cache] Kernel/Options cleared.");
+  // 既存の診断結果もクリアしたほうが安全だが、
+  // 次回リントで再構築されるためそのままにしておく
+}
 
 // ===== 1) ステータスバー UI ヘルパー =====
 /** ステータスバー項目を生成・再利用する。 */
@@ -324,8 +352,8 @@ async function lintDocumentIncremental(doc, collection) {
       return;
     }
 
-    const kernel = new TextlintKernel();
-    const { plugins, rules } = buildKernelOptions(channel);
+    const kernel = getKernel();
+    const { plugins, rules } = getOptions();
     channel.appendLine(
       `[lint:opts] plugins=${plugins.length} rules=${rules.length}`
     );
@@ -536,6 +564,13 @@ function activate(context) {
           startLintUI("Linting...");
         }
       } catch {}
+    }),
+
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      // 設定変更があったらキャッシュをクリア
+      if (e.affectsConfiguration("posNote.linter")) {
+        invalidateKernelCache();
+      }
     })
   );
 

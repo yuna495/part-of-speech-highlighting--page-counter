@@ -323,10 +323,11 @@ function findRepeatedPunctDiagnostics(uri, text, baseLine = 0) {
   return diags;
 }
 
+const RE_NEED_FW_SPACE = /[！？](?![！？　」』〉》）】`'”*~]|$)/g;
+
 function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
   const diags = [];
   const lines = text.replace(/\r/g, "").split("\n");
-  const RE_NEED_FW_SPACE = /[！？](?![！？　」』〉》）】`'”*~]|$)/g;
   for (let i = 0; i < lines.length; i++) {
     const lineStr = lines[i];
     RE_NEED_FW_SPACE.lastIndex = 0;
@@ -353,26 +354,28 @@ function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
   return diags;
 }
 
+const RE_MASK_FENCE = /^\s*(```|~~~)/;
+const RE_INDENT_BLOCK = /^(?: {4}|\t)/;
+
 function maskCodeBlocks(text, initialFence = null) {
   const inLines = text.split(/\r?\n/);
   const outLines = [];
 
   let fence = initialFence;
-  const RE_FENCE = /^\s*(```|~~~)/;
 
   for (let i = 0; i < inLines.length; i++) {
     const raw = inLines[i];
 
     if (fence) {
       outLines.push("");
-      if (RE_FENCE.test(raw)) {
-        const m = RE_FENCE.exec(raw);
+      if (RE_MASK_FENCE.test(raw)) {
+        const m = RE_MASK_FENCE.exec(raw);
         if (m && m[1] === fence) fence = null;
       }
       continue;
     }
 
-    const m = RE_FENCE.exec(raw);
+    const m = RE_MASK_FENCE.exec(raw);
     if (m) {
       fence = m[1];
       outLines.push("");
@@ -380,9 +383,9 @@ function maskCodeBlocks(text, initialFence = null) {
     }
 
     const prevIsBlank = i === 0 || inLines[i - 1].trim() === "";
-    if (prevIsBlank && /^(?: {4}|\t)/.test(raw)) {
+    if (prevIsBlank && RE_INDENT_BLOCK.test(raw)) {
       let j = i;
-      while (j < inLines.length && /^(?: {4}|\t)/.test(inLines[j])) j++;
+      while (j < inLines.length && RE_INDENT_BLOCK.test(inLines[j])) j++;
       const count = j - i;
       if (count >= 2) {
         for (let k = i; k < j; k++) outLines.push("");
@@ -399,9 +402,8 @@ function maskCodeBlocks(text, initialFence = null) {
 
 function fenceStateBefore(lines, startLine) {
   let fence = null;
-  const RE_FENCE = /^\s*(```|~~~)/;
   for (let i = 0; i < startLine; i++) {
-    const m = RE_FENCE.exec(lines[i]);
+    const m = RE_MASK_FENCE.exec(lines[i]);
     if (!m) continue;
     const t = m[1];
     if (fence === t) fence = null;
