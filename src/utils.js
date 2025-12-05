@@ -1,11 +1,12 @@
-// 共通ユーティリティ関数
+const HEADING_RE = /^ {0,3}(#{1,6})\s+\S/;
+
 /**
  * Markdown 風見出し検出（行頭 0〜3 スペースを許容）。
  * @param {string} lineText 行のテキスト
  * @returns {number} 見出しレベル（1〜6）／該当しなければ 0
  */
 function getHeadingLevel(lineText) {
-  const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
+  const m = lineText.match(HEADING_RE);
   return m ? m[1].length : 0;
 }
 

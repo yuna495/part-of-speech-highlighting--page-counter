@@ -201,12 +201,27 @@ function collectHeadingRanges(editor) {
   return byLevel;
 }
 
-/** ミニマップ反映 */
+// Minimap 描画キャッシュ: uri -> { version, keys: string }
+const _minimapCache = new Map();
+
+/** ミニマップ反映（変更がない場合はスキップ） */
 function applyMinimapDecorations(editor, decoTypes) {
+  const doc = editor.document;
+  const uri = doc.uri.toString();
+  const ver = doc.version;
+
+  // キャッシュ確認
+  const cached = _minimapCache.get(uri);
+  if (cached && cached.version === ver) {
+    return; // 変更なし
+  }
+
   const byLevel = collectHeadingRanges(editor);
   for (let i = 0; i < decoTypes.length; i++) {
     editor.setDecorations(decoTypes[i], byLevel[i]);
   }
+
+  _minimapCache.set(uri, { version: ver });
 }
 
 // ============================================================
@@ -234,17 +249,23 @@ function initHeadings(context, helpers) {
   });
 
   // --- Common Logic ---
-  function updateAll(ed) {
-    // Sidebar update
-    provider.refresh();
+  // --- Common Logic ---
+  let debounceUpdate = null;
 
-    // Minimap update
-    if (ed) {
-      const c = helpers.cfg();
-      if (helpers.isTargetDoc(ed.document, c)) {
-        applyMinimapDecorations(ed, decoTypes);
-      }
-    }
+  function updateAll(ed) {
+    if (!ed) return;
+    if (debounceUpdate) clearTimeout(debounceUpdate);
+
+    debounceUpdate = setTimeout(() => {
+        // Sidebar update
+        provider.refresh();
+
+        // Minimap update
+        const c = helpers.cfg();
+        if (helpers.isTargetDoc(ed.document, c)) {
+            applyMinimapDecorations(ed, decoTypes);
+        }
+    }, 200);
   }
 
   // --- Register Commands ---
@@ -269,6 +290,7 @@ function initHeadings(context, helpers) {
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
+        // 保存時は即反映してもよいが、debounce 経由で統一
         updateAll(ed);
       }
     }),
@@ -276,6 +298,9 @@ function initHeadings(context, helpers) {
       if (e.affectsConfiguration("posNote")) {
         updateAll(vscode.window.activeTextEditor);
       }
+    }),
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+        _minimapCache.delete(doc.uri.toString());
     })
   );
 

@@ -627,22 +627,14 @@ function registerHeadlineSupport(
         return;
       if (!c.headingFoldEnabled) return;
 
-      if (semProvider?.fireDidChange) semProvider.fireDidChange();
-      if (sb) {
-        sb.recomputeAndCacheMetrics(ed);
-        sb.updateStatusBar(ed);
-      }
-      // 可視範囲変化で見出し行末の字数デコレーションを更新
-      updateHeadingCountDecorations(ed, cfg);
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration("posNote")) return;
-      const ed = vscode.window.activeTextEditor;
-      if (!ed) return;
-      updateHeadingCountDecorations(ed, cfg);
+      // 可視範囲変化で見出し行末の字数デコレーションを更新（Debounce）
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const currentEd = vscode.window.activeTextEditor;
+        if (currentEd && currentEd.document === ed.document) {
+           updateHeadingCountDecorations(currentEd, cfg);
+        }
+      }, 200);
     }),
 
     // バックグラウンドで見出しキャッシュを更新
