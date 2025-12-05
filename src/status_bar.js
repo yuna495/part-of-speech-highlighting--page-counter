@@ -1,5 +1,4 @@
-﻿// status_bar.js
-// ステータスバー：ページ/行（原稿用紙風。文字数＝選択がなければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
+﻿// ステータスバー：ページ/行（原稿用紙風。文字数＝選択がなければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
 // ＋ 同フォルダ・同拡張子「他ファイル」合算文字数（トグル可）
 
 const vscode = require("vscode");
@@ -67,7 +66,10 @@ const DEFAULT_BANNED_START = [
   "ッ",
 ];
 
-// 設定から禁則リストを取得し、未設定なら既定値を返す
+/**
+ * 設定の禁則先頭リストを取得する（未設定時は既定値）。
+ * @returns {string[]} 行頭禁止文字の配列
+ */
 function getBannedStart() {
   const config = vscode.workspace.getConfiguration("posNote");
   const userValue = config.get("kinsoku.bannedStart");
@@ -76,13 +78,23 @@ function getBannedStart() {
     : DEFAULT_BANNED_START;
 }
 
+/**
+ * 事前に計算した表示用文字数を保持しつつ更新をスケジュールする。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ * @param {number} shownLen 表示に使う総文字数
+ */
 function scheduleUpdateWithPrecount(editor, shownLen) {
   _precountTotalForThisTick = shownLen;
   scheduleUpdate(editor);
 }
 
 // ------- 公開APIの初期化 -------
-// ステータスバー表示の初期化と公開APIの作成
+/**
+ * ステータスバー項目を初期化し、外部に渡す操作用 API を返す。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @param {{ cfg: Function, isTargetDoc: Function }} helpers 設定取得と対象判定のヘルパー
+ * @returns {object} ステータスバー制御用の公開関数群
+ */
 function initStatusBar(context, helpers) {
   _helpers = helpers;
 
@@ -164,7 +176,11 @@ function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
 
-// YYYY-M-D / YYYY/MM/DD / YYYY-MM-DD を厳密に解釈（0時始まり）
+/**
+ * YYYY-M-D / YYYY/MM/DD / YYYY-MM-DD を UTC 0:00 の Date に変換する。
+ * @param {string} s 日付文字列
+ * @returns {Date|null} パースできなければ null
+ */
 function parseDateYYYYMD(s) {
   if (typeof s !== "string") return null;
   // 区切りは - または / を許容し、混在は不可
@@ -178,7 +194,11 @@ function parseDateYYYYMD(s) {
   return isNaN(dt.getTime()) ? null : dt;
 }
 
-// 残日数を計算（今日→期限日までの切り上げ日数。過去は 0）
+/**
+ * 今日からの残日数を切り上げで計算する。
+ * @param {Date} targetUtcDate UTC 基準の期限日
+ * @returns {number} 残日数（過去は 0）
+ */
 function calcRemainingDays(targetUtcDate) {
   const now = new Date();
   const todayUtc = Date.UTC(
@@ -194,7 +214,11 @@ function calcRemainingDays(targetUtcDate) {
   return Math.ceil(diffMs / 86400000);
 }
 
-// ISO 表記 YYYY-MM-DD に整形
+/**
+ * Date(UTC) を YYYY-MM-DD 形式の文字列に整形する。
+ * @param {Date} dtUtc UTC 基準の日付
+ * @returns {string} YYYY-MM-DD 文字列
+ */
 function formatDateYYYYMMDD(dtUtc) {
   const y = dtUtc.getUTCFullYear();
   const m = String(dtUtc.getUTCMonth() + 1).padStart(2, "0");
@@ -202,7 +226,11 @@ function formatDateYYYYMMDD(dtUtc) {
   return `${y}-${m}-${d}`;
 }
 
-// アクティブ文書と同一フォルダの notesetting.json から limit を読む
+/**
+ * アクティブ文書と同一フォルダの notesetting.json から limit を読み取る。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @returns {Promise<{days: number|null, where: string|null, iso: string|null, raw: any}>}
+ */
 async function readLimitFromNoteSettingFor(doc) {
   try {
     const { data, path: where } = await loadNoteSettingForDoc(doc);
@@ -226,7 +254,11 @@ async function readLimitFromNoteSettingFor(doc) {
   }
 }
 
-// ステータスバー更新（期限表示）
+/**
+ * limit 設定に基づいて期限表示のステータスバーを更新する。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @returns {Promise<void>}
+ */
 async function updateLimitStatusFor(doc) {
   if (!_limitItem || !_helpers) return;
   const { cfg, isTargetDoc } = _helpers;
@@ -244,7 +276,13 @@ async function updateLimitStatusFor(doc) {
   _limitItem.show();
 }
 
-// 選択範囲それぞれの文字数を合算し、表示ルールに沿ってカウントする
+/**
+ * 選択範囲ごとの文字数を合算する（表示ルール準拠）。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @param {ReadonlyArray<vscode.Selection>} selections 選択範囲
+ * @param {object} c 現在の設定
+ * @returns {number} 合計文字数
+ */
 function countSelectedCharsForDisplay(doc, selections, c) {
   let sum = 0;
   for (const sel of selections) {
@@ -253,7 +291,12 @@ function countSelectedCharsForDisplay(doc, selections, c) {
   return sum;
 }
 
-// ドキュメント先頭から選択位置までのテキストを取得する
+/**
+ * ドキュメント先頭から現在のカーソル位置までのテキストを取得する。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @param {vscode.Selection} selection カーソル・選択位置
+ * @returns {string} 先頭からのテキスト
+ */
 function editorPrefixText(doc, selection) {
   if (!selection) return "";
   const start = new vscode.Position(0, 0);
@@ -261,8 +304,14 @@ function editorPrefixText(doc, selection) {
   return doc.getText(range);
 }
 
-// 禁則折返し
-// 原稿用紙風の折り返し行数を禁則処理込みで算出する
+/**
+ * 禁則処理を考慮して原稿用紙の折返し行数を計算する。
+ * @param {string} text 対象テキスト
+ * @param {number} cols 1行の桁数
+ * @param {boolean} kinsokuEnabled 禁則を適用するか
+ * @param {string[]} bannedChars 禁則対象の文字
+ * @returns {number} 折り返し後の行数
+ */
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   // 改行正規化
   let t = (text || "").replace(/\r\n/g, "\n");
@@ -302,8 +351,13 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   return rows;
 }
 
-// 原稿用紙風メトリクス
-// 総文字数やページ番号など原稿用紙メトリクスをまとめて計算する
+/**
+ * 原稿用紙表示に必要なメトリクスをまとめて算出する。
+ * @param {vscode.TextDocument} doc 対象ドキュメント
+ * @param {object} c 設定
+ * @param {vscode.Selection} selection 現在の選択
+ * @returns {{totalChars:number,totalWrappedRows:number,totalNotes:number,currentNote:number,lastLineInLastNote:number}}
+ */
 function computeNoteMetrics(doc, c, selection) {
   // 全文（CRLF→LF 正規化）
   const fullText = doc.getText().replace(/\r\n/g, "\n");
@@ -347,8 +401,11 @@ function computeNoteMetrics(doc, c, selection) {
   };
 }
 
-// Git ルート
-// 現在ファイルから親ディレクトリを辿り、最初に見つかった .git を返す
+/**
+ * 現在ファイルから親ディレクトリを遡って最初の .git を探す。
+ * @param {string} startDir 探索開始ディレクトリ
+ * @returns {string|null} 見つかった git ルート
+ */
 function findGitRoot(startDir) {
   try {
     let dir = startDir;
@@ -359,8 +416,12 @@ function findGitRoot(startDir) {
   } catch {}
   return null;
 }
-// HEAD のファイル内容
-// HEAD 時点のファイル内容を git show で取得する
+/**
+ * HEAD 時点のファイル内容を git show で取得する。
+ * @param {string} gitRoot リポジトリルート
+ * @param {string} relPath リポジトリ相対パス
+ * @returns {string|null} HEAD の内容
+ */
 function readFileAtHEAD(gitRoot, relPath) {
   try {
     const r = cp.spawnSync("git", ["-C", gitRoot, "show", `HEAD:${relPath}`], {
@@ -371,8 +432,12 @@ function readFileAtHEAD(gitRoot, relPath) {
   } catch {}
   return null;
 }
-// 現在/HEAD（編集中ファイル単体）
-// HEAD と現在編集中ファイルの文字数差分を得るため HEAD 側文字数を計算
+/**
+ * HEAD 時点の編集中ファイル文字数を算出する。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ * @param {object} c 現在設定
+ * @returns {{ key: string|null, value: number|null }}
+ */
 function _computeFileCharsAtHEAD(editor, c) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
@@ -387,14 +452,22 @@ function _computeFileCharsAtHEAD(editor, c) {
 
   return { key: fsPath, value: countCharsForDisplay(content, c) };
 }
-// 現在編集中ファイルの文字数を取得
+/**
+ * 現在編集中ファイルの文字数を算出する。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ * @param {object} c 現在設定
+ * @returns {{ key: string|null, value: number|null }}
+ */
 function _computeFileCharsCurrent(editor, c) {
   const doc = editor?.document;
   const fsPath = doc?.uri?.fsPath || "";
   if (!fsPath) return { key: null, value: null };
   return { key: fsPath, value: countCharsForDisplay(doc.getText(), c) };
 }
-// HEAD と現在の文字数差を再計算して内部キャッシュに保持する
+/**
+ * HEAD と現在の文字数差を再計算し内部キャッシュに保持する。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function _recomputeFileDelta(editor) {
   const { cfg } = _helpers;
   const c = cfg();
@@ -410,8 +483,12 @@ function _recomputeFileDelta(editor) {
 }
 
 // ------- ★追加：同フォルダ・同拡張子（他ファイル）合算 -------
-// 同フォルダ・同拡張子の合算（★編集中ファイルも含む。未保存の変更も反映）
-// 同フォルダ・同拡張子のファイルを巡回して総文字数を合算する
+/**
+ * 同フォルダ・同拡張子の総文字数を非同期で合算する（編集中・未保存分も含む）。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ * @param {object} c 現在設定
+ * @returns {Promise<number|null>} 文字数合計
+ */
 async function computeFolderSumChars(editor, c) {
   try {
     const doc = editor?.document;
@@ -457,7 +534,11 @@ async function computeFolderSumChars(editor, c) {
   }
 }
 
-// 表示対象かつ設定ONの場合にフォルダ合算文字数を更新する
+/**
+ * 表示対象かつ設定が有効な場合にフォルダ合算文字数を再計算してキャッシュする。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ * @returns {Promise<void>}
+ */
 async function recomputeFolderSum(editor) {
   const { cfg, isTargetDoc } = _helpers;
   if (!editor) {
@@ -486,7 +567,10 @@ async function recomputeFolderSum(editor) {
 }
 
 // ------- メイン処理（公開APIで呼ばれる） -------
-// ステータスバー表示に必要なメトリクスを再計算しキャッシュする
+/**
+ * ステータスバー表示に必要なメトリクスを再計算しキャッシュする。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function recomputeAndCacheMetrics(editor) {
   const { cfg, isTargetDoc } = _helpers;
   if (!editor) {
@@ -501,7 +585,10 @@ function recomputeAndCacheMetrics(editor) {
   _metrics = computeNoteMetrics(editor.document, c, editor.selection);
 }
 
-// 現在のメトリクスに基づいてステータスバー文字列を更新・表示する
+/**
+ * 現在のメトリクスに基づいてステータスバー文字列を更新・表示する。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function updateStatusBar(editor) {
   const { cfg, isTargetDoc } = _helpers;
   const c = cfg();
@@ -599,7 +686,10 @@ function updateStatusBar(editor) {
   _statusBarItem.show();
 }
 
-// 入力頻度に応じて再計算しすぎないよう、更新処理をディレイさせる
+/**
+ * 入力頻度に合わせて更新処理をデバウンスし、必要に応じて再計算をキューする。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function scheduleUpdate(editor) {
   const { cfg } = _helpers;
   const c = cfg();
@@ -616,7 +706,10 @@ function scheduleUpdate(editor) {
 }
 
 // ------- events hooks -------
-// 保存時に最新差分へ更新する（対象ファイルのみ）
+/**
+ * 保存イベントで差分・メトリクス・合算を再計算する（アクティブ文書のみ）。
+ * @param {vscode.TextDocument} savedDoc 保存されたドキュメント
+ */
 function recomputeOnSaveIfNeeded(savedDoc) {
   const ed = vscode.window.activeTextEditor;
   if (!ed || savedDoc !== ed.document) return;
@@ -625,7 +718,10 @@ function recomputeOnSaveIfNeeded(savedDoc) {
   recomputeFolderSum(ed);
   updateStatusBar(ed);
 }
-// アクティブエディタが切り替わったときに差分・合算をリフレッシュ
+/**
+ * アクティブエディタ切替時に差分や合算を更新する。
+ * @param {vscode.TextEditor} ed 新しいエディタ
+ */
 function onActiveEditorChanged(ed) {
   if (!ed) return;
   _recomputeFileDelta(ed);
@@ -633,13 +729,19 @@ function onActiveEditorChanged(ed) {
   recomputeFolderSum(ed);
   scheduleUpdate(ed);
 }
-// 選択変更に応じて文字数・ページ情報を更新
+/**
+ * 選択変更に応じて文字数とページ情報を更新する。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function onSelectionChanged(editor) {
   // 選択だけでは合算を再計算しない（重いI/Oを避ける）
   recomputeAndCacheMetrics(editor);
   updateStatusBar(editor);
 }
-// 設定変更を反映し、必要な再計算を行う
+/**
+ * 設定変更を反映し、必要な再計算を行う。
+ * @param {vscode.TextEditor} editor 対象エディタ
+ */
 function onConfigChanged(editor) {
   recomputeAndCacheMetrics(editor);
   recomputeFolderSum(editor); // 設定変更に追随
@@ -647,7 +749,10 @@ function onConfigChanged(editor) {
 }
 
 // ------- commands -------
-// コマンド: ステータスバーの内容を即時再計算する
+/**
+ * ステータスバーの内容を即時再計算するコマンド。
+ * @returns {Promise<void>}
+ */
 async function cmdRefreshPos() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -655,7 +760,10 @@ async function cmdRefreshPos() {
   recomputeFolderSum(ed);
   updateStatusBar(ed);
 }
-// コマンド: 原稿用紙表示のON/OFFを切り替える
+/**
+ * 原稿用紙表示の ON/OFF を切り替えるコマンド。
+ * @returns {Promise<void>}
+ */
 async function cmdToggleNote() {
   _enabledNote = !_enabledNote;
   updateStatusBar(vscode.window.activeTextEditor);
@@ -663,7 +771,10 @@ async function cmdToggleNote() {
     `ページカウンタ: ${_enabledNote ? "有効" : "無効"}`
   );
 }
-// コマンド: 原稿用紙の行数・列数をインタラクティブに変更する
+/**
+ * 原稿用紙の行数・列数を対話的に変更するコマンド。
+ * @returns {Promise<void>}
+ */
 async function cmdSetNoteSize() {
   const { cfg } = _helpers;
   const c = cfg();

@@ -1,4 +1,4 @@
-// 括弧補完（VS Code ネイティブ委譲）＋ Backspace同時削除（軽量版）
+// 括弧補完（VS Code ネイティブ委譲）＋ Backspace 同時削除（軽量版）
 
 const vscode = require("vscode");
 
@@ -28,7 +28,7 @@ const _caretCacheByUri = new Map(); // uri -> { pos, leftChar, rightChar }
 let _deletingPair = false; // 再入防止
 
 // --- Language Configuration（最軽量の本丸）---
-// VS Code の言語設定に全角括弧の組み合わせを登録し、標準の自動補完へ委譲する
+// VS Code の言語設定に全角括弧の組み合わせを登録し、標準の自動補完へ委譲する。
 function registerAutoClosingPairs(context) {
   const pairs = Array.from(FW_BRACKET_MAP.entries()).map(([open, close]) => ({
     open,
@@ -47,7 +47,7 @@ function registerAutoClosingPairs(context) {
 }
 
 // --- Caret Cache Helper ---
-// キャレット周辺の文字を記録して Backspace 処理時に参照できるようにする
+// キャレット周辺の文字を記録して Backspace 処理時に参照できるようにする。
 function updateCaretCache(editor) {
   try {
     if (!editor) return;
@@ -75,14 +75,14 @@ function updateCaretCache(editor) {
 
     _caretCacheByUri.set(uriKey, { pos, leftChar, rightChar });
   } catch (err) {
-    console.warn('[bracket.js] updateCaretCache error:', err);
+    console.warn("[bracket.js] updateCaretCache error:", err);
   }
 }
 
 // --- Backspace Pair-Delete（軽量版：全文キャッシュ不要）---
-// Backspace で開き括弧を消したときに対応する閉じ括弧もまとめて削除する
+// Backspace で開き括弧を消したときに対応する閉じ括弧もまとめて削除する。
 function maybeDeleteClosingOnBackspaceLite(e, opts = {}) {
-  const { cfg, isTargetDoc } = opts; // ← ここで安全に展開
+  const { cfg, isTargetDoc } = opts;
   try {
     if (_deletingPair) return;
     const ed = vscode.window.activeTextEditor;
@@ -120,24 +120,23 @@ function maybeDeleteClosingOnBackspaceLite(e, opts = {}) {
     // 右隣が期待する閉じ括弧なら、同時削除を実行
     _deletingPair = true;
     const p = ed.edit((builder) => builder.delete(nextRange));
-    // Thenable<boolean> なので finally は不可。then の成功/失敗ハンドラでフラグ解除
     p.then(
       () => {
         _deletingPair = false;
       },
       (err) => {
         _deletingPair = false;
-        console.warn('[bracket.js] Failed to delete closing bracket:', err);
+        console.warn("[bracket.js] Failed to delete closing bracket:", err);
       }
     );
   } catch (err) {
     _deletingPair = false;
-    console.warn('[bracket.js] maybeDeleteClosingOnBackspaceLite error:', err);
+    console.warn("[bracket.js] maybeDeleteClosingOnBackspaceLite error:", err);
   }
 }
 
 /**
- * 括弧機能の初期化（イベント配線まで含む）
+ * 括弧機能の初期化（言語設定とイベント配線をまとめて行う）。
  * @param {vscode.ExtensionContext} context
  * @param {{ cfg?: Function, isTargetDoc?: Function }} [options]
  */

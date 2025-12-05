@@ -1,21 +1,12 @@
-// ===========================================
-//  日本語 品詞ハイライト（Semantic）＋ページカウンタ 拡張メイン
-//  - semantic.js: 形態素解析 → Semantic Tokens
-//  - status_bar.js: 原稿用紙風ページ/文字数・禁則処理
-//  - sidebar_headings.js / minimap_highlight.js: 見出しビュー/ミニマップ
-//  - utils.js: 共通ユーティリティ（getHeadingLevel）
-//  - bracket.js: 括弧補完
-//  - headline.js: 見出し操作
-// ===========================================
+// POS/Note 本体。各モジュールを束ね、初期化とコマンド登録を行う。
 
 // ===== 1) Imports =====
 const vscode = require("vscode");
 const { initStatusBar, getBannedStart } = require("./status_bar");
 const { initWorkload } = require("./workload");
-const { initHeadingSidebar } = require("./sidebar_headings");
+const { initHeadings } = require("./headings");
 const { initSidebarUtilities } = require("./sidebar_util");
 const { initKanbn } = require("./kanbn");
-const { initMinimapHighlight } = require("./minimap_highlight");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
@@ -26,11 +17,14 @@ const { registerConversionCommands } = require("./conversion");
 const { registerConvenientFeatures } = require("./convenient");
 
 // ===== 3) Module State =====
-let _sb = null; // status_bar の公開API（activateで初期化）
+let _sb = null; // status_bar の公開 API（activate で初期化）
 let _workload = null;
 
 // ===== 4) Config Helper =====
-// 拡張設定を都度読み込んで機能ごとのフラグや値をまとめて返す
+/**
+ * 拡張設定を読み込み、機能フラグをまとめて返す。
+ * @returns {object}
+ */
 function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
@@ -70,15 +64,19 @@ function cfg() {
     bracketsOverrideEnabled: c.get("semantic.bracketsOverride.enabled", true),
 
     // 括弧補完の方式
-    bracketsBackspacePairDelete: c.get("brackets.backspacePairDelete", true), // ← 追加：互換モードでのみ true 推奨
+    bracketsBackspacePairDelete: c.get("brackets.backspacePairDelete", true),
 
     // Linter
     linterEnabled: c.get("linter.enabled", false),
   };
 }
 
-// 対象ドキュメントか？
-// この拡張の対象とするドキュメントかを判定する
+/**
+ * この拡張の対象とするドキュメントかを判定する。
+ * @param {vscode.TextDocument} doc
+ * @param {ReturnType<cfg>} c
+ * @returns {boolean}
+ */
 function isTargetDoc(doc, c) {
   if (!doc) return false;
   if (!c.applyToTxtOnly) return true;
@@ -92,44 +90,46 @@ function isTargetDoc(doc, c) {
   return isPlain || isMd || isNovel;
 }
 
-// ===== 9) activate / deactivate =====
-// 拡張機能のメイン初期化。各モジュールの登録とイベント配線を担う
+// ===== 5) activate / deactivate =====
+/**
+ * 拡張を初期化し、各モジュールとイベントを登録する。
+ * @param {vscode.ExtensionContext} context
+ */
 function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
   _workload = initWorkload(context);
-  initHeadingSidebar(context, { cfg, isTargetDoc });
-  initMinimapHighlight(context, { cfg, isTargetDoc });
+  initHeadings(context, { cfg, isTargetDoc });
   initSidebarUtilities(context);
   initKanbn(context);
 
-  // --- 9-1.5) Linter (Optional)
+  // --- 5-2) Linter（任意）
   const linter = require("./linter");
   if (cfg().linterEnabled) {
     linter.activate(context);
   }
 
-  // --- 9-2) Semantic Provider を先に用意（イベントから参照するため）
+  // --- 5-3) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });
 
-  // 括弧補完＋Backspace同時削除（外部モジュールへ委譲）
+  // 括弧補完＋Backspace同時削除は外部モジュールへ委譲
   registerBracketSupport(context, { cfg, isTargetDoc });
 
-  // 見出し機能（外部モジュール）
+  // 見出し機能は外部モジュールへ委譲
   registerHeadlineSupport(context, { cfg, isTargetDoc, sb, semProvider });
-  // 見出しシンボル（アウトライン／パンくず／Sticky Scroll 用）
+  // 見出しシンボル（アウトライン／パンくず／Sticky Scroll）
   registerHeadingSymbolProvider(context);
-  // ルビ/傍点 機能（外部モジュール）
+  // ルビ/傍点 機能
   registerRubySupport(context);
 
-  // 既存コマンドと衝突しないよう事前確認してから登録するヘルパー
+  // 既存コマンドと衝突しない場合のみ登録するヘルパー
   async function safeRegisterCommand(context, id, fn) {
-    const cmds = await vscode.commands.getCommands(true); // すべてのコマンドID
-    if (cmds.includes(id)) return; // 既に存在 → 登録しない
+    const cmds = await vscode.commands.getCommands(true);
+    if (cmds.includes(id)) return;
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
   }
 
-  // --- 9-3) Commands
+  // --- 5-4) Commands
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.refreshPos", () =>
       sb.cmdRefreshPos()
@@ -154,7 +154,7 @@ function activate(context) {
       return combineMdInFolder(resourceUri);
     })
   );
-  // 置換コマンド（かな↔漢字）
+  // 置換コマンド（かな<->漢字）
   registerConversionCommands(context, { isTargetDoc });
 
   safeRegisterCommand(context, "posNote.headings.refresh", () => {
@@ -162,7 +162,7 @@ function activate(context) {
     if (ed) refreshHeadingCounts(ed, cfg);
   });
 
-  // --- 9-4) Providers
+  // --- 5-5) Providers
   const semanticSelector = [
     { language: "plaintext", scheme: "file" },
     { language: "plaintext", scheme: "untitled" },
@@ -186,7 +186,7 @@ function activate(context) {
     )
   );
 
-  // --- 9-5) Events
+  // --- 5-6) Events
   context.subscriptions.push(
     // 入力：軽い更新＋アイドル時に重い再計算
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -197,38 +197,32 @@ function activate(context) {
       // 1) テキストを一度だけ取得
       const txt = e.document.getText().replace(/\r\n/g, "\n");
 
-      // 2) 作業量用の「全文字長」（改行は1字扱い）
-      const rawLen = Array.from(txt).length; // workload.js の countCharsWithNewline と整合
+      // 2) 作業量用の全文字数（改行は1字扱い）
+      const rawLen = Array.from(txt).length;
 
-      // ★候補巡回らしさの軽量判定
-      // 置換のみ ＋ 長さ純差が小さい変化が続いているかを見る
+      // IME らしい入力かの簡易判定
       const imeLike =
         e.contentChanges.length > 0 &&
-        // 「置換」だけを見る（削除 or 追加単独は対象外）
         e.contentChanges.every(
           (ch) => ch.rangeLength > 0 && ch.text.length > 0
         ) &&
-        // 一回の変更で長さの純差が ±2 以上なら IME らしいとみなす
         e.contentChanges.some(
           (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
         );
 
-      // 3) ステータスバー用の「表示ルール文字数」
+      // 3) ステータスバー用の表示文字数
       const { countCharsForDisplay } = require("./utils");
       const shownLen = countCharsForDisplay(txt, c);
 
-      // 4) 作業量へフィード（doc.getText() させない）
+      // 4) 作業量へフィード
       const { applyExternalLen } = require("./workload");
-      applyExternalLen(e.document.uri.toString(), rawLen, { imeLike }); // ★IME中は1000ms待機へ
+      applyExternalLen(e.document.uri.toString(), rawLen, { imeLike });
 
-      // 5) ステータスバーへフィード（再計算させない）
+      // 5) ステータスバーへフィード
       sb.scheduleUpdateWithPrecount(ed, shownLen);
-
-      // プレビューの自動更新は削除（保存時のみ更新に変更）
-      // 品詞ハイライト有効時のKuromoji処理が重いため
     }),
 
-    // 保存：即時確定計算（Git差分/見出しビュー）
+    // 保存：再計算とプレビュー更新
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
@@ -283,7 +277,7 @@ function activate(context) {
       }
     }),
 
-    // 設定変更：確定計算＋軽い更新＋セマンティック再発行（MarkdownのON/OFF即時反映）
+    // 設定変更：再計算＋セマンティック再発行
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (
         !(
@@ -305,7 +299,9 @@ function activate(context) {
   registerConvenientFeatures(context);
 }
 
-// プレビューWebviewが残らないよう終了時に明示破棄する
+/**
+ * プレビュー Webview が残らないように明示破棄する。
+ */
 function deactivate() {
   if (PreviewPanel.currentPanel) {
     PreviewPanel.currentPanel.dispose();

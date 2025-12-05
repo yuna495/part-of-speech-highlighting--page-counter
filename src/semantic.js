@@ -1,5 +1,4 @@
-// src/semantic.js
-// セマンティックトークン周辺（エディタ）＋プレビュー用HTML生成（Webview）
+// セマンティックトークン周辺（エディタ）＋プレビュー用 HTML 生成（Webview）
 // 依存: CommonJS（VS Code 拡張の Node ランタイム）
 
 /* ========================================
@@ -71,6 +70,11 @@ let tokenizer = null;
  * @param {vscode.ExtensionContext} context
  * Node 上で一度だけビルドし、以降はキャッシュされた tokenizer を使い回す
  */
+/**
+ * 拡張同梱の辞書を使って kuromoji を初期化する（1回だけ）。
+ * 見つからなければエラーを出して null のまま返る。
+ * @param {vscode.ExtensionContext} context
+ */
 async function ensureTokenizer(context) {
   if (tokenizer) return;
   const dictPath = path.join(context.extensionPath, "dict");
@@ -92,11 +96,10 @@ async function ensureTokenizer(context) {
  * 4) 汎用ヘルパ
  * ====================================== */
 
-// ★ notesetting.json 専用ローダ（同一フォルダのみ）に置換
+// notesetting.json 専用ローダ（同一フォルダのみ）に置換
 const _localDictCache = new Map(); // key: dir -> { key, chars:Set, glos:Set }
 
-/** HTML エスケープ（最小限） */
-// プレビューやツールチップ内での XSS を避けるため最低限の文字を置換する
+/** HTML エスケープ（最小限）。プレビュー/ツールチップの XSS 回避用。 */
 function _escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -134,7 +137,7 @@ function _getSpaceColorFromSettings() {
 /**
  * 文書の見出しブロックを (# の連なりで) 粗く特定する。
  * 戻り値: [{ start: 見出し行, end: ブロック終端行(含む) }, ...]
- * 折りたたみ推定などで基礎データとして使用
+ * 折りたたみ推定などの基礎データに使う。
  */
 function _computeHeadingBlocks(document) {
   const blocks = [];
@@ -156,13 +159,12 @@ function _computeHeadingBlocks(document) {
 /**
  * 「折りたたみ中の見出しブロック」を推定する。
  * 仕組み:
- *  - FoldingRangeProvider から折りたたみ可能範囲を取得
- *  - アクティブエディタの visibleRanges を boolean 配列に展開
- *  - 見出し行が visible かつ、直下の行が non-visible、かつ
- *    折りたたみ候補の範囲と heading ブロックが重なる → 折りたたみ中と判定
+ *  - FoldingRangeProvider から折りたたみ候補を取得
+ *  - 可視行情報 (visibleRanges) を配列化
+ *  - 見出し行が visible、直下が non-visible で、候補範囲と重なるなら折りたたみ中と判定
  *
- * 戻り値: 除外すべき行区間 [{ from, to } ...] （両端とも行番号・含む）
- * Semantic Token の計算を省いて高速化する目的
+ * 戻り値: 除外すべき行区間 [{ from, to } ...]（両端含む）
+ * Semantic Token の計算を省いて高速化する目的。
  */
 async function _getCollapsedHeadingRanges(document) {
   const editor = vscode.window.visibleTextEditors.find(

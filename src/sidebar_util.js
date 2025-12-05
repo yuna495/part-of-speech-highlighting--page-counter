@@ -1,11 +1,8 @@
-// src/sidebar_util.js
 // サイドバー
-//
 // 1) アクティブエディタのファイルと「同じフォルダ」を簡易エクスプローラ表示
 //    - 同フォルダ直下に *.json を含む
 //    - plot/ は展開可能で配下のファイル/フォルダを列挙
 // 2) クリックで当該リソースをエディタで開く
-//
 // NewNovel 雛形作成機能はコマンド／エクスプローラーのコンテキストメニューから呼び出し
 
 const vscode = require("vscode");
@@ -16,6 +13,7 @@ const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 let _lastPinnedBaseDirUri = null;
 
 // ===== エントリーポイント =====
+/** サイドバー（novelUtilities）を初期化し、コマンドを登録する。 */
 function initSidebarUtilities(context) {
   const provider = new UtilitiesProvider(context);
 
@@ -36,6 +34,7 @@ function initSidebarUtilities(context) {
     showCollapseAll: false,
   });
 
+  // アクティブフォルダ名をビュータイトルに反映する。
   function updateViewTitle() {
     const base = getSidebarBaseDirUri();
     if (base) {
@@ -115,7 +114,7 @@ function initSidebarUtilities(context) {
     })
   );
 
-  // サイドバー用『このフォルダの .txt を結合』
+// サイドバー用『このフォルダの .txt を結合』
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.combineTxtHere", async () => {
       const base = getSidebarBaseDirUri();

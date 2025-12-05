@@ -1,3 +1,4 @@
+// board.md/card.json を扱うボード UI とデータ永続化を提供する。
 const vscode = require("vscode");
 const path = require("path");
 const {
@@ -18,6 +19,10 @@ const DEFAULT_PALETTE = ["#0c2f24", "#3a3109", "#300c10", "#0c1f38"];
 // タグストライプ用のデフォルトパレット（緑・黄・赤・青の中間色）
 const DEFAULT_TAG_PALETTE = ["#8dc63f", "#f5a623", "#c45dd8", "#2fa8c9"];
 
+/**
+ * プロットボード（Kanbn）のコマンド登録を行う。
+ * @param {vscode.ExtensionContext} context
+ */
 function initKanbn(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.kanbn.openBoard", () =>
@@ -97,6 +102,7 @@ class KanbnPanel {
     }
   }
 
+  // Webview からのメッセージを受け取り、BoardStore 経由で処理する。
   bindMessages() {
     this.panel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.type) {
@@ -176,6 +182,7 @@ class KanbnPanel {
     });
   }
 
+  // 最新データをロードして Webview に送る。
   async refresh() {
     const data = await BoardStore.loadBoard(this.rootUri);
     const columnColors = getColumnColors();
@@ -184,6 +191,7 @@ class KanbnPanel {
     this.panel.title = `プロットボード - ${path.basename(this.rootUri.fsPath)}`;
   }
 
+  // Webview HTML を生成（静的テンプレート）。
   html() {
     const paletteLiteral = JSON.stringify(getColumnColors());
     const tagPaletteLiteral = JSON.stringify(getTagColorsPayload());
@@ -660,6 +668,7 @@ class BoardStore {
     return { columns, cards };
   }
 
+  // board.md が無ければデフォルトを生成する。
   static async ensureStory(root) {
     const storyUri = vscode.Uri.joinPath(root, PLOT_DIR, STORY_FILE);
     try {
@@ -677,6 +686,7 @@ class BoardStore {
     );
   }
 
+  // board.md から列とカードIDのリストを読み込む。
   static async readStory(root) {
     const storyUri = vscode.Uri.joinPath(root, PLOT_DIR, STORY_FILE);
     try {
@@ -717,6 +727,7 @@ class BoardStore {
     }
   }
 
+  // columns データを board.md に書き出す。
   static async writeStory(root, columns) {
     const storyUri = vscode.Uri.joinPath(root, PLOT_DIR, STORY_FILE);
     const plotDir = vscode.Uri.joinPath(root, PLOT_DIR);
@@ -735,6 +746,7 @@ class BoardStore {
     );
   }
 
+  // board.md に記載されたカードIDをもとにカード内容を読み込む。
   static async readCards(root, columns) {
     const map = {};
     for (const col of columns) {
@@ -812,6 +824,7 @@ class BoardStore {
     await this.writeCard(root, card);
   }
 
+  // 新規カードを作成し、列に追加する。
   static async addCard(root, columnId) {
     const title = await vscode.window.showInputBox({ prompt: "カードタイトル" });
     if (!title) return;
@@ -836,6 +849,7 @@ class BoardStore {
     await this.writeStory(root, cols);
   }
 
+  // カードを列とファイルから削除する。
   static async deleteCard(root, cardId) {
     const ok = await vscode.window.showWarningMessage(
       `削除しますか？\n${cardId}`,
@@ -855,6 +869,7 @@ class BoardStore {
     } catch {}
   }
 
+  // カードファイルを開く（無ければ作成）。
   static async openCard(root, cardId) {
     const card = (await this.readCard(root, cardId)) || {
       id: cardId,
@@ -871,6 +886,7 @@ class BoardStore {
     await vscode.window.showTextDocument(doc, { preview: false });
   }
 
+  // カードを別列へ移動する。
   static async moveCard(root, cardId, toColumnId, toIndex) {
     const cols = await this.readStory(root);
     for (const c of cols) {
@@ -882,6 +898,7 @@ class BoardStore {
     await this.writeStory(root, cols);
   }
 
+  // 列を追加する。
   static async addColumn(root, afterId) {
     const name = await vscode.window.showInputBox({
       prompt: "列名",
@@ -903,6 +920,7 @@ class BoardStore {
     await this.writeStory(root, cols);
   }
 
+  // 列名を変更する。
   static async renameColumn(root, columnId) {
     const cols = await this.readStory(root);
     const col = cols.find((c) => c.id === columnId);
@@ -919,6 +937,7 @@ class BoardStore {
     await this.writeStory(root, cols);
   }
 
+  // 列を削除し、カードは隣接列へ移動する。
   static async deleteColumn(root, columnId) {
     if (columnId === "tbd") {
       vscode.window.showWarningMessage("TBD 列は削除できません");
@@ -944,6 +963,7 @@ class BoardStore {
     await this.writeStory(root, next);
   }
 
+  // 列とカードファイルをまとめて削除する。
   static async deleteColumnHard(root, columnId) {
     if (columnId === "tbd") {
       vscode.window.showWarningMessage("TBD 列は削除できません");
@@ -972,6 +992,7 @@ class BoardStore {
     await this.writeStory(root, next);
   }
 
+  // 列の並び順を変更する。
   static async moveColumn(root, columnId, toIndex) {
     if (columnId === "tbd") return;
     const cols = await this.readStory(root);
@@ -983,6 +1004,7 @@ class BoardStore {
     await this.writeStory(root, cols);
   }
 
+  // board/card の内容を plot/plot.md に書き出す。
   static async exportPlot(root) {
     const { columns, cards } = await this.loadBoard(root);
     const block = buildPlotMarkdown(columns, cards);

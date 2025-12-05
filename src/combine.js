@@ -1,8 +1,7 @@
-﻿// src/combine.js
-// Combine .txt / .md files under a folder into one file.
-// - Normalize line endings to "\n" and insert one blank line between files.
-// - Avoid loading all files at once; stream sequentially to reduce memory use.
-// - Avoid BOM; write UTF-8 text.
+// フォルダ直下の .txt / .md を1本に結合する。
+// - 改行コードを「\n」に統一し、ファイル間に空行1行を挿入する。
+// - 全ファイルを同時に読み込まない。逐次読み込み・逐次書き出しでメモリを抑える。
+// - BOM なしの UTF-8 で出力する。
 
 const vscode = require("vscode");
 const fs = require("fs");
@@ -10,7 +9,7 @@ const fs = require("fs");
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
 /**
- * List direct children that match an extension (case-insensitive).
+ * 指定拡張子に一致する直下のファイル名を列挙する（大文字小文字を無視）。
  * @returns {Promise<string[]>}
  */
 async function listFilesByExt(folderUri, ext /* ".txt" など */) {
@@ -27,9 +26,9 @@ async function listFilesByExt(folderUri, ext /* ".txt" など */) {
 }
 
 /**
- * Normalize text for concatenation:
- * - unify CRLF/CR to LF
- * - ensure trailing LF
+ * 結合用にテキストを正規化する。
+ * - CRLF/CR を LF に統一
+ * - 末尾に改行を必ず付与
  */
 function normalizeTextForConcat(text) {
   const unified = text.replace(/\r\n?/g, "\n");
@@ -37,7 +36,7 @@ function normalizeTextForConcat(text) {
 }
 
 /**
- * Resolve duplicate output name by auto-numbering.
+ * 出力ファイル名が重複する場合は自動採番して解決する。
  */
 async function resolveCollisionFilename(folderUri, baseName /* "combined" */, ext) {
   let candidate = vscode.Uri.joinPath(folderUri, `${baseName}${ext}`);
@@ -60,7 +59,10 @@ async function resolveCollisionFilename(folderUri, baseName /* "combined" */, ex
 }
 
 /**
- * Core: sequentially read, normalize, and stream-write to reduce peak memory.
+ * 結合の中核処理。順次読み出し→正規化→ストリーム書き出しでメモリ使用を抑える。
+ * @param {vscode.Uri} folderUri 出力元フォルダ
+ * @param {string} ext 対象拡張子（例: ".txt"）
+ * @param {string} outBaseName 出力ファイル名のベース（拡張子なし）
  */
 async function combineByExtension(folderUri, ext, outBaseName) {
   if (!folderUri) {
@@ -93,7 +95,7 @@ async function combineByExtension(folderUri, ext, outBaseName) {
       const bin = await vscode.workspace.fs.readFile(fileUri);
       const text = decoder.decode(bin);
       const normalized = normalizeTextForConcat(text);
-      if (wroteAny) stream.write("\n"); // blank line between files
+      if (wroteAny) stream.write("\n"); // ファイル間に空行を挿入
       stream.write(normalized);
       wroteAny = true;
     } catch (e) {

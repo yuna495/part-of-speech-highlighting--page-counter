@@ -1,3 +1,4 @@
+// textlint のプラグイン／ルール構成と独自診断ユーティリティを提供する。
 const vscode = require("vscode");
 
 // textlint plugins (optional)
@@ -87,6 +88,12 @@ const DEFAULT_RULES = {
   },
 };
 
+/**
+ * オブジェクトを深めにマージする（配列は上書き）。
+ * @param {Record<string, any>} base
+ * @param {Record<string, any>} override
+ * @returns {Record<string, any>}
+ */
 function mergeRules(base, override) {
   const out = { ...base };
   for (const [k, v] of Object.entries(override || {})) {
@@ -151,6 +158,12 @@ const normalizeRuleModule = (mod, log) => {
   return { type: "invalid" };
 };
 
+/**
+ * textlint の plugins / rules を組み立てる。
+ * ユーザー設定と既定値をマージし、読み込めたものだけ返す。
+ * @param {{ appendLine?: (msg:string)=>void } | undefined} channel ログ出力先
+ * @returns {{ plugins: any[], rules: any[] }}
+ */
 function buildKernelOptions(channel) {
   const log = (msg) => {
     try {

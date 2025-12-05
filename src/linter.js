@@ -1,3 +1,4 @@
+// textlint kernel と VS Code をつなぎ、差分リントと診断表示を行う。
 // VSCode API
 const vscode = require("vscode");
 
@@ -28,6 +29,7 @@ let lintStatusItem = null; // vscode.StatusBarItem
 let lintRunning = 0; // ネスト対策用カウンタ
 
 // ===== 1) ステータスバー UI ヘルパー =====
+/** ステータスバー項目を生成・再利用する。 */
 function ensureStatusBar(context) {
   if (lintStatusItem) return lintStatusItem;
   lintStatusItem = vscode.window.createStatusBarItem(
@@ -92,6 +94,7 @@ function finishWithCachedCount(doc) {
 }
 
 // ===== 2) 実行条件／トリガー共通化 =====
+/** Auto Save 設定と保存理由に応じてリントするか判定する。 */
 function shouldLintOnSave(docUriString, reason) {
   const cfg = vscode.workspace.getConfiguration("posNote.linter");
   const lintOnAutoSave = cfg.get("lintOnAutoSave", false); // 既定: false
@@ -111,6 +114,7 @@ function shouldLintOnSave(docUriString, reason) {
 }
 
 // このドキュメントを lint できるか？（.txt / plaintext / markdown）
+/** このドキュメントを lint 対象にできるかを判定する。 */
 function canLint(doc) {
   if (!doc) return false;
   if (doc.isUntitled) return false;
@@ -154,6 +158,12 @@ async function triggerLint(
 // ===== 3) textlint のルール構築 =====
 // ルール・プラグインの組み立ては linter_rules.js に委譲
 // ===== 4) textlint → VS Code Diagnostics 変換 =====
+/**
+ * textlint の messages を VS Code Diagnostics に変換する。
+ * @param {vscode.Uri} uri
+ * @param {any[]} messages
+ * @returns {vscode.Diagnostic[]}
+ */
 function toDiagnostics(uri, messages) {
   const diags = [];
   for (const m of messages) {
@@ -182,10 +192,12 @@ function toDiagnostics(uri, messages) {
 }
 
 // ===== 5) 差分リント用ユーティリティ =====
+/** CR を除去して行配列に分割する。 */
 function splitLines(s) {
   return s.replace(/\r/g, "").split("\n");
 }
 
+/** 先頭末尾の共通部分を除いた変更範囲を返す。 */
 function computeChangedRanges(prevLines, nextLines) {
   let a = 0;
   const aMax = prevLines.length;
@@ -206,6 +218,10 @@ function computeChangedRanges(prevLines, nextLines) {
   return [{ start, end }];
 }
 
+/**
+ * 変更範囲をパラグラフ単位に広げ、前後に context 行を付けて返す。
+ * @returns {{start:number,end:number}[]}
+ */
 function expandToParagraphRanges(lines, ranges, context = 0) {
   const res = [];
   const n = lines.length;
@@ -233,6 +249,7 @@ function expandToParagraphRanges(lines, ranges, context = 0) {
   return merged;
 }
 
+/** 前回診断の範囲から再計算対象行を求める。 */
 function rangesFromPrevDiagnostics(lines, diagnostics) {
   if (!diagnostics || diagnostics.length === 0) return [];
   const ranges = diagnostics.map((d) => ({
@@ -242,6 +259,7 @@ function rangesFromPrevDiagnostics(lines, diagnostics) {
   return expandToParagraphRanges(lines, ranges, 0);
 }
 
+/** 置き換え対象範囲を新診断で差し替えつつ結合する。 */
 function mergeDiagnostics(oldDiags, newDiags, replacedRanges) {
   if (!oldDiags || oldDiags.length === 0) return newDiags;
   const keep = [];
@@ -259,12 +277,18 @@ function mergeDiagnostics(oldDiags, newDiags, replacedRanges) {
 }
 
 // ===== 6) 実行本体（差分リント） =====
+/** アクティブドキュメントだけを対象に差分リントする。 */
 async function lintActiveOnly(collection, doc) {
   if (!doc) return;
   collection.clear(); // アクティブ以外の結果は消す
   await lintDocumentIncremental(doc, collection);
 }
 
+/**
+ * 差分リント本体。キャッシュを活用し、変更箇所と前回エラー行のみ再解析する。
+ * @param {vscode.TextDocument} doc
+ * @param {vscode.DiagnosticCollection} collection
+ */
 async function lintDocumentIncremental(doc, collection) {
   try {
     if (!doc) return;
@@ -444,6 +468,7 @@ async function lintDocumentIncremental(doc, collection) {
 }
 
 // ===== 7) エントリポイント =====
+/** 拡張を初期化し、コマンド・イベントを登録する。 */
 function activate(context) {
   // channel.appendLine("[activate] textlint-kernel-linter 起動");
   // try {
@@ -527,6 +552,7 @@ function activate(context) {
   // 起動時／ファイル切替時の自動リントは行わない（ポリシー継承）
 }
 
+/** 後片付け（現状は no-op）。 */
 function deactivate() {}
 
 module.exports = { activate, deactivate };

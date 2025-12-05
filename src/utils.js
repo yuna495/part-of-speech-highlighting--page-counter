@@ -1,17 +1,20 @@
 // 共通ユーティリティ関数
-
 /**
- * Markdown風見出し検出（0〜3スペース許容）
- * @param {string} lineText - 行のテキスト
- * @returns {number} 見出しレベル（1〜6）／見出しでなければ 0
+ * Markdown 風見出し検出（行頭 0〜3 スペースを許容）。
+ * @param {string} lineText 行のテキスト
+ * @returns {number} 見出しレベル（1〜6）／該当しなければ 0
  */
 function getHeadingLevel(lineText) {
   const m = lineText.match(/^ {0,3}(#{1,6})\s+\S/);
   return m ? m[1].length : 0;
 }
 
-/** ``` フェンスの"閉じたペア"に挟まれた行（フェンス行自体も）を除去 */
-// 文字数カウントやプレビューの対象からコードブロックを外すための前処理
+/**
+ * ``` フェンスの閉じたペアに挟まれた行（フェンス行自体も）を除去する。
+ * 文字数カウントやプレビューからコードブロックを除外する前処理。
+ * @param {string} text 対象テキスト
+ * @returns {string} フェンスを除いたテキスト
+ */
 function stripClosedCodeFences(text) {
   const src = String(text || "").split(/\r?\n/);
   const fenceRe = /^\s*```/;
@@ -33,8 +36,12 @@ function stripClosedCodeFences(text) {
   return out.join("\n");
 }
 
-/** 見出し行（#…）を丸ごと除外 */
-// 字数カウントに本文のみを反映させる
+/**
+ * 見出し行（# …）を丸ごと除外する。
+ * 字数カウントを本文に限定するための前処理。
+ * @param {string} text 対象テキスト
+ * @returns {string} 見出し行を除いたテキスト
+ */
 function stripHeadingLines(text) {
   const src = String(text || "").split(/\r?\n/);
   const kept = [];
@@ -42,8 +49,13 @@ function stripHeadingLines(text) {
   return kept.join("\n");
 }
 
-/** ステータス/見出し表示で共通の"字数"カウント */
-// スペースの扱いなど設定に合わせて文字数を求める
+/**
+ * ステータス/見出し表示で共通の「字数」を求める。
+ * スペースや記号の扱いを設定に合わせて調整する。
+ * @param {string} text 対象テキスト
+ * @param {object} c 設定オブジェクト（countSpaces など）
+ * @returns {number} 文字数
+ */
 function countCharsForDisplay(text, c) {
   let t = (text || "").replace(/\r\n/g, "\n");
   t = stripClosedCodeFences(t); // フェンス除外
@@ -74,9 +86,9 @@ function countCharsForDisplay(text, c) {
 const _noteCache = new Map(); // dir -> { key, data, mtimeMs }
 
 /**
- * アクティブ文書と同一フォルダの notesetting.json を読み込む（キャッシュ付き）
- * @param {import("vscode").TextDocument | { uri: { fsPath?: string }}} doc
- * @returns {Promise<{ data: any|null, path: string|null, mtimeMs: number|null }>}
+ * アクティブ文書と同一フォルダの notesetting.json を読み込む（ディレクトリ単位キャッシュ付き）。
+ * @param {import("vscode").TextDocument | { uri: { fsPath?: string }}} doc 対象ドキュメント
+ * @returns {Promise<{ data: any|null, path: string|null, mtimeMs: number|null }>} 読み込んだ JSON とパス
  */
 async function loadNoteSettingForDoc(doc) {
   try {
@@ -115,8 +127,9 @@ const _headingCache = new WeakMap();
 // }>
 
 /**
- * 見出し構造キャッシュを取得（なければ計算）
- * @param {import('vscode').TextDocument} doc
+ * 見出し構造キャッシュを取得（無ければ計算して保持）。
+ * @param {import('vscode').TextDocument} doc 対象ドキュメント
+ * @returns {{ line:number, level:number, text:string }[]} 見出し配列
  */
 function getHeadingsCached(doc) {
   const ver = doc.version;
@@ -139,10 +152,11 @@ function getHeadingsCached(doc) {
 }
 
 /**
- * 見出しメトリクスキャッシュを取得（なければ計算）
- * @param {import('vscode').TextDocument} doc
+ * 見出しメトリクスキャッシュを取得（無ければ計算）。
+ * @param {import('vscode').TextDocument} doc 対象ドキュメント
  * @param {any} c 設定オブジェクト
- * @param {typeof import('vscode')} vscodeModule
+ * @param {typeof import('vscode')} vscodeModule vscode モジュール参照
+ * @returns {{ items: Array<{line:number,level:number,text:string,title:string,own:number,sub:number,childSum:number,range:any}>, total:number }}
  */
 function getHeadingMetricsCached(doc, c, vscodeModule) {
   const entry = _headingCache.get(doc);
@@ -263,7 +277,7 @@ function getHeadingMetricsCached(doc, c, vscodeModule) {
   return result;
 }
 
-/** キャッシュの手動無効化（閉じた時など） */
+/** 見出しキャッシュを手動で無効化する（ドキュメントクローズ時など）。 */
 function invalidateHeadingCache(doc) {
   _headingCache.delete(doc);
 }

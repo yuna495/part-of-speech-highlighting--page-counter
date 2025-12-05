@@ -1,4 +1,4 @@
-// 見出しの操作（全折/全展開トグル、FoldingRangeProvider、可視範囲変化に追随）
+// 見出しの操作（全折/全展開トグル、FoldingRangeProvider、可視範囲変化に追随）。
 
 const vscode = require("vscode");
 const fs = require("fs");
@@ -16,8 +16,12 @@ const countDeco = vscode.window.createTextEditorDecorationType({
 
 let debounceTimer = null;
 
-// アクティブエディタの見出し文字数装飾を更新する外部公開関数
-// headings_folding_level を notesetting.json から読む。0 のときは設定値を使用。
+/**
+ * headings_folding_level（notesetting.json が優先）を取得する。
+ * @param {vscode.TextDocument} doc
+ * @param {{ headingFoldMinLevel: number }} c
+ * @returns {Promise<number>} 1〜6 の有効レベル
+ */
 async function resolveFoldMinLevel(doc, c) {
   const fallback = Math.max(1, Math.min(6, c.headingFoldMinLevel || 1));
   try {
@@ -35,6 +39,7 @@ async function resolveFoldMinLevel(doc, c) {
   }
 }
 
+/** 見出し文字数のデコレーションを更新する。 */
 function refreshHeadingCounts(ed, cfg) {
   updateHeadingCountDecorations(ed, cfg);
 }
@@ -43,8 +48,14 @@ function refreshHeadingCounts(ed, cfg) {
 const foldToggledByDoc = new Map(); // key: uriString, value: boolean（true=折りたたみ中）
 const foldDocVersionAtFold = new Map(); // key: uriString, value: document.version
 
-// 現在行が「見出し level>=minLevel の本文」に含まれていれば、その見出し行番号を返す
-// 折りたたみ復元時にカーソル位置を安全に戻すための計算
+/**
+ * 現在行が属する見出し（level >= minLevel）の行番号を返す。
+ * 折りたたみ復元時のカーソル位置復元に使用。
+ * @param {vscode.TextDocument} doc
+ * @param {number} line
+ * @param {number} minLevel
+ * @returns {number} 見出し行番号。見つからなければ -1
+ */
 function findEnclosingHeadingLineFor(doc, line, minLevel) {
   const headings = getHeadingsCached(doc);
   const targetLevel = Math.max(1, Math.min(6, minLevel));
@@ -77,8 +88,13 @@ function findEnclosingHeadingLineFor(doc, line, minLevel) {
   return -1;
 }
 
-// 見出しレベルが minLevel 以上の見出し「行番号」リスト
-// 全折/展開の対象行をまとめて選択するために使用
+/**
+ * 見出しレベルが minLevel 以上の行番号リストを返す。
+ * 全折/展開の対象行選択に使用。
+ * @param {vscode.TextDocument} document
+ * @param {number} minLevel
+ * @returns {number[]}
+ */
 function collectHeadingLinesByMinLevel(document, minLevel) {
   const headings = getHeadingsCached(document);
   const targetLevel = Math.max(1, Math.min(6, minLevel));
@@ -87,7 +103,13 @@ function collectHeadingLinesByMinLevel(document, minLevel) {
     .map((h) => h.line);
 }
 
-// 見出しジャンプ用ヘルパー（最適化版：キャッシュを利用）
+// 見出しジャンプ用ヘルパー（キャッシュ利用）
+/**
+ * 前方の見出し行を探す。
+ * @param {vscode.TextDocument} document
+ * @param {number} fromLine
+ * @returns {number} 行番号。見つからない場合は -1
+ */
 function findPrevHeadingLine(document, fromLine) {
   const headings = getHeadingsCached(document);
   // 逆順で、現在行より前の見出しを探す
@@ -99,6 +121,12 @@ function findPrevHeadingLine(document, fromLine) {
   return -1;
 }
 
+/**
+ * 後方の見出し行を探す。
+ * @param {vscode.TextDocument} document
+ * @param {number} fromLine
+ * @returns {number} 行番号。見つからない場合は -1
+ */
 function findNextHeadingLine(document, fromLine) {
   const headings = getHeadingsCached(document);
   // 順方向で、現在行より後の見出しを探す
@@ -111,6 +139,7 @@ function findNextHeadingLine(document, fromLine) {
 }
 
 // コマンド: 前/次の見出し行にカーソルを移動
+/** カーソルを前方の見出し行へ移動するコマンド。 */
 async function cmdMoveToPrevHeading() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -133,6 +162,7 @@ async function cmdMoveToPrevHeading() {
   );
 }
 
+/** カーソルを後方の見出し行へ移動するコマンド。 */
 async function cmdMoveToNextHeading() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -212,9 +242,7 @@ function findHeadingSection(editor) {
   return { fullRange, bodyRange };
 }
 
-/**
- * 見出しセクション全体を選択（見出し行を含む）。
- */
+/** 見出しセクション全体を選択（見出し行を含む）。 */
 function cmdSelectHeadingSection() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
@@ -234,9 +262,7 @@ function cmdSelectHeadingSection() {
   vscode.window.setStatusBarMessage('見出しセクションを選択。', 2000);
 }
 
-/**
- * 見出し行＋直後の1行を除外した本文のみを選択。
- */
+/** 見出し行＋直後の1行を除外した本文のみを選択。 */
 function cmdSelectHeadingSectionBody() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
@@ -266,6 +292,10 @@ function cmdSelectHeadingSectionBody() {
   );
 }
 
+/**
+ * 全見出しの折りたたみ/展開をトグルする。
+ * @param {{ cfg: ()=>any, sb?: any }} param0
+ */
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -524,8 +554,8 @@ class HeadingSymbolProvider {
 }
 
 /**
- * Provider 登録
- * アウトライン・パンくず・Sticky Scroll などに見出しを供給する
+ * DocumentSymbolProvider を登録する。
+ * アウトライン・パンくず・Sticky Scroll などに見出しを供給する。
  */
 function registerHeadingSymbolProvider(context) {
   const selector = [
@@ -636,7 +666,11 @@ function registerHeadlineSupport(
   }
 }
 
-// 見出し末尾に表示する字数デコレーションを算出して適用する
+/**
+ * 見出し末尾に表示する字数デコレーションを算出して適用する。
+ * @param {vscode.TextEditor} ed
+ * @param {() => any} cfg
+ */
 function updateHeadingCountDecorations(ed, cfg) {
   // ...前段の言語・設定チェックは既存のまま...
   const c = cfg();

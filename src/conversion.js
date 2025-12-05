@@ -1,9 +1,7 @@
-// src/conversion.js
-// かな↔漢字 双方向変換
-// Ctrl+. → かな→漢字 / Alt+. → 漢字→かな
-// <workspace>/.vscode/conversion.json と 対象ドキュメントと同じフォルダの notesetting.json を自動読み込み
-// { "かな": "漢字", ... } を双方向に展開
-// 片方向だけ書けば OK（逆方向は自動生成）
+// かな⇔漢字 双方向変換
+// Ctrl+. で かな→漢字 / Alt+. で 漢字→かな
+// <workspace>/.vscode/conversion.json と 対象ドキュメントと同階層の notesetting.json を自動読み込み
+// { "かな": "漢字", ... } を双方向に展開（片方向だけ書けば逆方向を自動生成）
 // ※ 既定ペア（フォールバック）は廃止
 
 const vscode = require("vscode");
@@ -32,7 +30,7 @@ function isPlainObject(v) {
 }
 
 /**
- * 正規表現で使う文字をエスケープ
+ * 正規表現で使う文字をエスケープする。
  * @param {string} s
  */
 function escapeRegExp(s) {
@@ -44,7 +42,7 @@ function normalizeString(x) {
 }
 
 /**
- * entries のうち key/value が文字列のものだけ抽出しトリム
+ * entries のうち key/value が文字列のものだけ抽出しトリムする。
  * @param {any} obj
  * @returns {Record<string,string>}
  */
@@ -60,7 +58,7 @@ function sanitizeDict(obj) {
 }
 
 /**
- * 新スキーマ（フラット）から双方向辞書を構築
+ * 新スキーマ（フラット）から双方向辞書を構築する。
  * 例: { "てのひら":"掌", "かすか":"微か" } -> toKanji はそのまま / toKana は反転
  * @param {Record<string,string>} flat
  * @returns {{toKanji: Record<string,string>, toKana: Record<string,string>, sourceSchema: "flat"}}
@@ -76,7 +74,7 @@ function buildFromFlat(flat) {
 }
 
 /**
- * 旧スキーマから構築（ユーザ定義のみ。既定は混入しない）
+ * 旧スキーマから構築する（ユーザー定義のみ。既定は混入しない）。
  * @returns {{toKanji: Record<string,string>, toKana: Record<string,string>, sourceSchema: "old"}}
  */
 function buildFromOld(json) {

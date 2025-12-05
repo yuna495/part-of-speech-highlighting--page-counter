@@ -1,5 +1,4 @@
-// ruby.js
-// ruby.js
+// ルビ・傍点付与コマンドの実装。
 const vscode = require("vscode");
 
 /* =========================
@@ -9,8 +8,7 @@ const vscode = require("vscode");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * 入力ボックスでルビ文字列を取得
- * キャンセルや空は null
+ * 入力ボックスでルビ文字列を取得する。キャンセル・空は null。
  */
 async function askRubyText() {
   // await sleep(100); // 100ms 待機（ショートカットキー離脱待ち・フォーカス安定化）
@@ -33,8 +31,8 @@ async function askRubyText() {
 }
 
 /**
- * 文書全文から needle の一致開始位置をすべて返す
- * 一致直前が '|' の箇所は除外（二重挿入防止）
+ * 文書全文から needle の一致開始位置をすべて返す。
+ * 一致直前が '|' の箇所は除外（二重挿入防止）。
  */
 function findAllInsertableMatches(haystack, needle) {
   if (!needle) return [];
@@ -54,8 +52,8 @@ function findAllInsertableMatches(haystack, needle) {
 }
 
 /**
- * 文字列を傍点書式へ変換
- * 非空白は `|{c}《・》` 空白や改行は温存
+ * 文字列を傍点書式へ変換する。
+ * 非空白は `|{c}《・》`、空白や改行は温存。
  */
 function toBouten(text) {
   const chars = Array.from(text || "");
@@ -69,9 +67,9 @@ function toBouten(text) {
 }
 
 /**
- * 複数選択をまとめて置換し キャレットも移動
- * perSelection は {replaced, caretOffset} を返す
- * caretOffset は選択開始からの相対位置 null なら末尾
+ * 複数選択をまとめて置換し、キャレットも移動する。
+ * perSelection は {replaced, caretOffset} を返す。
+ * caretOffset は選択開始からの相対位置。null なら末尾に置く。
  */
 async function replaceSelectionsWithCarets(editor, perSelection) {
   const doc = editor.document;
@@ -115,10 +113,9 @@ function caretAdjustLeft(doc, abs, ruby) {
    コマンド群
    ========================= */
 /**
- * ルビ挿入
- * 選択あり: 文書全体の同一文字列を `|{text}《{ruby}》` へ一括置換
- *           直前が '|' の一致はスキップ caret は 》 直後（内部で補正）
- * 選択なし: 何もせず警告を表示（※ ルビ入力は出さない）
+ * ルビ挿入。
+ * 選択あり: 文書全体の同一文字列を `|{text}《{ruby}》` へ一括置換（直前が '|' の一致はスキップ）。キャレットは 》 直後に補正。
+ * 選択なし: 何もせず警告を表示（ルビ入力ダイアログも出さない）。
  */
 async function insertRuby(editor) {
   // 先に選択有無を判定

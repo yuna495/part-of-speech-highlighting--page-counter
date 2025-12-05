@@ -1,11 +1,8 @@
-// preview_panel.js
-// VS Code Extension: posNote — vertical preview (update on save)
-// Origin: Novel Preview -> renamed to posNote.*
-
+// 縦書きプレビュー（保存時中心に更新）。
 const vscode = require("vscode");
 const fs = require("fs");
 
-// === Ruby placeholder extraction ===
+// === ルビのプレースホルダー化 ===
 const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
 const PHR = (i) => `\uE000RB${i}\uE001`;
 function extractRubyPlaceholders(input) {
@@ -52,7 +49,7 @@ function generateRubyHtml(base, reading) {
   return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
 }
 
-// === Ellipsis placeholder extraction ("……") ===
+// === 三点リーダーのプレースホルダー化（"……"） ===
 const ELLIPSIS_RE = /…{2}/g; // two U+2026
 const PHE = (i) => `\uE000EL${i}\uE001`;
 function extractEllipsisPlaceholders(input) {
@@ -69,7 +66,7 @@ function extractEllipsisPlaceholders(input) {
   return { textWithPH, ellipsisHtmlList };
 }
 
-// === Dash placeholder extraction ("——") ===
+// === ダッシュ（——）のプレースホルダー化 ===
 const DASH_RE = /[—―]{2}/g; // two EM DASH or two HORIZONTAL BAR
 const PHD = (i) => `\uE000DL${i}\uE001`;
 function extractDashPlaceholders(input) {
@@ -85,10 +82,21 @@ function extractDashPlaceholders(input) {
   });
   return { textWithPH, dashHtmlList };
 }
+/**
+ * 縦書きプレビュー Webview の制御クラス。
+ * 保存時中心に差分描画し、行ジャンプや強調を橋渡しする。
+ */
 class PreviewPanel {
   static currentPanel = undefined;
   static viewType = "posNote.preview";
 
+  /**
+   * プレビュー Webview を構築し、イベントを購読する。
+   * @param {vscode.WebviewPanel} panel
+   * @param {vscode.Uri} extensionUri
+   * @param {vscode.TextEditor} editor
+   * @param {vscode.ExtensionContext} context
+   */
   constructor(panel, extensionUri, editor, context) {
     // WebviewPanel とエディタの参照を保持し、イベントを購読する
     this._panel = panel;
@@ -169,6 +177,11 @@ class PreviewPanel {
   }
 
   // コマンドから呼ばれ、プレビューパネルを開くか既存パネルを再利用する
+  /**
+   * コマンドから呼ばれ、プレビューを開く（既存があれば再利用）。
+   * @param {vscode.Uri} extensionUri
+   * @param {vscode.ExtensionContext} context
+   */
   static show(extensionUri, context) {
     const column = vscode.window.activeTextEditor
       ? vscode.ViewColumn.Two
@@ -202,7 +215,7 @@ class PreviewPanel {
     setTimeout(() => {
       if (PreviewPanel.currentPanel && !PreviewPanel.currentPanel._hasWarmed) {
         PreviewPanel.currentPanel._hasWarmed = true;
-        // ウォームアップ中であることをWebviewへ通知（スピナー表示用）
+        // ウォームアップ中であることを Webview へ通知（スピナー表示用）
         PreviewPanel.currentPanel._panel.webview.postMessage({
           type: "setRefreshing",
           payload: { spinning: true },
@@ -213,6 +226,13 @@ class PreviewPanel {
   }
 
   // VS Code 再起動後の Webview 復元で呼ばれ、状態を再構築する
+  /**
+   * VS Code 復元時に呼ばれ、状態を再構築する。
+   * @param {vscode.WebviewPanel} panel
+   * @param {vscode.Uri} extensionUri
+   * @param {vscode.TextEditor} editor
+   * @param {vscode.ExtensionContext} context
+   */
   static revive(panel, extensionUri, editor, context) {
     PreviewPanel.currentPanel = new PreviewPanel(
       panel,
@@ -223,6 +243,7 @@ class PreviewPanel {
   }
 
   // Webview が閉じられたときの後片付け。購読を解除する
+  /** Webview が閉じられたときの後片付け。購読を解除する。 */
   dispose() {
     PreviewPanel.currentPanel = undefined;
     this._panel.dispose();
@@ -233,12 +254,14 @@ class PreviewPanel {
   }
 
   // 外部から明示的に最新状態へ更新したいときに呼ぶ
+  /** 外部から明示的に最新状態へ更新する。 */
   static update() {
     if (this.currentPanel) this.currentPanel._update();
   }
 
   // 軽量ハイライト更新（テキストは再送しない）
-  // アクティブ行の位置だけをWebviewへ伝え、軽量にハイライトを移動する
+      // アクティブ行の位置だけを Webview へ伝え、軽量にハイライトを移動する
+  /** アクティブ行だけを軽量にハイライト更新する。 */
   static highlight(line) {
     const p = this.currentPanel;
     if (!p || !p._panel) return;
@@ -260,6 +283,10 @@ class PreviewPanel {
    * 外部からの明示リフレッシュ要求（保存時の自動更新など）
    * forceFull: true で差分キャッシュを破棄してフル再描画
    * showSpinner: true なら Webview 側にスピナー開始を通知
+   */
+  /**
+   * 保存時など外部からのリフレッシュ要求に応える。
+   * @param {{forceFull?:boolean, showSpinner?:boolean}} param0
    */
   static refresh({ forceFull = true, showSpinner = true } = {}) {
     const p = this.currentPanel;
@@ -283,12 +310,11 @@ class PreviewPanel {
 
   // preview_panel.js 内
   // プレビューデータを組み立てて Webview へ送信する中核処理
-  // preview_panel.js 中核
   // プレビューデータを組み立てて Webview へ送信する中核処理
   async _update(isFirst = false, forceFull = false) {
     this._panel.title = "posNote Preview";
 
-    // アクティブエディタが無い=Webviewにフォーカス時でも doc を維持
+    // アクティブエディタが無い（Webview にフォーカス）時でも doc を維持
     const active = vscode.window.activeTextEditor;
     if (active && active.document) {
       this._editor = active;

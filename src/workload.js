@@ -1,3 +1,4 @@
+// コメント方針: 詳細は src/coding_style.md を参照
 // workload.js
 // ============================================================
 // 作業量トラッカー（VS Code 拡張用モジュール）
@@ -57,6 +58,18 @@ let _lastDateKey = null;
 let _midnightTimer = null;
 
 /* ------------------------------ 設定取得 ------------------------------ */
+/**
+ * workload 系設定をまとめて取得する。
+ * @returns {{
+ *   workloadEnabled:boolean,
+ *   dailyTarget:number,
+ *   timeZone:string,
+ *   mode:"net"|"gross"|"signedLen",
+ *   imeGuardMsNormal:number,
+ *   imeGuardMsCandidate:number,
+ *   graphStyle:"bar"|"radial"
+ * }}
+ */
 function cfg() {
   const c = vscode.workspace.getConfiguration("posNote");
   return {
@@ -104,7 +117,12 @@ function getDateKeyFormatter(timeZone) {
   return fmt;
 }
 
-// 指定 TZ の “YYYY-MM-DD” キーを返す
+/**
+ * 指定 TZ での “YYYY-MM-DD” 文字列キーを返す。
+ * @param {Date} [d=new Date()] 基準日時
+ * @param {string} [timeZone="system"] IANA TZ または "system"
+ * @returns {string} 日付キー (YYYY-MM-DD)
+ */
 function toTzDateKey(d = new Date(), timeZone = "system") {
   const parts = getDateKeyFormatter(timeZone).formatToParts(d);
   const y = parts.find((p) => p.type === "year").value;
@@ -114,15 +132,18 @@ function toTzDateKey(d = new Date(), timeZone = "system") {
 }
 
 /* ------------------------------ 共通ユーティリティ ------------------------------ */
-// CRLF を LF に正規化してコードポイント数を数える
-// 改行は 1 文字としてカウント
+/**
+ * CRLF を LF に正規化した上でコードポイント数を数える（改行も 1 文字としてカウント）。
+ * @param {string} text 対象テキスト
+ * @returns {number} 文字数
+ */
 function countCharsWithNewline(text) {
   if (!text) return 0;
   const normalized = String(text).replace(/\r\n/g, "\n");
   return Array.from(normalized).length;
 }
 
-// 3 桁区切り
+/** 3 桁区切りの日本語ロケール整形。 */
 function fmt(n) {
   return (typeof n === "number" ? n : Number(n)).toLocaleString("ja-JP");
 }
@@ -147,6 +168,11 @@ function buildDemoHistory(days = 30) {
   return out;
 }
 
+/**
+ * 永続化された作業量履歴を取得（キャッシュ付き）。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @returns {Record<string, any>} 日付キーごとの履歴
+ */
 function getHistory(context) {
   if (DEMO_MODE) return buildDemoHistory(30);
   if (_histCache) return _histCache;
@@ -156,6 +182,12 @@ function getHistory(context) {
   return _histCache;
 }
 
+/**
+ * 履歴を永続化し、30 日分に整理する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @param {Record<string, any>} hist 保存する履歴
+ * @returns {Promise<void>}
+ */
 async function saveHistory(context, hist) {
   if (DEMO_MODE) return;
 
@@ -172,6 +204,11 @@ async function saveHistory(context, hist) {
 }
 
 /* ------------------------------ ステータスバー ------------------------------ */
+/**
+ * ステータスバー項目を作成・再利用する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @returns {vscode.StatusBarItem}
+ */
 function ensureStatusBar(context) {
   if (_statusBarItem) return _statusBarItem;
   _statusBarItem = vscode.window.createStatusBarItem(
@@ -183,6 +220,11 @@ function ensureStatusBar(context) {
   return _statusBarItem;
 }
 
+/**
+ * 直近 7 日の合計と日別値をステータスバーのツールチップ文字列として組み立てる。
+ * @param {Record<string, any>} hist 作業量履歴
+ * @returns {string} ツールチップ表示文字列
+ */
 function buildHoverTooltip(hist) {
   const c = cfg();
   let total7 = 0;
@@ -199,6 +241,10 @@ function buildHoverTooltip(hist) {
   return `過去7日合計: ${fmt(total7)}\n` + lines.join("\n");
 }
 
+/**
+ * ステータスバーの表示を現在の履歴と設定に基づいて更新する。
+ * @param {ReturnType<cfg>} c 設定
+ */
 function updateStatusBarText(c) {
   const sb = _statusBarItem;
   if (!sb) return;
@@ -219,6 +265,7 @@ function updateStatusBarText(c) {
 }
 
 /* ------------------------------ 日付越え監視 ------------------------------ */
+/** 日付越えを検知し、当日レコードの存在を保証する。 */
 function checkDateRollover() {
   if (!_context) return;
   const nowKey = toTzDateKey(new Date(), cfg().timeZone);
@@ -235,6 +282,11 @@ function checkDateRollover() {
 }
 
 /* ------------------------------ メンテナンスコマンド ------------------------------ */
+/**
+ * 最古の日付の作業量レコードを 1 件削除する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @returns {Promise<void>}
+ */
 async function deleteOldestHistory(context) {
   const hist = getHistory(context);
   const keys = Object.keys(hist).sort(); // YYYY-MM-DD 文字列ソートで昇順
@@ -250,6 +302,11 @@ async function deleteOldestHistory(context) {
   vscode.window.showInformationMessage(`削除: ${oldest}`);
 }
 
+/**
+ * 作業量履歴を全削除し、当日 0 レコードを再生成する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @returns {Promise<void>}
+ */
 async function clearAllHistory(context) {
   // 1) 永続を空に
   await context.globalState.update(KEY_HISTORY, {});
@@ -275,6 +332,12 @@ async function clearAllHistory(context) {
 }
 
 // === 任意日付の作業量を強制上書き（保存＆UI更新まで一括） ===
+/**
+ * 任意日付の作業量を強制上書きする（保存・UI 更新含む）。
+ * @param {string} dateKey YYYY-MM-DD
+ * @param {{total:number, add:number, del:number}} payload 上書きする値
+ * @returns {Promise<{total:number,add:number,del:number}>}
+ */
 async function overrideWorkloadFor(dateKey, { total, add, del }) {
   const hist = getHistory(_context); // 既存履歴（キャッシュ経由）
   const toNum = (v) => Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -296,6 +359,12 @@ async function overrideWorkloadFor(dateKey, { total, add, del }) {
 }
 
 /* ------------------------------ グラフ表示（Webview） ------------------------------ */
+/**
+ * 直近 n 日の履歴を新しい→古い順で配列化する。
+ * @param {Record<string, any>} hist 作業量履歴
+ * @param {number} n 取得日数
+ * @returns {{date:string,total:number,add:number,del:number}[]} 配列
+ */
 function buildLastNDays(hist, n) {
   const c = cfg();
   const arr = [];
@@ -319,6 +388,13 @@ function buildLastNDays(hist, n) {
   return arr;
 }
 
+/**
+ * 棒グラフ版の作業量 Webview HTML を生成する。
+ * @param {vscode.Webview} webview 対象 Webview
+ * @param {Array<{date:string,total:number,add:number,del:number}>} days 日次データ（新→旧）
+ * @param {number} [targetValue=10000] 目標値
+ * @returns {string} 埋め込み用 HTML
+ */
 function getGraphHtml(webview, days, targetValue = 10000) {
   const total = days.reduce((a, b) => a + (b.total || 0), 0);
   const maxTotal = Math.max(0, ...days.map((d) => d.total || 0));
@@ -564,6 +640,13 @@ function getGraphHtml(webview, days, targetValue = 10000) {
 </html>`;
 }
 
+/**
+ * 円環（ラジアル）版の作業量 Webview HTML を生成する。
+ * @param {vscode.Webview} webview 対象 Webview
+ * @param {Array<{date:string,total:number,add:number,del:number}>} days 日次データ（新→旧）
+ * @param {number} [targetValue=10000] 目標値
+ * @returns {string} 埋め込み用 HTML
+ */
 function getRadialGraphHtml(webview, days, targetValue = 10000) {
   // スケールづくり（既存の最大値決定ロジックと同等の考え方）
   const maxTotal = Math.max(0, ...days.map((d) => d.total || 0));
@@ -886,6 +969,10 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
   return html;
 }
 
+/**
+ * 作業量グラフ Webview を開く（既存パネルがあれば再描画して再表示）。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ */
 function showWorkloadGraph(context) {
   const makeHtml = () => {
     const hist = getHistory(context);
@@ -915,6 +1002,10 @@ function showWorkloadGraph(context) {
   });
 }
 
+/**
+ * グラフ表示パネルが開いている場合に再描画する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ */
 function refreshGraphIfAny(context) {
   if (_graphPanel) {
     const hist = getHistory(context);
@@ -928,7 +1019,11 @@ function refreshGraphIfAny(context) {
 }
 
 /* ------------------------------ コア集計ロジック ------------------------------ */
-// “いまの curLen” を確定値として履歴に反映
+/**
+ * “いまの curLen” を確定値として履歴に反映する。
+ * @param {string} docUri ドキュメント URI 文字列
+ * @param {number} curLen 現在の全文字数
+ */
 function commitLenDiff(docUri, curLen) {
   const c = cfg();
   const baseLen = _baselineLenByDoc.get(docUri) ?? curLen;
@@ -981,7 +1076,10 @@ function commitLenDiff(docUri, curLen) {
   updateStatusBarText(c);
 }
 
-// IME ガードのタイムアウトで“最終差のみ”確定
+/**
+ * IME ガードのタイムアウト処理として“最終差のみ”を確定させる。
+ * @param {string} docUri ドキュメント URI 文字列
+ */
 function commitImeGuard(docUri) {
   const guard = _imeGuardByDoc.get(docUri);
   if (!guard) return;
@@ -1031,6 +1129,11 @@ function applyExternalLen(docUri, curLen, opts = {}) {
 }
 
 /* ------------------------------ 初期化 ------------------------------ */
+/**
+ * 作業量トラッカーを初期化し、ステータスバーとコマンドを登録する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @returns {{ onConfigChanged: () => void }} 設定変更時コールバック
+ */
 function initWorkload(context) {
   _context = context;
 

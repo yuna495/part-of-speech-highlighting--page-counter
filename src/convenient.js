@@ -1,11 +1,8 @@
-// convenient.js
-// ======================================================
-// 便利系自動整形（行末の全角/半角スペース削除）
-// ======================================================
+// 便利系: 保存時の行末スペース削除と選択文字列の出現回数カウント。
 const vscode = require("vscode");
 
 /**
- * 行末の全角・半角スペースを削除する
+ * 行末の全角・半角スペースを削除する。
  * @param {vscode.TextDocument} doc
  * @returns {Promise<void>}
  */
@@ -82,11 +79,11 @@ async function countSelectedString() {
 }
 
 /**
- * 拡張機能の初期化
+ * 便利機能（行末スペース削除・選択文字列カウント）を登録する。
  * @param {vscode.ExtensionContext} context
  */
 function registerConvenientFeatures(context) {
-  // 保存時に行末スペースを削除（既存）
+  // 保存時に行末スペースを削除
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(async (doc) => {
       try {
