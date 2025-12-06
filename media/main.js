@@ -411,7 +411,10 @@ function paragraphsWithLine(text, offset, cursor, showCursor) {
       tag.textContent = css;
       document.head.appendChild(tag);
     } else {
-      tag.textContent = css;
+      // 変更がある場合のみ書き換えてスタイル再計算を抑制
+      if (tag.textContent !== css) {
+        tag.textContent = css;
+      }
     }
   }
 

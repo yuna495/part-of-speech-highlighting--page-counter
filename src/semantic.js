@@ -77,19 +77,21 @@ let tokenizer = null;
  */
 async function ensureTokenizer(context) {
   if (tokenizer) return;
-  const dictPath = path.join(context.extensionPath, "dict");
-  if (!fs.existsSync(dictPath)) {
-    vscode.window.showErrorMessage(
-      "kuromoji の辞書が見つかりません。拡張直下の 'dict/' を配置してください。"
-    );
-    return;
-  }
-  tokenizer = await new Promise((resolve, reject) => {
-    kuromoji.builder({ dicPath: dictPath }).build((err, tknz) => {
-      if (err) reject(err);
-      else resolve(tknz);
+  try {
+    const dictPath = path.join(context.extensionPath, "dict");
+    if (!fs.existsSync(dictPath)) {
+      console.warn("kuromoji dictionary not found at:", dictPath);
+      return;
+    }
+    tokenizer = await new Promise((resolve, reject) => {
+      kuromoji.builder({ dicPath: dictPath }).build((err, tknz) => {
+        if (err) reject(err);
+        else resolve(tknz);
+      });
     });
-  });
+  } catch (err) {
+    console.error("[POSNote] ensureTokenizer failed:", err);
+  }
 }
 
 /* ========================================

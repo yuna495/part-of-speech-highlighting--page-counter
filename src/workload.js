@@ -1151,18 +1151,26 @@ function initWorkload(context) {
   // アクティブエディタ変更で UI 更新
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
-      updateStatusBarText(cfg());
+      try {
+        updateStatusBarText(cfg());
+      } catch (err) {
+        console.warn("[workload.js] onDidChangeActiveTextEditor error:", err);
+      }
     }),
     // ドキュメントを閉じたらキャッシュとタイマーをクリア（メモリリーク対策）
     vscode.workspace.onDidCloseTextDocument((doc) => {
-      const uri = doc.uri.toString();
-      _baselineLenByDoc.delete(uri);
-      // IME ガードのタイマーも確実にクリア
-      const guard = _imeGuardByDoc.get(uri);
-      if (guard?.timer) {
-        clearTimeout(guard.timer);
+      try {
+        const uri = doc.uri.toString();
+        _baselineLenByDoc.delete(uri);
+        // IME ガードのタイマーも確実にクリア
+        const guard = _imeGuardByDoc.get(uri);
+        if (guard?.timer) {
+          clearTimeout(guard.timer);
+        }
+        _imeGuardByDoc.delete(uri);
+      } catch (err) {
+        console.warn("[workload.js] onDidCloseTextDocument error:", err);
       }
-      _imeGuardByDoc.delete(uri);
     })
   );
 

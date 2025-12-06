@@ -278,7 +278,12 @@ function activate(context) {
         cp._docUri &&
         e.textEditor.document.uri.toString() === cp._docUri.toString()
       ) {
-        PreviewPanel.highlight(e.textEditor.selection.active.line);
+        // highlight 呼び出しをデバウンス（50ms）
+        if (cp._highlightTimer) clearTimeout(cp._highlightTimer);
+        cp._highlightTimer = setTimeout(() => {
+          PreviewPanel.highlight(e.textEditor.selection.active.line);
+          cp._highlightTimer = null;
+        }, 50);
       }
     }),
 

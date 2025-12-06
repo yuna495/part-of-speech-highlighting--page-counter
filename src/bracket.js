@@ -148,28 +148,44 @@ function registerBracketSupport(context, { cfg, isTargetDoc } = {}) {
   // 2) Backspace 同時削除（軽量版）とカーソルキャッシュのイベント
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
-      maybeDeleteClosingOnBackspaceLite(e, { cfg, isTargetDoc }); // ← そのままでOK
+      try {
+        maybeDeleteClosingOnBackspaceLite(e, { cfg, isTargetDoc }); // ← そのままでOK
+      } catch (err) {
+        console.warn("[bracket.js] onDidChangeTextDocument error:", err);
+      }
     }),
     vscode.window.onDidChangeActiveTextEditor((ed) => {
-      if (!ed) return;
-      const c = typeof cfg === "function" ? cfg() : {};
-      if (typeof isTargetDoc === "function" && !isTargetDoc(ed.document, c))
-        return;
-      updateCaretCache(ed);
+      try {
+        if (!ed) return;
+        const c = typeof cfg === "function" ? cfg() : {};
+        if (typeof isTargetDoc === "function" && !isTargetDoc(ed.document, c))
+          return;
+        updateCaretCache(ed);
+      } catch (err) {
+        console.warn("[bracket.js] onDidChangeActiveTextEditor error:", err);
+      }
     }),
     vscode.window.onDidChangeTextEditorSelection((e) => {
-      if (e.textEditor !== vscode.window.activeTextEditor) return;
-      const c = typeof cfg === "function" ? cfg() : {};
-      if (
-        typeof isTargetDoc === "function" &&
-        !isTargetDoc(e.textEditor.document, c)
-      )
-        return;
-      updateCaretCache(e.textEditor);
+      try {
+        if (e.textEditor !== vscode.window.activeTextEditor) return;
+        const c = typeof cfg === "function" ? cfg() : {};
+        if (
+          typeof isTargetDoc === "function" &&
+          !isTargetDoc(e.textEditor.document, c)
+        )
+          return;
+        updateCaretCache(e.textEditor);
+      } catch (err) {
+        console.warn("[bracket.js] onDidChangeTextEditorSelection error:", err);
+      }
     }),
     // ドキュメントを閉じたらキャッシュを削除（メモリリーク対策）
     vscode.workspace.onDidCloseTextDocument((doc) => {
-      _caretCacheByUri.delete(doc.uri.toString());
+      try {
+        _caretCacheByUri.delete(doc.uri.toString());
+      } catch (err) {
+        console.warn("[bracket.js] onDidCloseTextDocument error:", err);
+      }
     })
   );
 }
