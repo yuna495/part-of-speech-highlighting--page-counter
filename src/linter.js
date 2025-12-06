@@ -180,7 +180,14 @@ async function triggerLint(
 
     // 即スピナー → 1ティック譲って描画 → 実行
     if (lintRunning === 0) startLintUI("Linting...");
-    await new Promise((r) => setTimeout(r, 0));
+
+    // 初回保存（キャッシュなし）時は、他処理（見出し計算等）にCPUを譲るため少し待つ
+    const delay = mode === "save" && !_cachedKernel ? 1000 : 0;
+    if (delay > 0) {
+      channel.appendLine(`[lint] delay ${delay}ms for cold start...`);
+    }
+
+    await new Promise((r) => setTimeout(r, delay));
     await lintActiveOnly(collection, doc);
   } catch (err) {
     channel.appendLine(`[error] triggerLint failed: ${err}`);
