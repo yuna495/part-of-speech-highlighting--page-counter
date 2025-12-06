@@ -139,12 +139,16 @@ function getHeadingsCached(doc) {
   if (!entry || entry.version !== ver) {
     // 再計算
     const headings = [];
-    for (let i = 0; i < doc.lineCount; i++) {
-      const text = doc.lineAt(i).text;
-      const lvl = getHeadingLevel(text);
-      if (lvl > 0) {
-        headings.push({ line: i, level: lvl, text });
-      }
+    // Optimized: Use Regex on full text instead of iterating all lines
+    const text = doc.getText();
+    // Match line start, 1-6 #s, space, then rest of line
+    const regex = /^(#{1,6})\s+(.*)$/gm;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const line = doc.positionAt(match.index).line;
+      const level = match[1].length;
+      // match[0] is the full matched string (the whole line effectively due to $)
+      headings.push({ line, level, text: match[0] });
     }
     entry = { version: ver, headings, metrics: null };
     _headingCache.set(doc, entry);
@@ -178,96 +182,67 @@ function getHeadingMetricsCached(doc, c, vscodeModule) {
   const items = [];
   const max = doc.lineCount;
 
-  // 1. 基本情報と own/sub 計算用の範囲決定
-  // headings は { line, level, text }
-  const ranges = [];
+  // New Logic:
+  // 1. Calculate 'own' for each segment (Self to Next Heading of ANY level)
+  // 2. Accumulate 'sub' from bottom to top (Reverse iteration)
+
+  // A) Calculate Own Counts per Segment
+  // items[i] needs initialized with basic info + own count
   for (let i = 0; i < headings.length; i++) {
     const h = headings[i];
-    let end = max;
-    // sub範囲: 次の同レベル以上の見出しまで
-    for (let j = i + 1; j < headings.length; j++) {
-      if (headings[j].level <= h.level) {
-        end = headings[j].line;
-        break;
-      }
-    }
-    ranges.push({ start: h.line, end });
-  }
 
-  // 2. sub (自分+配下) の文字数を計算
-  const subCounts = new Array(headings.length).fill(0);
-  for (let i = 0; i < headings.length; i++) {
-    const r = ranges[i];
-    const range = new vscode.Range(r.start, 0, r.end, 0);
-    subCounts[i] = countCharsForDisplay(doc.getText(range), c);
-  }
+    // Segment End is simply the next heading's line (or doc end)
+    const nextLine = (i + 1 < headings.length) ? headings[i + 1].line : max;
 
-  // 3. 親子関係を特定して own (自分のみ) と childSum (配下合計) を計算
-  // childSum は headline_symbols.js 用（配下の count の合計）
-  // own は sidebar_headings.js 用（sub - 直下の子の sub）
+    // range for 'own' text
+    const range = new vscode.Range(h.line, 0, nextLine, 0);
+    const text = doc.getText(range);
+    const own = countCharsForDisplay(text, c);
 
-  const children = new Array(headings.length).fill(0).map(() => []);
-  for (let i = 0; i < headings.length; i++) {
-    const pi = headings[i];
-    const pEnd = ranges[i].end;
-    for (let j = i + 1; j < headings.length; j++) {
-      const ch = headings[j];
-      if (ch.line >= pEnd) break;
-      if (ch.level === pi.level + 1) {
-        children[i].push(j);
-      } else if (ch.level <= pi.level) {
-        break;
-      }
-    }
-  }
-
-  // 結果オブジェクト構築
-  for (let i = 0; i < headings.length; i++) {
-    const h = headings[i];
-    const sub = subCounts[i];
-
-    // own = sub - Σ(直下の子のsub)
-    const sumChildSub = children[i].reduce((acc, idx) => acc + subCounts[idx], 0);
-    const own = Math.max(0, sub - sumChildSub);
-
-    // childSum (headline_symbols.js用) = 配下の count の合計
-    // ここでの count は "own" に相当する（本文の文字数）
-    // 再帰的に計算する必要があるが、own があれば実は簡単
-    // しかし headline_symbols.js の childSum は「配下の DocumentSymbol の文字数合計」なので
-    // sub - own = 配下の合計、で良いはずだが、念のため定義を確認
-    // headline_symbols.js: items[parentIdx].childSum += items[child.idx].count + items[child.idx].childSum;
-    // つまり「配下全ての own の合計」である。
-    // これは sub - own と等しいはず（sub は自分+配下全てなので）。
-    const childSum = sub - own;
-
-    // タイトル整形
     const title = h.text.replace(/^#+\s*/, "").trim() || `Heading L${h.level}`;
 
-    // 範囲（本文）
-    // headline_symbols.js では「次の任意レベルの見出し直前」までを本文としているが
-    // ここでは ranges[i].end (次の同レベル以上) を使っている。
-    // DocumentSymbol の range としては ranges[i] が正しい。
-    // 文字数カウント用の range は... headline_symbols.js を見ると
-    // 「次に現れる任意レベルの見出し直前」までを bodyText としている。
-    // これは own の計算ロジックと一致する。
+    // Initialize item
+    // Note: range property in OLD logic was "Self+Descendants".
+    // We can preserve that approximation or just give the segment range.
+    // Given 'range' is barely used, we'll assign the segment range (or calculate full range if strictly needed).
+    // Let's keep it simple: Segment range is safer for potential future "Select Section" features if they used this (but they don't, they find it themselves).
+    // However, to be perfectly compatible with existing "sub" concept, let's try to mimic the "next sibling" logic for range ONLY if cheap.
+    // Finding next sibling is relatively cheap structure scan. Let's do it to keep 'range' property robust.
 
-    // headline_symbols.js 互換の range 生成
-    let bodyEnd = max - 1;
-    if (i < headings.length - 1) {
-      bodyEnd = headings[i+1].line - 1;
+    let siblingLine = max;
+    for (let j = i + 1; j < headings.length; j++) {
+      if (headings[j].level <= h.level) {
+        siblingLine = headings[j].line;
+        break;
+      }
     }
-    const range = new vscode.Range(h.line, 0, ranges[i].end, 0); // セクション全体
+    const fullRange = new vscode.Range(h.line, 0, siblingLine, 0);
 
     items.push({
       line: h.line,
       level: h.level,
       text: h.text,
       title,
-      own,      // = count (headline_symbols)
-      sub,
-      childSum,
-      range     // セクション全体
+      own,
+      sub: own, // Initialize sub with own (will accumulate children later)
+      childSum: 0,
+      range: fullRange
     });
+  }
+
+  // B) Accumulate Sub Counts (Bottom-Up)
+  // Iterate backwards. Add my sub count to my direct parent.
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const current = items[i];
+    // Find direct parent (closest previous heading with level < current.level)
+    for (let j = i - 1; j >= 0; j--) {
+      if (headings[j].level < headings[i].level) {
+        items[j].sub += current.sub;
+        break; // Found the direct parent, stop
+      }
+    }
+    // Update childSum (sub - own)
+    current.childSum = current.sub - current.own;
   }
 
   const total = countCharsForDisplay(doc.getText(), c);

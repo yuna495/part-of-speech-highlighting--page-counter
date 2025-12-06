@@ -160,27 +160,32 @@ async function triggerLint(
   collection,
   { mode = "command", reason = undefined } = {}
 ) {
-  if (mode === "save") {
-    // 既存の保存ポリシー（Auto Save無効時は手動保存のみ）を尊重
-    if (!shouldLintOnSave(doc.uri.toString(), reason)) {
-      updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
-      return;
+  try {
+    if (mode === "save") {
+      // 既存の保存ポリシー（Auto Save無効時は手動保存のみ）を尊重
+      if (!shouldLintOnSave(doc.uri.toString(), reason)) {
+        updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
+        return;
+      }
+    } else {
+      // コマンド/クリック時はファイル種別だけ確認
+      if (!canLint(doc)) {
+        vscode.window.showInformationMessage(
+          "このファイルは lint 対象ではありません（.txt / plaintext / markdown）。"
+        );
+        updateIdleUIForDoc(doc);
+        return;
+      }
     }
-  } else {
-    // コマンド/クリック時はファイル種別だけ確認
-    if (!canLint(doc)) {
-      vscode.window.showInformationMessage(
-        "このファイルは lint 対象ではありません（.txt / plaintext / markdown）。"
-      );
-      updateIdleUIForDoc(doc);
-      return;
-    }
-  }
 
-  // 即スピナー → 1ティック譲って描画 → 実行
-  if (lintRunning === 0) startLintUI("Linting...");
-  await new Promise((r) => setTimeout(r, 0));
-  await lintActiveOnly(collection, doc);
+    // 即スピナー → 1ティック譲って描画 → 実行
+    if (lintRunning === 0) startLintUI("Linting...");
+    await new Promise((r) => setTimeout(r, 0));
+    await lintActiveOnly(collection, doc);
+  } catch (err) {
+    channel.appendLine(`[error] triggerLint failed: ${err}`);
+    finishLintUI("Error");
+  }
 }
 
 // ===== 3) textlint のルール構築 =====
@@ -577,10 +582,16 @@ function activate(context) {
   // 保存時：共通トリガー経由で実行
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      const reason = lastSaveReason.get(doc.uri.toString());
-      lastSaveReason.delete(doc.uri.toString());
-      channel.appendLine(`[evt] onDidSaveTextDocument: ${doc.uri.fsPath}`);
-      triggerLint(doc, collection, { mode: "save", reason });
+      try {
+        const reason = lastSaveReason.get(doc.uri.toString());
+        lastSaveReason.delete(doc.uri.toString());
+        channel.appendLine(`[evt] onDidSaveTextDocument: ${doc.uri.fsPath}`);
+        triggerLint(doc, collection, { mode: "save", reason }).catch((err) => {
+          channel.appendLine(`[error] onDidSaveTextDocument async: ${err}`);
+        });
+      } catch (err) {
+        channel.appendLine(`[error] onDidSaveTextDocument sync: ${err}`);
+      }
     })
   );
 

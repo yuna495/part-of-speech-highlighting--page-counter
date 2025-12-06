@@ -156,6 +156,7 @@ function initStatusBar(context, helpers) {
 
     // events
     scheduleUpdate,
+    scheduleUpdateWithPrecount,
     recomputeOnSaveIfNeeded,
     onActiveEditorChanged,
     onSelectionChanged,
@@ -619,100 +620,104 @@ function recomputeAndCacheMetrics(editor) {
  * @param {vscode.TextEditor} editor 対象エディタ
  */
 function updateStatusBar(editor) {
-  const { cfg, isTargetDoc } = _helpers;
-  const c = cfg();
-  if (!_statusBarItem) return;
+  try {
+    const { cfg, isTargetDoc } = _helpers;
+    const c = cfg();
+    if (!_statusBarItem) return;
 
-  // エディタが無いときは隠す
-  if (!editor) {
-    _statusBarItem.hide();
-    return;
-  }
-
-  // 「小説対象の文字列か」を先に判定
-  const targetDoc = isTargetDoc(editor.document, c);
-
-  // 1) ページ表示は「対象文字列かつ有効時のみ」
-  let headPart = "";
-  if (targetDoc && c.enabledNote && _enabledNote) {
-    const mm = _metrics ?? {
-      totalChars: 0,
-      totalWrappedRows: 0,
-      totalNotes: 1,
-      currentNote: 1,
-      lastLineInLastNote: 1,
-    };
-    headPart = `${fmt(mm.currentNote)} / ${fmt(mm.totalNotes)} -${fmt(
-      mm.lastLineInLastNote
-    )}（${fmt(c.rowsPerNote)}×${fmt(c.colsPerRow)}）`;
-  }
-
-  // 2) 選択文字数（非選択時は全体）…拡張子を問わず常に可
-  let selPart = "";
-  if (c.showSelectedChars) {
-    const selections = editor.selections?.length
-      ? editor.selections
-      : [editor.selection];
-
-    // 「表示ルールでの字数」…対象外でも countCharsForDisplay を使う
-    const selCnt = countSelectedCharsForDisplay(editor.document, selections, c);
-
-    // 対象外では _metrics が null になり得るので安全にフォールバック
-    const baseTotal =
-      _precountTotalForThisTick ??
-      _metrics?.totalChars ??
-      countCharsForDisplay(editor.document.getText(), c);
-    _precountTotalForThisTick = null;
-
-    const shown = selCnt > 0 ? selCnt : baseTotal;
-
-    // 同フォルダ合算は従来どおり「対象文字列時のみ」
-    if (targetDoc && c.showFolderSum && _folderSumChars != null) {
-      selPart = `${fmt(shown)}字 / ${fmt(_folderSumChars)}`;
-    } else {
-      selPart = `${fmt(shown)}字`;
+    // エディタが無いときは隠す
+    if (!editor) {
+      _statusBarItem.hide();
+      return;
     }
+
+    // 「小説対象の文字列か」を先に判定
+    const targetDoc = isTargetDoc(editor.document, c);
+
+    // 1) ページ表示は「対象文字列かつ有効時のみ」
+    let headPart = "";
+    if (targetDoc && c.enabledNote && _enabledNote) {
+      const mm = _metrics ?? {
+        totalChars: 0,
+        totalWrappedRows: 0,
+        totalNotes: 1,
+        currentNote: 1,
+        lastLineInLastNote: 1,
+      };
+      headPart = `${fmt(mm.currentNote)} / ${fmt(mm.totalNotes)} -${fmt(
+        mm.lastLineInLastNote
+      )}（${fmt(c.rowsPerNote)}×${fmt(c.colsPerRow)}）`;
+    }
+
+    // 2) 選択文字数（非選択時は全体）…拡張子を問わず常に可
+    let selPart = "";
+    if (c.showSelectedChars) {
+      const selections = editor.selections?.length
+        ? editor.selections
+        : [editor.selection];
+
+      // 「表示ルールでの字数」…対象外でも countCharsForDisplay を使う
+      const selCnt = countSelectedCharsForDisplay(editor.document, selections, c);
+
+      // 対象外では _metrics が null になり得るので安全にフォールバック
+      const baseTotal =
+        _precountTotalForThisTick ??
+        _metrics?.totalChars ??
+        countCharsForDisplay(editor.document.getText(), c);
+      _precountTotalForThisTick = null;
+
+      const shown = selCnt > 0 ? selCnt : baseTotal;
+
+      // 同フォルダ合算は従来どおり「対象文字列時のみ」
+      if (targetDoc && c.showFolderSum && _folderSumChars != null) {
+        selPart = `${fmt(shown)}字 / ${fmt(_folderSumChars)}`;
+      } else {
+        selPart = `${fmt(shown)}字`;
+      }
+    }
+
+    // 3) ±=HEAD 差分…拡張子を問わず常に可（取得できた場合のみ）
+    let deltaPart = "";
+    if (c.showDeltaFromHEAD && _deltaFromHEAD.value != null) {
+      const d = _deltaFromHEAD.value;
+      const sign = d > 0 ? "＋" : d < 0 ? "－" : "±";
+      deltaPart = ` ${sign}${fmt(Math.abs(d))}`;
+    }
+
+    // 4) どれも空なら隠す（例: 全表示オフ）
+    if (!headPart && !selPart && !deltaPart) {
+      _statusBarItem.hide();
+      return;
+    }
+
+    // 5) テキスト結合
+    const parts = [];
+    if (headPart) parts.push(headPart);
+    if (selPart) parts.push(selPart);
+    if (deltaPart) parts.push(`${deltaPart}字`);
+    _statusBarItem.text = parts.join(" ");
+
+    // 6) ツールチップ
+    const tips = [];
+    if (headPart)
+      tips.push("選択位置/全体ページ＋末尾文字が最後のページの何行目か");
+    if (c.showSelectedChars)
+      tips.push(
+        targetDoc && c.showFolderSum
+          ? "選択文字数（改行除外）※未選択時は全体文字数＋同フォルダ同拡張子合算（編集中ファイルを含む）"
+          : "選択文字数（改行除外）※未選択時は全体文字数"
+      );
+    if (c.showDeltaFromHEAD) tips.push("±=HEAD(直近コミット)からの増減");
+    _statusBarItem.tooltip = tips.join(" / ");
+
+    // 7) クリックコマンドはページ表示があるときのみ
+    _statusBarItem.command = headPart ? "posNote.setNoteSize" : undefined;
+
+    // 8) 表示
+    _statusBarItem.show();
+  } catch (err) {
+    console.error("[POSNote] updateStatusBar error:", err);
   }
-
-  // 3) ±=HEAD 差分…拡張子を問わず常に可（取得できた場合のみ）
-  let deltaPart = "";
-  if (c.showDeltaFromHEAD && _deltaFromHEAD.value != null) {
-    const d = _deltaFromHEAD.value;
-    const sign = d > 0 ? "＋" : d < 0 ? "－" : "±";
-    deltaPart = ` ${sign}${fmt(Math.abs(d))}`;
-  }
-
-  // 4) どれも空なら隠す（例: 全表示オフ）
-  if (!headPart && !selPart && !deltaPart) {
-    _statusBarItem.hide();
-    return;
-  }
-
-  // 5) テキスト結合
-  const parts = [];
-  if (headPart) parts.push(headPart);
-  if (selPart) parts.push(selPart);
-  if (deltaPart) parts.push(`${deltaPart}字`);
-  _statusBarItem.text = parts.join(" ");
-
-  // 6) ツールチップ
-  const tips = [];
-  if (headPart)
-    tips.push("選択位置/全体ページ＋末尾文字が最後のページの何行目か");
-  if (c.showSelectedChars)
-    tips.push(
-      targetDoc && c.showFolderSum
-        ? "選択文字数（改行除外）※未選択時は全体文字数＋同フォルダ同拡張子合算（編集中ファイルを含む）"
-        : "選択文字数（改行除外）※未選択時は全体文字数"
-    );
-  if (c.showDeltaFromHEAD) tips.push("±=HEAD(直近コミット)からの増減");
-  _statusBarItem.tooltip = tips.join(" / ");
-
-  // 7) クリックコマンドはページ表示があるときのみ
-  _statusBarItem.command = headPart ? "posNote.setNoteSize" : undefined;
-
-  // 8) 表示
-  _statusBarItem.show();
 }
 
 /**
@@ -728,9 +733,13 @@ function scheduleUpdate(editor) {
 
   if (_idleRecomputeTimer) clearTimeout(_idleRecomputeTimer);
   _idleRecomputeTimer = setTimeout(() => {
-    recomputeAndCacheMetrics(editor);
-    recomputeFolderSum(editor); // アイドル再計算で合算も更新
-    updateStatusBar(editor);
+    try {
+      recomputeAndCacheMetrics(editor);
+      recomputeFolderSum(editor); // アイドル再計算で合算も更新
+      updateStatusBar(editor);
+    } catch (err) {
+      console.error("[POSNote] scheduleUpdate idle error:", err);
+    }
   }, c.recomputeIdleMs);
 }
 

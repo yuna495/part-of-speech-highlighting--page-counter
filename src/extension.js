@@ -10,7 +10,6 @@ const { initKanbn } = require("./kanbn");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
 const { registerBracketSupport } = require("./bracket");
-const { registerHeadlineSupport, refreshHeadingCounts, registerHeadingSymbolProvider } = require("./headline");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
 const { registerConversionCommands } = require("./conversion");
@@ -99,7 +98,7 @@ function activate(context) {
   // --- 9-1) 初期化（StatusBar/Sidebar/Minimap）
   const sb = (_sb = initStatusBar(context, { cfg, isTargetDoc }));
   _workload = initWorkload(context);
-  initHeadings(context, { cfg, isTargetDoc });
+
   initSidebarUtilities(context);
   initKanbn(context);
 
@@ -115,10 +114,9 @@ function activate(context) {
   // 括弧補完＋Backspace同時削除は外部モジュールへ委譲
   registerBracketSupport(context, { cfg, isTargetDoc });
 
-  // 見出し機能は外部モジュールへ委譲
-  registerHeadlineSupport(context, { cfg, isTargetDoc, sb, semProvider });
-  // 見出しシンボル（アウトライン／パンくず／Sticky Scroll）
-  registerHeadingSymbolProvider(context);
+  // 見出し機能は initHeadings で一括初期化されるため古い呼び出しは削除
+  const headings = initHeadings(context, { cfg, isTargetDoc, sb }); // sb is needed now
+
   // ルビ/傍点 機能
   registerRubySupport(context);
 
@@ -157,10 +155,7 @@ function activate(context) {
   // 置換コマンド（かな<->漢字）
   registerConversionCommands(context, { isTargetDoc });
 
-  safeRegisterCommand(context, "posNote.headings.refresh", () => {
-    const ed = vscode.window.activeTextEditor;
-    if (ed) refreshHeadingCounts(ed, cfg);
-  });
+
 
   // --- 5-5) Providers
   const semanticSelector = [
@@ -189,58 +184,67 @@ function activate(context) {
   // --- 5-6) Events
   context.subscriptions.push(
     // 入力：軽い更新＋アイドル時に重い再計算
+    // 入力：軽い更新＋アイドル時に重い再計算
     vscode.workspace.onDidChangeTextDocument((e) => {
-      const ed = vscode.window.activeTextEditor;
-      if (!ed || e.document !== ed.document) return;
-      const c = cfg();
+      try {
+        const ed = vscode.window.activeTextEditor;
+        if (!ed || e.document !== ed.document) return;
+        const c = cfg();
 
-      // 1) テキストを一度だけ取得
-      const txt = e.document.getText().replace(/\r\n/g, "\n");
+        // 1) テキストを一度だけ取得
+        const txt = e.document.getText().replace(/\r\n/g, "\n");
 
-      // 2) 作業量用の全文字数（改行は1字扱い）
-      const rawLen = Array.from(txt).length;
+        // 2) 作業量用の全文字数（改行は1字扱い）
+        const rawLen = Array.from(txt).length;
 
-      // IME らしい入力かの簡易判定
-      const imeLike =
-        e.contentChanges.length > 0 &&
-        e.contentChanges.every(
-          (ch) => ch.rangeLength > 0 && ch.text.length > 0
-        ) &&
-        e.contentChanges.some(
-          (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
-        );
+        // IME らしい入力かの簡易判定
+        const imeLike =
+          e.contentChanges.length > 0 &&
+          e.contentChanges.every(
+            (ch) => ch.rangeLength > 0 && ch.text.length > 0
+          ) &&
+          e.contentChanges.some(
+            (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
+          );
 
-      // 3) ステータスバー用の表示文字数
-      const { countCharsForDisplay } = require("./utils");
-      const shownLen = countCharsForDisplay(txt, c);
+        // 3) ステータスバー用の表示文字数
+        const { countCharsForDisplay } = require("./utils");
+        const shownLen = countCharsForDisplay(txt, c);
 
-      // 4) 作業量へフィード
-      const { applyExternalLen } = require("./workload");
-      applyExternalLen(e.document.uri.toString(), rawLen, { imeLike });
+        // 4) 作業量へフィード
+        const { applyExternalLen } = require("./workload");
+        applyExternalLen(e.document.uri.toString(), rawLen, { imeLike });
 
-      // 5) ステータスバーへフィード
-      sb.scheduleUpdateWithPrecount(ed, shownLen);
+        // 5) ステータスバーへフィード
+        sb.scheduleUpdateWithPrecount(ed, shownLen);
+      } catch (err) {
+        console.error("[POSNote] onDidChangeTextDocument error:", err);
+      }
     }),
 
     // 保存：再計算とプレビュー更新
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      const ed = vscode.window.activeTextEditor;
-      if (ed && ed.document === doc) {
-        sb.recomputeOnSaveIfNeeded(doc);
-        refreshHeadingCounts(ed, cfg);
-        // プレビューの再描画（設定でONのとき）
-        const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
-        if (previewCfg.get("autoRefreshOnSave", true)) {
-          const cp = PreviewPanel.currentPanel;
-          const sameDoc =
-            cp &&
-            ((cp._docUri &&
-              doc.uri.toString() === cp._docUri.toString()) ||
-              (!cp._docUri && cp._editor?.document === doc));
-          if (sameDoc) {
-            PreviewPanel.refresh({ forceFull: true, showSpinner: true });
+      try {
+        const ed = vscode.window.activeTextEditor;
+        if (ed && ed.document === doc) {
+          sb.recomputeOnSaveIfNeeded(doc);
+          headings.refresh(ed, { immediate: true });
+          // プレビューの再描画（設定でONのとき）
+          const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
+          if (previewCfg.get("autoRefreshOnSave", true)) {
+            const cp = PreviewPanel.currentPanel;
+            const sameDoc =
+              cp &&
+              ((cp._docUri &&
+                doc.uri.toString() === cp._docUri.toString()) ||
+                (!cp._docUri && cp._editor?.document === doc));
+            if (sameDoc) {
+              PreviewPanel.refresh({ forceFull: true, showSpinner: true });
+            }
           }
         }
+      } catch (err) {
+        console.error("[POSNote] onDidSaveTextDocument error:", err);
       }
     }),
 
@@ -248,7 +252,8 @@ function activate(context) {
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (!ed) return;
       sb.onActiveEditorChanged(ed);
-      refreshHeadingCounts(ed, cfg);
+      // headings update is handled by headings.js internal listener (or should be?)
+      // headings.js HAS internal onDidChangeActiveTextEditor listener. So no need to call here.
 
       // 直参照で統一（再 require はしない）
       const cp = PreviewPanel.currentPanel;
@@ -287,7 +292,8 @@ function activate(context) {
       )
         return;
       const ed = vscode.window.activeTextEditor;
-      refreshHeadingCounts(ed, cfg);
+      // headings.js internally listens to config changes too.
+
       if (ed) sb.onConfigChanged(ed);
       if (_workload && _workload.onConfigChanged) _workload.onConfigChanged(ed);
       if (semProvider && semProvider.fireDidChange) {

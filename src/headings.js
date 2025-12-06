@@ -1,7 +1,14 @@
-// 見出し関連機能の統合モジュール（サイドバー表示 + ミニマップ強調）
+// 見出し関連機能の統合モジュール
+// Sidebar (TreeView), Minimap Highlight, Editor Decoration (Count), Folding, Symbols, Navigation
 const vscode = require("vscode");
-const { getHeadingLevel, getHeadingMetricsCached, getHeadingsCached } = require("./utils");
 const path = require("path");
+const {
+  getHeadingLevel,
+  getHeadingMetricsCached,
+  getHeadingsCached,
+  loadNoteSettingForDoc,
+  invalidateHeadingCache,
+} = require("./utils");
 
 // ============================================================
 //  Sidebar (TreeView) Implementation
@@ -51,16 +58,8 @@ function iconForLevel(level) {
 
 /** ツリーノード */
 class HeadingNode extends vscode.TreeItem {
-  /**
-   * @param {string} label 表示ラベル
-   * @param {vscode.Uri} uri 対象ドキュメント
-   * @param {number} line 行番号（0-based）
-   * @param {number} level 見出しレベル(1-6)
-   * @param {string} countText 文字数情報
-   */
   constructor(label, uri, line, level, countText) {
     super(label);
-
     // this.resourceUri = uri; // Git差分装飾を避けるため設定しない
     this.line = line;
     this.level = level;
@@ -80,9 +79,6 @@ class HeadingNode extends vscode.TreeItem {
 
 /** 見出しツリーのデータ提供（TreeDataProvider）。 */
 class HeadingsProvider {
-  /**
-   * @param {{cfg:()=>any, isTargetDoc:(doc:any,c:any)=>boolean}} helpers
-   */
   constructor(helpers) {
     this._helpers = helpers;
     this._onDidChangeTreeData = new vscode.EventEmitter();
@@ -95,15 +91,13 @@ class HeadingsProvider {
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  /** @param {HeadingNode} element */
+  getTreeItem(element) {
+    return element;
+  }
+
   getChildren(element) {
     if (element) return []; // フラット表示
     return this._collectHeadingsOfActiveEditor();
-  }
-
-  // VS Code に渡す TreeItem をそのまま返す
-  getTreeItem(element) {
-    return element;
   }
 
   /** アクティブエディタから見出しを抽出してノード配列にする。 */
@@ -125,12 +119,12 @@ class HeadingsProvider {
       if (!ownShow && !subShow) continue;
       let text = "";
       if (ownShow) text += `${own.toLocaleString("ja-JP")}字`;
-      if (subShow) text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
+      if (subShow)
+        text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
       countByLine.set(line, text);
     }
 
     const items = [];
-    // metrics.items は既に見出し行のみのリストなので、これを回すだけで良い
     for (const m of metrics) {
       const label = stripHeadingMarkup(m.text);
       const countText = countByLine.get(m.line) || "";
@@ -143,7 +137,6 @@ class HeadingsProvider {
 
 /** コマンド：見出し位置へ移動し、行を表示 */
 async function revealHeading(uri, line) {
-  // アクティブエディタが同一文書でない場合は開く
   let editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.uri.toString() !== uri.toString()) {
     const doc = await vscode.workspace.openTextDocument(uri);
@@ -161,9 +154,7 @@ async function revealHeading(uri, line) {
 //  Minimap Highlight Implementation
 // ============================================================
 
-/** 見出しレベルごとに別デコレーション（ミニマップ前景色） */
 function makeDecorationTypes() {
-  // テーマに馴染みやすい無彩色寄りのコントラスト配色（必要なら自由に差し替え）
   const colors = [
     "#ff14e0aa", // H1
     "#fd9bcccc", // H2
@@ -175,45 +166,37 @@ function makeDecorationTypes() {
   return colors.map((c) =>
     vscode.window.createTextEditorDecorationType({
       isWholeLine: true,
-      // ミニマップに強調を出す（foreground に塗る）
       // @ts-ignore minimap is available on DecorationRenderOptions at VS Code >= 1.103
       minimap: { color: c, position: "foreground" },
-      // ついでに overviewRuler にも痕跡を出す（お好みで）
       overviewRulerColor: c,
       overviewRulerLane: vscode.OverviewRulerLane.Center,
     })
   );
 }
 
-/** 現在のエディタから見出し行の Range を抽出（レベル別） */
 function collectHeadingRanges(editor) {
   const doc = editor.document;
   const headings = getHeadingsCached(doc);
-  const byLevel = [[], [], [], [], [], []]; // H1..H6
+  const byLevel = [[], [], [], [], [], []];
 
   for (const h of headings) {
-    // isWholeLine:true なので 0〜0 でも行全体に効く
     const pos = new vscode.Position(h.line, 0);
-    // h.level は 1〜6 が保証されているはずだが念のため clamp
     const lvIdx = Math.min(Math.max(h.level, 1), 6) - 1;
     byLevel[lvIdx].push(new vscode.Range(pos, pos));
   }
   return byLevel;
 }
 
-// Minimap 描画キャッシュ: uri -> { version, keys: string }
 const _minimapCache = new Map();
 
-/** ミニマップ反映（変更がない場合はスキップ） */
 function applyMinimapDecorations(editor, decoTypes, force = false) {
   const doc = editor.document;
   const uri = doc.uri.toString();
   const ver = doc.version;
 
-  // キャッシュ確認
   const cached = _minimapCache.get(uri);
   if (!force && cached && cached.version === ver) {
-    return; // 変更なし
+    return;
   }
 
   const byLevel = collectHeadingRanges(editor);
@@ -225,16 +208,511 @@ function applyMinimapDecorations(editor, decoTypes, force = false) {
 }
 
 // ============================================================
-//  Entry Point
+//  Editor Decoration (Character Count) Implementation
+// ============================================================
+const countDeco = vscode.window.createTextEditorDecorationType({
+  after: { margin: "0 0 0 0.75em" },
+});
+
+function updateHeadingCountDecorations(ed, cfg) {
+  const c = cfg();
+  const { items } = getHeadingMetricsCached(ed.document, c, vscode);
+
+  if (!items.length) {
+    ed.setDecorations(countDeco, []);
+    return;
+  }
+
+  const decorations = items
+    .map(({ line, own, sub, text: hText }) => {
+      const ownShow = own > 0;
+      const subShow = sub > 0 && sub !== own;
+      if (!ownShow && !subShow) return null;
+
+      let text = "- ";
+      if (ownShow) text += `${own.toLocaleString("ja-JP")}字`;
+      if (subShow)
+        text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
+
+      // Optimized: use hText.length instead of accessing document line
+      const endCh = hText.length;
+      const pos = new vscode.Position(line, endCh);
+      return {
+        range: new vscode.Range(pos, pos),
+        renderOptions: { after: { contentText: text } },
+      };
+    })
+    .filter(Boolean);
+
+  ed.setDecorations(countDeco, decorations);
+}
+
+// ============================================================
+//  Folding & Navigation Helper Implementation
+// ============================================================
+
+async function resolveFoldMinLevel(doc, c) {
+  const fallback = Math.max(1, Math.min(6, c.headingFoldMinLevel || 1));
+  try {
+    const { data } = await loadNoteSettingForDoc(doc);
+    if (!data) return fallback;
+    if (!Object.prototype.hasOwnProperty.call(data, "headings_folding_level"))
+      return fallback;
+    const v = Number(data.headings_folding_level);
+    if (!Number.isFinite(v)) return fallback;
+    const lv = Math.floor(v);
+    if (lv === 0) return fallback;
+    return Math.max(1, Math.min(6, lv));
+  } catch {
+    return fallback;
+  }
+}
+
+const foldToggledByDoc = new Map();
+const foldDocVersionAtFold = new Map();
+
+function findEnclosingHeadingLineFor(doc, line, minLevel) {
+  const headings = getHeadingsCached(doc);
+  const targetLevel = Math.max(1, Math.min(6, minLevel));
+
+  for (let i = headings.length - 1; i >= 0; i--) {
+    const h = headings[i];
+    if (h.line <= line) {
+      if (h.level >= targetLevel) {
+        for (let j = i + 1; j < headings.length; j++) {
+          const next = headings[j];
+          if (next.level <= h.level) {
+            if (next.line <= line) {
+              return -1;
+            }
+            break;
+          }
+        }
+        return h.line;
+      }
+    }
+  }
+  return -1;
+}
+
+function collectHeadingLinesByMinLevel(document, minLevel) {
+  const headings = getHeadingsCached(document);
+  const targetLevel = Math.max(1, Math.min(6, minLevel));
+  return headings
+    .filter((h) => h.level >= targetLevel)
+    .map((h) => h.line);
+}
+
+function findPrevHeadingLine(document, fromLine) {
+  const headings = getHeadingsCached(document);
+  for (let i = headings.length - 1; i >= 0; i--) {
+    if (headings[i].line < fromLine) {
+      return headings[i].line;
+    }
+  }
+  return -1;
+}
+
+function findNextHeadingLine(document, fromLine) {
+  const headings = getHeadingsCached(document);
+  for (let i = 0; i < headings.length; i++) {
+    if (headings[i].line > fromLine) {
+      return headings[i].line;
+    }
+  }
+  return -1;
+}
+
+async function cmdMoveToPrevHeading() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown"))
+    return;
+
+  const currentLine = ed.selection?.active?.line ?? 0;
+  const target = findPrevHeadingLine(ed.document, currentLine);
+  if (target < 0) {
+    vscode.window.showInformationMessage("前方に見出し行がありません。");
+    return;
+  }
+  const pos = new vscode.Position(target, 0);
+  const sel = new vscode.Selection(pos, pos);
+  ed.selections = [sel];
+  ed.revealRange(
+    new vscode.Range(pos, pos),
+    vscode.TextEditorRevealType.Default
+  );
+}
+
+async function cmdMoveToNextHeading() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown"))
+    return;
+
+  const currentLine = ed.selection?.active?.line ?? 0;
+  const target = findNextHeadingLine(ed.document, currentLine);
+  if (target < 0) {
+    vscode.window.showInformationMessage("後方に見出し行がありません。");
+    return;
+  }
+  const pos = new vscode.Position(target, 0);
+  const sel = new vscode.Selection(pos, pos);
+  ed.selections = [sel];
+  ed.revealRange(
+    new vscode.Range(pos, pos),
+    vscode.TextEditorRevealType.Default
+  );
+}
+
+function findHeadingSection(editor) {
+  const doc = editor.document;
+  const currentLine = editor.selection.active.line;
+  const headings = getHeadingsCached(doc);
+
+  let startHeading = null;
+  let startIndex = -1;
+
+  for (let i = headings.length - 1; i >= 0; i--) {
+    if (headings[i].line <= currentLine) {
+      startHeading = headings[i];
+      startIndex = i;
+      break;
+    }
+  }
+
+  if (!startHeading) {
+    return null;
+  }
+
+  const startLine = startHeading.line;
+  const currentLevel = startHeading.level;
+
+  let endLine = doc.lineCount - 1;
+  for (let i = startIndex + 1; i < headings.length; i++) {
+    if (headings[i].level <= currentLevel) {
+      endLine = headings[i].line - 1;
+      break;
+    }
+  }
+
+  const endLineText = doc.lineAt(endLine).text;
+  const fullRange = new vscode.Range(startLine, 0, endLine, endLineText.length);
+
+  let bodyRange = null;
+  const bodyStartLine = startLine + 2;
+  if (bodyStartLine <= endLine) {
+    bodyRange = new vscode.Range(
+      bodyStartLine,
+      0,
+      endLine,
+      endLineText.length
+    );
+  }
+
+  return { fullRange, bodyRange };
+}
+
+function cmdSelectHeadingSection() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const section = findHeadingSection(editor);
+  if (!section) {
+    vscode.window.showInformationMessage(
+      "カーソル行または上方向にMarkdownの見出しが見つかりません。"
+    );
+    return;
+  }
+  editor.selection = new vscode.Selection(
+    section.fullRange.start,
+    section.fullRange.end
+  );
+  vscode.window.setStatusBarMessage("見出しセクションを選択。", 2000);
+}
+
+function cmdSelectHeadingSectionBody() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const section = findHeadingSection(editor);
+  if (!section) {
+    vscode.window.showInformationMessage(
+      "カーソル行または上方向にMarkdownの見出しが見つかりません。"
+    );
+    return;
+  }
+  if (!section.bodyRange) {
+    vscode.window.showInformationMessage(
+      "見出し行と直後の行のみで選択範囲がありません。"
+    );
+    return;
+  }
+  editor.selection = new vscode.Selection(
+    section.bodyRange.start,
+    section.bodyRange.end
+  );
+  vscode.window.setStatusBarMessage(
+    "見出し行と直後の行を除いてセクションを選択。",
+    2000
+  );
+}
+
+async function cmdToggleFoldAllHeadings({ cfg, sb }) {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+
+  const c = cfg();
+  const lang = (ed.document.languageId || "").toLowerCase();
+  if (!(lang === "plaintext" || lang === "novel" || lang === "markdown")) {
+    vscode.window.showInformationMessage(
+      "このトグルは .txt / novel / .md でのみ有効です"
+    );
+    return;
+  }
+  if (!c.headingFoldEnabled) {
+    vscode.window.showInformationMessage(
+      "見出しの折りたたみ機能が無効です（posNote.headings.folding.enabled）"
+    );
+    return;
+  }
+
+  const key = ed.document.uri.toString();
+  const lastStateFolded = foldToggledByDoc.get(key) === true;
+  const lastVer = foldDocVersionAtFold.get(key);
+  const currVer = ed.document.version;
+  const shouldUnfold = lastStateFolded && lastVer === currVer;
+
+  if (shouldUnfold) {
+    const minLv = await resolveFoldMinLevel(ed.document, c);
+    const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
+    if (lines.length === 0) {
+      vscode.window.showInformationMessage(
+        `展開対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+      );
+      return;
+    }
+
+    const caret = ed.selection?.active ?? new vscode.Position(0, 0);
+    const enclosing = findEnclosingHeadingLineFor(
+      ed.document,
+      caret.line,
+      minLv
+    );
+    const safeRestoreSelections =
+      enclosing >= 0
+        ? (() => {
+            const endCh = ed.document.lineAt(enclosing).text.length;
+            const pos = new vscode.Position(enclosing, endCh);
+            return [new vscode.Selection(pos, pos)];
+          })()
+        : ed.selections;
+
+    try {
+      ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
+      await vscode.commands.executeCommand("editor.unfold");
+      foldToggledByDoc.set(key, false);
+      foldDocVersionAtFold.set(key, currVer);
+      if (sb) {
+        sb.recomputeAndCacheMetrics(ed);
+        sb.updateStatusBar(ed);
+      }
+      vscode.commands.executeCommand("posNote.refreshPos");
+    } finally {
+      ed.selections = safeRestoreSelections;
+      if (safeRestoreSelections.length === 1) {
+        ed.revealRange(
+          new vscode.Range(
+            safeRestoreSelections[0].active,
+            safeRestoreSelections[0].active
+          ),
+          vscode.TextEditorRevealType.Default
+        );
+      }
+    }
+    return;
+  }
+
+  const minLv = await resolveFoldMinLevel(ed.document, c);
+  const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
+  if (lines.length === 0) {
+    vscode.window.showInformationMessage(
+      `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+    );
+    return;
+  }
+
+  const caret = ed.selection?.active ?? new vscode.Position(0, 0);
+  const enclosing = findEnclosingHeadingLineFor(ed.document, caret.line, minLv);
+  const safeRestoreSelections =
+    enclosing >= 0
+      ? (() => {
+          const endCh = ed.document.lineAt(enclosing).text.length;
+          const pos = new vscode.Position(enclosing, endCh);
+          return [new vscode.Selection(pos, pos)];
+        })()
+      : ed.selections;
+
+  try {
+    ed.selections = lines.map((ln) => new vscode.Selection(ln, 0, ln, 0));
+    await vscode.commands.executeCommand("editor.fold");
+    foldToggledByDoc.set(key, true);
+    foldDocVersionAtFold.set(key, currVer);
+  } finally {
+    ed.selections = safeRestoreSelections;
+    if (safeRestoreSelections.length === 1) {
+      ed.revealRange(
+        new vscode.Range(
+          safeRestoreSelections[0].active,
+          safeRestoreSelections[0].active
+        ),
+        vscode.TextEditorRevealType.Default
+      );
+    }
+  }
+}
+
+// FoldingRangeProvider
+class HeadingFoldingProvider {
+  constructor(cfg) {
+    this._cfg = cfg;
+  }
+  provideFoldingRanges(document, context, token) {
+    void context;
+    if (token?.isCancellationRequested) return [];
+    const c = this._cfg();
+    if (!c.headingFoldEnabled) return [];
+
+    const lang = (document.languageId || "").toLowerCase();
+    if (!(lang === "plaintext" || lang === "novel")) return [];
+
+    const heads = getHeadingsCached(document);
+    if (heads.length === 0) return [];
+
+    const ranges = [];
+    for (let i = 0; i < heads.length; i++) {
+      const { line: start, level } = heads[i];
+      let end = document.lineCount - 1;
+      for (let j = i + 1; j < heads.length; j++) {
+        if (heads[j].level <= level) {
+          end = heads[j].line - 1;
+          break;
+        }
+      }
+      if (end > start)
+        ranges.push(
+          new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region)
+        );
+    }
+
+    // ``` フェンス折りたたみ
+    let fenceStart = -1;
+    for (let i = 0; i < document.lineCount; i++) {
+      const text = document.lineAt(i).text;
+      if (text.includes("```")) {
+        if (fenceStart < 0) {
+          fenceStart = i;
+        } else {
+          if (i > fenceStart) {
+            ranges.push(
+              new vscode.FoldingRange(
+                fenceStart,
+                i,
+                vscode.FoldingRangeKind.Region
+              )
+            );
+          }
+          fenceStart = -1;
+        }
+      }
+    }
+    if (fenceStart >= 0) {
+      ranges.push(
+        new vscode.FoldingRange(
+          fenceStart,
+          document.lineCount - 1,
+          vscode.FoldingRangeKind.Region
+        )
+      );
+    }
+    return ranges;
+  }
+}
+
+// DocumentSymbolProvider (Outline)
+class HeadingSymbolProvider {
+  provideDocumentSymbols(document, token) {
+    if (token?.isCancellationRequested) return [];
+
+    const lang = (document.languageId || "").toLowerCase();
+    if (!(lang === "plaintext" || lang === "novel")) return [];
+
+    const heads = getHeadingsCached(document);
+    if (heads.length === 0) return [];
+
+    const syms = [];
+    const stack = [];
+
+    for (let idx = 0; idx < heads.length; idx++) {
+      const { line, level, text } = heads[idx];
+
+      let endLine = document.lineCount - 1;
+      for (let j = idx + 1; j < heads.length; j++) {
+        if (heads[j].level <= level) {
+          endLine = heads[j].line - 1;
+          break;
+        }
+      }
+
+      const title = text.replace(/^#+\s*/, "").trim() || `Heading L${level}`;
+      const range = new vscode.Range(
+        line,
+        0,
+        endLine,
+        document.lineAt(endLine).text.length
+      );
+      const selectionRange = new vscode.Range(
+        line,
+        0,
+        line,
+        document.lineAt(line).text.length
+      );
+      const sym = new vscode.DocumentSymbol(
+        title,
+        "",
+        vscode.SymbolKind.Namespace,
+        range,
+        selectionRange
+      );
+
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        syms.push(sym);
+      } else {
+        stack[stack.length - 1].sym.children.push(sym);
+      }
+      stack.push({ level, sym });
+    }
+
+    return syms;
+  }
+}
+
+// ============================================================
+//  Init & Registration
 // ============================================================
 
 /**
- * エントリポイント：サイドバーとミニマップハイライトを初期化
+ * 見出し機能の初期化（コマンド／プロバイダ／イベントをまとめて登録）
  * @param {vscode.ExtensionContext} context
- * @param {{cfg:()=>any, isTargetDoc:(doc:any,c:any)=>boolean}} helpers
+ * @param {{ cfg: ()=>any, isTargetDoc: (doc:any, c:any)=>boolean, sb?: any, semProvider?: any }} helpers
  */
 function initHeadings(context, helpers) {
-  // --- Sidebar Init ---
+  const { cfg, isTargetDoc, sb } = helpers;
+
+  // 1. Sidebar Provider
   const provider = new HeadingsProvider(helpers);
   const tree = vscode.window.createTreeView("posNoteHeadings", {
     treeDataProvider: provider,
@@ -242,57 +720,104 @@ function initHeadings(context, helpers) {
   });
   context.subscriptions.push(tree);
 
-  // --- Minimap Init ---
+  // 2. Minimap Decorations
   const decoTypes = makeDecorationTypes();
   context.subscriptions.push({
     dispose: () => decoTypes.forEach((d) => d.dispose()),
   });
 
-  // --- Common Logic ---
+  // 3. Central Update Logic
   let debounceUpdate = null;
 
-  function updateAll(ed, forceMinimap = false) {
+  function doUpdate(ed, forceMinimap) {
+      const c = helpers.cfg();
+
+      // 1. Editor Decoration (Priority High: User focus)
+      if (c.headingsShowBodyCounts) {
+         updateHeadingCountDecorations(ed, helpers.cfg);
+      }
+
+      // 2. Defer others to next tick to prioritize Editor rendering
+      setTimeout(() => {
+          // Minimap
+          if (helpers.isTargetDoc(ed.document, c)) {
+              applyMinimapDecorations(ed, decoTypes, forceMinimap);
+          }
+           // Sidebar update
+          provider.refresh();
+      }, 0);
+  }
+
+  function updateAll(ed, options = {}) {
     if (!ed) return;
+    // Options handling (backward compatibility for boolean which was forceMinimap)
+    const forceMinimap = (typeof options === 'boolean') ? options : (options.forceMinimap || false);
+    const immediate = (typeof options === 'object') ? (options['immediate'] || false) : false;
+
     if (debounceUpdate) clearTimeout(debounceUpdate);
 
-    debounceUpdate = setTimeout(() => {
-        // Sidebar update
-        provider.refresh();
+    if (immediate) {
+        doUpdate(ed, forceMinimap);
+        return;
+    }
 
-        // Minimap update
-        const c = helpers.cfg();
-        if (helpers.isTargetDoc(ed.document, c)) {
-            applyMinimapDecorations(ed, decoTypes, forceMinimap);
-        }
+    debounceUpdate = setTimeout(() => {
+        doUpdate(ed, forceMinimap);
     }, 200);
   }
 
-  // --- Register Commands ---
+  // 4. Register Commands (Navigation, Folding, Select, Refresh)
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.headings.refresh", () =>
       provider.refresh()
     ),
     vscode.commands.registerCommand("posNote.headings.reveal", revealHeading),
-    // ミニマップ手動更新（必要なら）
     vscode.commands.registerCommand("posNote.headings.minimapRefresh", () => {
       const ed = vscode.window.activeTextEditor;
       if (ed) updateAll(ed, true);
-    })
+    }),
+    vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
+      cmdToggleFoldAllHeadings({ cfg, sb: helpers.sb })
+    ),
+    vscode.commands.registerCommand("posNote.headings.gotoPrev", () =>
+      cmdMoveToPrevHeading()
+    ),
+    vscode.commands.registerCommand("posNote.headings.gotoNext", () =>
+      cmdMoveToNextHeading()
+    ),
+    vscode.commands.registerCommand("posNote.headline.selectSection", () =>
+      cmdSelectHeadingSection()
+    ),
+    vscode.commands.registerCommand("posNote.headline.selectSectionBody", () =>
+      cmdSelectHeadingSectionBody()
+    )
   );
 
-  // --- Event Listeners ---
-  // 起動直後
+  // 5. Register Providers (Folding, Symbols)
+  const selector = [
+    { language: "plaintext", scheme: "file" },
+    { language: "plaintext", scheme: "untitled" },
+    { language: "novel", scheme: "file" },
+    { language: "novel", scheme: "untitled" },
+    { language: "Novel", scheme: "file" },
+    { language: "Novel", scheme: "untitled" },
+  ];
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider(
+      selector,
+      new HeadingFoldingProvider(cfg)
+    ),
+    vscode.languages.registerDocumentSymbolProvider(
+      selector,
+      new HeadingSymbolProvider()
+    )
+  );
+
+  // 6. Event Listeners
   updateAll(vscode.window.activeTextEditor);
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((ed) => updateAll(ed, true)),
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      const ed = vscode.window.activeTextEditor;
-      if (ed && ed.document === doc) {
-        // 保存時は即反映してもよいが、debounce 経由で統一
-        updateAll(ed);
-      }
-    }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("posNote")) {
         updateAll(vscode.window.activeTextEditor, true);
@@ -300,10 +825,14 @@ function initHeadings(context, helpers) {
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
         _minimapCache.delete(doc.uri.toString());
-    })
+        invalidateHeadingCache(doc);
+    }),
   );
 
-  return provider;
+  return {
+    provider,
+    refresh: (ed, opts) => updateAll(ed, opts),
+  };
 }
 
 module.exports = { initHeadings };

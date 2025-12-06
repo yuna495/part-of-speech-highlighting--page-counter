@@ -1017,24 +1017,34 @@ class JapaneseSemanticProvider {
 
   // ドキュメント全体のセマンティックトークンを生成
   async provideDocumentSemanticTokens(document, token) {
-    if (token?.isCancellationRequested) {
+    try {
+      if (token?.isCancellationRequested) {
+        return new vscode.SemanticTokens(new Uint32Array());
+      }
+      const fullRange = new vscode.Range(
+        0,
+        0,
+        document.lineCount - 1,
+        document.lineAt(Math.max(0, document.lineCount - 1)).text.length
+      );
+      return await this._buildTokens(document, fullRange, token);
+    } catch (err) {
+      console.error("[POSNote] provideDocumentSemanticTokens error:", err);
       return new vscode.SemanticTokens(new Uint32Array());
     }
-    const fullRange = new vscode.Range(
-      0,
-      0,
-      document.lineCount - 1,
-      document.lineAt(Math.max(0, document.lineCount - 1)).text.length
-    );
-    return this._buildTokens(document, fullRange, token);
   }
 
   // ドキュメントの一部範囲のみセマンティックトークンを生成
   async provideDocumentRangeSemanticTokens(document, range, token) {
-    if (token?.isCancellationRequested) {
+    try {
+      if (token?.isCancellationRequested) {
+        return new vscode.SemanticTokens(new Uint32Array());
+      }
+      return await this._buildTokens(document, range, token);
+    } catch (err) {
+      console.error("[POSNote] provideDocumentRangeSemanticTokens error:", err);
       return new vscode.SemanticTokens(new Uint32Array());
     }
-    return this._buildTokens(document, range, token);
   }
 }
 
