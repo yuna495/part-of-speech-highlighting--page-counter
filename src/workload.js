@@ -57,6 +57,10 @@ const _imeGuardByDoc = new Map();
 let _lastDateKey = null;
 let _midnightTimer = null;
 
+// 保存処理のデバウンス用タイマー
+let _saveTimer = null;
+const SAVE_DEBOUNCE_MS = 2000; // 最後の変更から2秒後に保存
+
 /* ------------------------------ 設定取得 ------------------------------ */
 /**
  * workload 系設定をまとめて取得する。
@@ -203,6 +207,24 @@ async function saveHistory(context, hist) {
   _histCache = hist;
 }
 
+/**
+ * 履歴の保存をデバウンス（一定時間遅延させて呼び出しを間引く）する。
+ * 連続的な更新によるディスクI/Oを削減する。
+ * @param {vscode.ExtensionContext} context 拡張コンテキスト
+ * @param {Record<string, any>} hist 保存する履歴
+ */
+function debouncedSaveHistory(context, hist) {
+  if (DEMO_MODE) return;
+
+  // 既存のタイマーがあればクリア
+  if (_saveTimer) {
+    clearTimeout(_saveTimer);
+  }
+
+  // 新しいタイマーをセット
+  _saveTimer = setTimeout(() => saveHistory(context, hist), SAVE_DEBOUNCE_MS);
+}
+
 /* ------------------------------ ステータスバー ------------------------------ */
 /**
  * ステータスバー項目を作成・再利用する。
@@ -276,7 +298,7 @@ function checkDateRollover() {
   const hist = getHistory(_context);
   if (hist[nowKey] == null) {
     hist[nowKey] = { total: 0, add: 0, del: 0 };
-    saveHistory(_context, hist);
+    debouncedSaveHistory(_context, hist);
   }
   updateStatusBarText(cfg());
 }
@@ -352,7 +374,7 @@ async function overrideWorkloadFor(dateKey, { total, add, del }) {
   const next = { total: T, add: A, del: D };
 
   hist[dateKey] = next; // 置換
-  await saveHistory(_context, hist); // globalState へ反映（30日整理込み）
+  await saveHistory(_context, hist); // このコマンドは即時反映させるため直接呼び出す
   updateStatusBarText(cfg()); // ステータスバー更新
   refreshGraphIfAny(_context); // グラフが開いていれば再描画
   return next;
@@ -541,81 +563,68 @@ function getGraphHtml(webview, days, targetValue = 10000) {
       };
     })();
 
-    // 棒（total）
-    DAYS.forEach((d, i) => {
+    // SVG要素のHTML文字列を生成
+    const barW = innerW / n;
+    const gap = 3;
+    const barElements = DAYS.map((d, i) => {
       const h = chartMax ? ((d.total||0) / chartMax) * (innerH - 1) : 0;
       const x = PAD + barW * i + gap * 0.5;
       const y = PAD + (innerH - h);
-      const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      r.setAttribute('x', x);
-      r.setAttribute('y', y);
-      r.setAttribute('width', Math.max(1, barW - gap * 3));
-      r.setAttribute('height', Math.max(0, h));
+      const w = Math.max(1, barW - gap * 3);
+      const height = Math.max(0, h);
+
       const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
       const isBelowTarget = (d.total||0) < targetValue;
+      let fill;
       if (isMax) {
-        r.setAttribute('fill', '#bbd16666'); // 最大日のバー
+        fill = '#bbd16666'; // 最大日のバー
       } else if (isBelowTarget) {
-        r.setAttribute('fill', '#ff993366'); // 目標未達→オレンジ系
+        fill = '#ff993366'; // 目標未達→オレンジ系
       } else {
-        r.setAttribute('fill', '#4da3ff66'); // 通常バー
+        fill = '#4da3ff66'; // 通常バー
       }
-      r.style.cursor = 'default';
-      r.addEventListener('mousemove', (ev) => {
+      // イベントリスナーは後でまとめて追加するため、data属性にインデックスを保持
+      return \`<rect class="bar-item" data-index="\${i}" x="\${x}" y="\${y}" width="\${w}" height="\${height}" fill="\${fill}" style="cursor: default;"></rect>\`;
+    }).join('');
+
+    // 折れ線 add
+    const polyAdd = \`<polyline points="\${polyPoints('add')}" fill="none" stroke="#00ff55" stroke-width="6"></polyline>\`;
+
+    // 折れ線 del
+    const polyDel = \`<polyline points="\${polyPoints('del')}" fill="none" stroke="#ff00ff" stroke-width="6"></polyline>\`;
+
+    // 頂点マーカー
+    const markers = DAYS.map((d, i) => {
+      const d = DAYS[i];
+      const xCenter = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
+      let markerHtml = '';
+      if ((d.add||0) > 0) {
+        const yAdd = PAD + (innerH - (d.add / chartMax) * (innerH - 1));
+        markerHtml += \`<circle cx="\${xCenter}" cy="\${yAdd}" r="8" fill="#00ff55" stroke="#00000088" stroke-width="1"></circle>\`;
+      }
+      if ((d.del||0) > 0) {
+        const yDel = PAD + (innerH - (d.del / chartMax) * (innerH - 1));
+        const s = 16;
+        markerHtml += \`<rect x="\${xCenter - s/2}" y="\${yDel - s/2}" width="\${s}" height="\${s}" fill="#ff00ff" stroke="#00000088" stroke-width="1"></rect>\`;
+      }
+      return markerHtml;
+    }).join('');
+
+    // 生成したHTML文字列を一度に挿入
+    svg.insertAdjacentHTML('beforeend', barElements + polyAdd + polyDel + markers);
+
+    // イベントリスナーをまとめて追加
+    svg.querySelectorAll('.bar-item').forEach(bar => {
+      bar.addEventListener('mousemove', (ev) => {
+        const i = parseInt(bar.dataset.index, 10);
+        const d = DAYS[i];
         const t = (d.total||0).toLocaleString('ja-JP');
         const a = (d.add||0).toLocaleString('ja-JP');
         const rm = (d.del||0).toLocaleString('ja-JP');
         tooltip.show(ev.clientX, ev.clientY, \`\${d.date}\n合計: \${t}／入力: \${a}／削除: \${rm}\`);
       });
-      r.addEventListener('mouseleave', () => tooltip.hide());
-      svg.appendChild(r);
+      bar.addEventListener('mouseleave', () => tooltip.hide());
     });
-
-    // 折れ線 add
-    const polyAdd = document.createElementNS('http://www.w3.org/2000/svg','polyline');
-    polyAdd.setAttribute('points', polyPoints('add'));
-    polyAdd.setAttribute('fill','none');
-    polyAdd.setAttribute('stroke', '#00ff55');
-    polyAdd.setAttribute('stroke-width','6');
-    svg.appendChild(polyAdd);
-
-    // 折れ線 del
-    const polyDel = document.createElementNS('http://www.w3.org/2000/svg','polyline');
-    polyDel.setAttribute('points', polyPoints('del'));
-    polyDel.setAttribute('fill','none');
-    polyDel.setAttribute('stroke', '#ff00ff');
-    polyDel.setAttribute('stroke-width','6');
-    svg.appendChild(polyDel);
-
-    // 頂点マーカー
-    for (let i = 0; i < n; i++) {
-      const d = DAYS[i];
-      const xCenter = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
-      if ((d.add||0) > 0) {
-        const yAdd = PAD + (innerH - (d.add / chartMax) * (innerH - 1));
-        const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
-        c.setAttribute('cx', xCenter);
-        c.setAttribute('cy', yAdd);
-        c.setAttribute('r', 8);
-        c.setAttribute('fill', '#00ff55');
-        c.setAttribute('stroke', '#00000088');
-        c.setAttribute('stroke-width', '1');
-        svg.appendChild(c);
-      }
-      if ((d.del||0) > 0) {
-        const yDel = PAD + (innerH - (d.del / chartMax) * (innerH - 1));
-        const s = 16;
-        const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        r.setAttribute('x', xCenter - s/2);
-        r.setAttribute('y', yDel - s/2);
-        r.setAttribute('width', s);
-        r.setAttribute('height', s);
-        r.setAttribute('fill', '#ff00ff');
-        r.setAttribute('stroke', '#00000088');
-        r.setAttribute('stroke-width', '1');
-        svg.appendChild(r);
-      }
-    }
 
     // X 軸ラベル（左 中央 右のみ）
     const xl = document.getElementById('xlabels');
@@ -757,7 +766,7 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>純作業量（過去30日）・円環</title>
+  <title>純作業量（過去30日）</title>
   <style>
     :root{
       --fg: #ddd;
@@ -1072,7 +1081,7 @@ function commitLenDiff(docUri, curLen) {
   }
 
   hist[key] = rec;
-  saveHistory(_context, hist);
+  debouncedSaveHistory(_context, hist);
   updateStatusBarText(c);
 }
 
@@ -1186,6 +1195,11 @@ function initWorkload(context) {
       if (_midnightTimer) {
         clearInterval(_midnightTimer);
         _midnightTimer = null;
+      }
+      // 拡張機能終了時に、デバウンス中の未保存データを書き出す
+      if (_saveTimer) {
+        clearTimeout(_saveTimer);
+        saveHistory(_context, _histCache);
       }
     },
   });

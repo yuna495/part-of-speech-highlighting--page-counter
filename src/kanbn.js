@@ -51,6 +51,7 @@ class KanbnPanel {
   constructor(context, rootUri) {
     this.context = context;
     this.rootUri = rootUri;
+    this.disposables = [];
     this.panel = vscode.window.createWebviewPanel(
       "posNoteKanbnBoard",
       "プロットボード",
@@ -78,8 +79,10 @@ class KanbnPanel {
   }
 
   disposeWatchers() {
-    this.storyWatcher?.dispose();
-    this.cardWatcher?.dispose();
+    while (this.disposables.length) {
+      const d = this.disposables.pop();
+      d.dispose();
+    }
   }
 
   attachWatchers() {
@@ -98,7 +101,7 @@ class KanbnPanel {
       w.onDidChange(() => this.refresh());
       w.onDidCreate(() => this.refresh());
       w.onDidDelete(() => this.refresh());
-      this.context.subscriptions.push(w);
+      this.disposables.push(w);
     }
   }
 

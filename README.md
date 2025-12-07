@@ -1,9 +1,8 @@
 # POS & Note (小説・論文執筆アシスト)
 
-**小説・論文執筆向け**の VSCode 拡張です。（最新版：v2.3.5）
+**小説・論文執筆向け**の VSCode 拡張です。（最新版:v2.3.5）
 
 - [品詞ごとの色分け（semantic token）](#ハイライト)
-  - 括弧・記号・全角スペースの強調表示
   - 全角スペースのハイライト設定について
   v2.3.5 より、全角スペースのハイライト設定が **fwspace** から **space** に変更されました。
   `editor.semanticTokenColorCustomizations` 内で以下のように設定します。
@@ -15,15 +14,14 @@
   }
   ```
 
-  - 括弧内ハイライトの ON/OFF 切り替え
   - [辞書登録による別途ハイライト](#ユーザー辞書登録v210)
 
-  - [サイドバー機能](#サイドバー機能v230)
-  - 見出しの一覧、作業ファイルの同階層フォルダ情報表示
+- [サイドバー機能](#サイドバー機能v230)
+  - 見出し一覧、作業ファイルの同階層フォルダ情報
 
 - [ステータスバー機能](#ステータスバー)
-  - ページカウンタ（原稿用紙風、行頭禁則あり）
-  - 文字数・コミット差分を表示
+  - ページカウンタ
+  - 文字数・コミット差分表示
   - 純作業量表示
 
 - [見出し機能](#見出し機能)
@@ -35,11 +33,11 @@
 
 - [縦書きプレビュー機能](#プレビューv200)
 
-- [語句変換機能](#語句変換機能v230)
+- [文字列一括変換機能](#文字列一括変換機能v230)
 
 - [入力支援](#入力支援)
-  - 開き括弧変換確定時、閉じ括弧補完
-  - 小説家になろう方式によるルビ・傍点入力支援（カクヨムにおいても適用されます）
+  - 括弧入力補完
+  - ルビ・傍点入力支援
 
 - [setting.json設定例](#設定例)
 
@@ -49,7 +47,7 @@
 
 ![Demo Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_main.png)
 
-例：ダークテーマによる実際の使用例
+例:ダークテーマによる実際の使用例
 
 ---
 
@@ -64,8 +62,8 @@
   - **【— 、 。】**などの記号も専用色で表示
 - **括弧内ハイライトのトグル（v1.3.5）**
   - `posNote.semantic.bracketsOverride.enabled`
-  - ON（既定）：括弧と括弧内を専用色で塗り、括弧内は品詞ハイライトを抑制
-  - OFF：括弧内も通常どおり品詞ハイライトを適用
+  - ON（既定）:括弧と括弧内を専用色で塗り、括弧内は品詞ハイライトを抑制
+  - OFF:括弧内も通常どおり品詞ハイライトを適用
 - **全角スペース表示**
   - semantic token による下線表示（テーマと干渉しにくい）
 
@@ -93,20 +91,20 @@ workspace/
 
 ```json
 {
-  "limit"："XXXX-XX-XX",
-  "headings_folding_level"：0,
-  "characters"：[
+  "limit":"XXXX-XX-XX",
+  "headings_folding_level":0,
+  "characters":[
     "a",
     "b"
   ],
-  "glossary"：[
+  "glossary":[
     "A",
     "B"
   ],
-  "conversion"：{
-    "alt + ."："ctrl + .",
-    "れい"："例",
-    "僅か"："わずか"
+  "conversion":{
+    "alt + .":"ctrl + .",
+    "れい":"例",
+    "僅か":"わずか"
   }
 }
 ```
@@ -121,8 +119,8 @@ workspace/
 - 標準エクスプローラーでのフォルダ右クリックメニューに、**「新しい小説を作成」**項目を追加
   クリックすると、雛形フォルダ **NewNovel** を作成。
   `plot/` サブフォルダ、`notesetting.js` などを自動生成ます。
-- 「POS/Note：フォルダ内の .txt を結合」
-- 「POS/Note：フォルダ内の .md を結合」
+- 「POS/Note:フォルダ内の .txt を結合」
+- 「POS/Note:フォルダ内の .md を結合」
 
 #### POS & Note専用
 
@@ -139,21 +137,20 @@ workspace/
   - **簡易エクスプローラ**
     現在開いているファイルと同じフォルダ内容を一覧。
     - 優先度は、フォルダ→.txt → .md → .json → その他。
-    ファイルをクリックで開くほか、右クリッ
-    「新規ファイル」「新規フォルダ」「コピー／切り取り／貼り付け／削除」等の操作も可能
+    ファイルをクリックで開くほか、右クリックメニュー内の 「新規ファイル」「新規フォルダ」「コピー／切り取り／貼り付け／削除」 等の操作も可能
   - **「現在のフォルダに雛形を作成」ボタン**
-    クリックすると、編集中ファイルの親フォルダに`plot/` サブフォルダ、`notesettin.js`を自動生成します。;
+    クリックすると、編集中ファイルの親フォルダに`plot/` サブフォルダ、`notesettin.js`を自動生成。
     - 同名ファイルが存在する場合はスキップ。
   - **結合ボタン（.txt / .md）**
     ビュー上部の「親フォルダの .txt を結合」「親フォルダの .md を結合」ボタンをクリックすると、アクティブファイルのあるフォルダ直下のファイルを結合します。
   - **プロットボードを表示ボタン** (#plotboard)
   - **フォルダ右クリックメニュー**
-    サイドバー上の任意のフォルダを右クリックすると以下が表示されます：
+    サイドバー上の任意のフォルダを右クリックすると以下が表示されます:
     - 「このフォルダの .txt を結合」
     - 「このフォルダの .md を結合」
     選択フォルダ内の `.txt` / `.md` をファイル名順に結合し、同フォルダ直下に出力します。
   - **外部エクスプローラーで開く**
-    任意のファイル／フォルダを右クリック → 「OS で開く」。
+    任意のファイル／フォルダを右クリック → 「OSエクスプローラー で開く」。
 
 - **結合仕様**
   - 出力ファイル名は `combined.txt` / `combined.md`
@@ -175,35 +172,35 @@ workspace/
 
 - **補足:**
   - このサイドバーは VS Code 左側の「POS/Note」アイコンから開けます。
-  - 通常のエクスプローラに加え、作品単位での管理・結合作業を簡略化する目的で追加されました。
+  - 通常のエクスプローラに加え、作品単位での管理・結合作業を簡略化する目的で追加。
 
 ### ステータスバー
 
 ![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_statusbar.png)
-表示例：現在ページ/総ページ —終ページの行 （ページの行/列） 編集中ファイルの総文字数/フォルダ内同一ファイル総文字数 ±Git差分文字数
+表示例:現在ページ/総ページ —終ページの行 （ページの行/列） 編集中ファイルの総文字数/フォルダ内同一ファイル総文字数 ±Git差分文字数
 
 - **期限表示（v2.3.2）**
   - notesetting.jsonに記載された日付までの残り日数表示。
     - 値を"null"にすると期限表示は非表示。
-    - limit のフォーマットは YYYY-M-D（例："2026-1-1"、"2026/1/1"）で記述します。
+    - limit のフォーマットは YYYY-M-D（例:"2026-1-1"、"2026/1/1"）で記述します。
     - notesetting.json記入例
 
     ```json
     {
-      "limit"："XXXX-XX-XX",
-      "headings_folding_level"：0,
-      "characters"：[
+      "limit":"XXXX-XX-XX",
+      "headings_folding_level":0,
+      "characters":[
         "a",
         "b"
       ],
-      "glossary"：[
+      "glossary":[
         "A",
         "B"
       ],
-      "conversion"：{
-        "alt + ."："ctrl + .",
-        "れい"："例",
-        "僅か"："わずか"
+      "conversion":{
+        "alt + .":"ctrl + .",
+        "れい":"例",
+        "僅か":"わずか"
       }
     }
     ```
@@ -219,16 +216,16 @@ workspace/
 - **合算文字数（v2.2.2）**
   - 編集中文書を含む、同じフォルダ・同じ拡張子ファイルの総文字数を表示
   - 設定 `posNote.aggregate.showFolderSum` で ON/OFF 可能
-- 表示例：
+- 表示例:
 
 ```txt
 `12 / 35 -10（20×20） 2,345字 / 12,345 +120字`
-= **現在ページ/総ページ -最終ページ行数（行×列） 選択または全体文字数/合算文字数 HEADとの差分**
+= **現在ページ/総ページ -最終ページ行数（ページの 行×列） 選択または全体文字数/合算文字数 HEADとの差分**
 ```
 
 - **純作業量表示（v2.3.0）**
 ![Statusbar Screenshot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_workgraph.png)
-表示例：【左：円環グラフ、右：棒グラフ】
+表示例:【左:円環グラフ、右:棒グラフ】
   - 実際に入力・削除された文字数を合計して「純作業量」として表示。
   - ステータスバー上では当日の合計作業量をリアルタイム更新。
   - マウスオーバーで過去1週間の合計をポップアップ表示。
@@ -236,7 +233,7 @@ workspace/
 
 - **グラフビュー機能**
   - 日別の合計作業量＋入力/削除折れ線を同時表示。
-  - マーカー（●：入力 / ■：削除）で各日の実績を明示。
+  - マーカー（●:入力 / ■:削除）で各日の実績を明示。
   - 最大作業日および目標ラインを描画。
 
 - 入力ディレイ設定
@@ -244,16 +241,16 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 ```json
 {
-  "posNote.workload.dailyTarget"：5000, // 一日の作業量目標
-  "posNote.workload.imeGuardMsNormal"：50,      // 通常入力ディレイ
-  "posNote.workload.imeGuardMsCandidate"：800,   // 変換遅延（2文字以上増減する場合）
-  "posNote.workload.graphStyle"："radial" // グラフスタイル（"bar"|"radial"）
+  "posNote.workload.dailyTarget":5000, // 一日の作業量目標
+  "posNote.workload.imeGuardMsNormal":50,      // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate":800,   // 変換遅延（2文字以上増減する場合）
+  "posNote.workload.graphStyle":"radial" // グラフスタイル（"bar"|"radial"）
 }
 ```
 
 - コマンドにて、作業量履歴消去可能
-  - "posNote.workload.deleteOldest" ：作業量ログの最も古い日付を削除。
-  - "posNote.workload.clearAll" ：作業量ログの全てを削除。
+  - "posNote.workload.deleteOldest" :作業量ログの最も古い日付を削除。
+  - "posNote.workload.clearAll" :作業量ログの全てを削除。
 
 ### 見出し機能
 
@@ -262,8 +259,8 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 - **折りたたみ制御（v1.3.0）**
   - 「#」で第一見出し、「##」で第二見出し
   - `Ctrl + [` で展開／折りたたみをトグル
-  - 最小レベルを設定可能：`posNote.headings.foldMinLevel`（既定 2）
-  - notesetting.json に headings_folding_level を追加し、ファイル単位で見出し折りたたみレベルを上書きできるようにしました（0 のときは設定の posNote.headings.foldMinLevel を使用）。
+  - 最小レベルを設定可能:`posNote.headings.foldMinLevel`（既定 2）
+  - notesetting.json に `"headings_folding_level"` を追加し、ファイル単位で見出し折りたたみレベルを上書きできるようにしました（0 のときは設定の posNote.headings.foldMinLevel を使用）。
 - **見出しジャンプ (v2.3.4)**
   - `Ctrl+Alt+W` で現在位置から直前の見出し行へカーソル移動
   - `Ctrl+Alt+I` で現在位置から直後の見出し行へカーソル移動
@@ -275,13 +272,14 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   - 既定では文字色が `#f0f0c0` に設定され、他の品詞ハイライトから除外されます。
   - 文字数カウント／ページ行計算からは除外されます。
 - **各見出しの末尾に『- 〇字 / □字』を表示（v2.2.5）**
+  - 保存時に更新（表示位置計算のため、少し時間がかかります）
   - 〇字 … 自身の本文（次の見出し直前まで）の文字数。
   - □字 … 自身および配下（子・孫など）の見出し群の本文文字数を合算。
   - 〇・□がそれぞれ 0 の場合は非表示。
   - 〇＝□ の場合（下位見出しなし）は「/ □字」を省略。
   - `.txt` / `.md` / `Novel` に対応。
-  - 設定 `posNote.headings.showBodyCounts` で ON/OFF 可能（既定値：ON）。
-  - 表示例：
+  - 設定 `posNote.headings.showBodyCounts` で ON/OFF 可能（既定値:ON）。
+  - 表示例:
 
     ```txt
     # 見出しレベル一    - 2字 / 4字
@@ -327,12 +325,12 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 - **使い方**
   1. VS Code のエクスプローラーで任意のフォルダを右クリック
   2. 以下のメニューから選択
-     - 「POS/Note：フォルダ内の .txt を結合」
-     - 「POS/Note：フォルダ内の .md を結合」
+     - 「POS/Note:フォルダ内の .txt を結合」
+     - 「POS/Note:フォルダ内の .md を結合」
   3. フォルダ直下にある対象拡張子ファイルをファイル名順に結合し、同フォルダ直下へ出力
 
 ![Combine Screen shot](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_combine.png)
-例：フォルダ右クリック時
+例:フォルダ右クリック時
 
 - **仕様**
   - 出力ファイル名は `combined.txt` / `combined.md`
@@ -346,16 +344,16 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 - エディタで選択した行がプレビュー側でハイライトされ、プレビューで行をクリックするとエディタが同期する
 - プレビュー内にも品詞ハイライトを適用可能
 - 反映タイミングはエディタ保存時
-- 品詞ハイライトは「選択行 ±maxLines 行」（既定：2000 行）を対象に動的に解析する
+- 品詞ハイライトは「選択行 ±maxLines 行」（既定:2000 行）を対象に動的に解析する
 
-### 語句変換機能（v2.3.0）
+### 文字列一括変換機能（v2.3.0）
 
 - **概要**
   執筆中のテキスト内で、「かな」表記と「漢字」表記をワンタッチで切り替えられます。
 
 - **ショートカット**
-  - `Ctrl + .` ：「微か／僅か」→「微か／僅か」など、かな → 漢字
-  - `Alt + .` ：「微か／僅か」→「微か／僅か」など、漢字 → かな
+  - `Ctrl + .` :「かすか／わずか」→「微か／僅か」など、かな → 漢字
+  - `Alt + .` :「微か／僅か」→「かすか／わずか」など、漢字 → かな
 
 - **ユーザー辞書（notesetting.json）対応**
 - **読み込み場所**
@@ -368,20 +366,20 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
   ```json
   {
-    "limit"："YYYY-MM-DD",
-    "headings_folding_level"：0,
-    "characters"：[
+    "limit":"YYYY-MM-DD",
+    "headings_folding_level":0,
+    "characters":[
       "a",
       "b"
     ],
-    "glossary"：[
+    "glossary":[
       "A",
       "B"
     ],
-    "conversion"：{
-      "alt + ."："ctrl + .",
-      "れい"："例",
-      "僅か"："わずか"
+    "conversion":{
+      "alt + .":"ctrl + .",
+      "れい":"例",
+      "ひらがな":"漢字"
     }
   }
   ```
@@ -390,31 +388,22 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 - `.vscode/notesetting.json`:
       ```json
-      { "微か"："微か" }
+      { "微か":"微か" }
       ```
 - `小説/notesetting.json`:
       ```json
       {
-        "limit"："2026-1-1",
-        "characters"：[
-          "a",
-          "b"
-        ],
-        "glossary"：[
-          "A",
-          "B"
-        ],
-        "conversion"：{
-          "alt + ."："ctrl + .",
-          "れい"："例"
+        "conversion":{
+          "alt + .":"ctrl + .",
+          "れい":"例"
         }
       }
       ```
-- 実際の適用結果：
+- 実際の適用結果:
       ```json
       {
-        "微か"："微か",
-        "れい"："例"
+        "微か":"微か",
+        "れい":"例"
       }
       ```
 
@@ -422,15 +411,15 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 - **全角括弧の入力補完**
   - `『（［｛〈《【〔`などの開きを入力すると自動で閉じを補完
-  - ネスト対応：`「『』」` のように正しく保持
+  - ネスト対応:`「『』」` のように正しく保持
   - IME 変換追従／Backspace 連動にも対応
 - **小説家になろう方式によるルビ／傍点挿入（v2.2.2）**
   - カクヨムでも同じ書式で適用されます。
-  - `Ctrl + Alt + R`：文書中の全ての選択文字列にルビ → `|選択《》`
+  - `Ctrl + Alt + R`:文書中の全ての選択文字列にルビ → `|選択《》`
   - `Alt + R`:選択文字列のみにルビ → `|選択《》`
-  - `Ctrl + Alt + B`：選択文字に傍点 → `|字《・》|字《・》…`
+  - `Ctrl + Alt + B`:選択文字に傍点 → `|字《・》|字《・》…`
   - 選択がない場合もカーソル位置に雛形を挿入
-  - `Ctrl + '`：選択文字に引用符 → `“選択”`
+  - `Ctrl + '`:選択文字に引用符 → `“選択”`
 
 ### リント機能
 
@@ -440,13 +429,13 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 ## 設定例
 
-- 主な設定項目：
+- 主な設定項目:
 
 | 設定キー | 説明 | 既定値 |
 |----------|------|--------|
 | `posNote.semantic.enabled` | `.txt` / `Novel` の品詞ハイライト有効化 | `true` |
 | `posNote.semantic.enabledMd` | `.md` の品詞ハイライト有効化 | `true` |
-| `posNote.semantic.bracketsOverride.enabled` | 括弧内を専用色にするか（ON：専用色＋品詞抑制 / OFF：品詞適用） | `true` |
+| `posNote.semantic.bracketsOverride.enabled` | 括弧内を専用色にするか（ON:専用色＋品詞抑制 / OFF:品詞適用） | `true` |
 | `posNote.kinsoku.bannedStart` | 行頭禁則文字リスト | デフォルトあり |
 | `posNote.headings.foldMinLevel` | 折りたたみの最小レベル（2=##以上） | `2` |
 
@@ -455,33 +444,33 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 ```json
 {
   // エディタとプレビューどちらも共通色
-  "editor.semanticTokenColorCustomizations"：{
-    "rules"：{
+  "editor.semanticTokenColorCustomizations":{
+    "rules":{
       // 品詞ごとの例（任意で色コードを変更可能）
-      "noun"："#4dd0e1",        // 名詞
-      "verb"："#11ff84",        // 動詞
-      "adjective"："#ffd900",   // 形容詞
-      "adverb"："#f94446",      // 副詞
-      "particle"："#f6f7f8",    // 助詞
-      "auxiliary"："#a1887f",   // 助動詞
-      "prenoun"："#e0a000",     // 連体詞
-      "conjunction"："#ff14e0", // 接続詞
-      "interjection"："#ff7043",// 感動詞
-      "symbol"："#fd9bcc",      // 記号
-      "other"："#9e9e9e",       // その他
+      "noun":"#4dd0e1",        // 名詞
+      "verb":"#11ff84",        // 動詞
+      "adjective":"#ffd900",   // 形容詞
+      "adverb":"#f94446",      // 副詞
+      "particle":"#f6f7f8",    // 助詞
+      "auxiliary":"#a1887f",   // 助動詞
+      "prenoun":"#e0a000",     // 連体詞
+      "conjunction":"#ff14e0", // 接続詞
+      "interjection":"#ff7043",// 感動詞
+      "symbol":"#fd9bcc",      // 記号
+      "other":"#9e9e9e",       // その他
 
       // ユーザー辞書（最優先）
-      "charcter"："#ff0000",      // characters.json指定項目
-      "glossary"："#ffff00",      // glossary.json指定項目
+      "charcter":"#ff0000",      // characters.json指定項目
+      "glossary":"#ffff00",      // glossary.json指定項目
 
       // 特殊トークン
-      "bracket"："#fd9bcc",     // 括弧と括弧内文書
-      "space"：{                // 全角スペース
-        "highlight"：true,      // 背景色を塗るかどうか
-        "color"："#ff000044"    // 色指定
+      "bracket":"#fd9bcc",     // 括弧と括弧内文書
+      "space":{                // 全角スペース
+        "highlight":true,      // 背景色を塗るかどうか
+        "color":"#ff000044"    // 色指定
       },
-      "heading"："#ff14e0" ,     // 見出しカラー
-      "fencecomment"："#f0f0c0", // コードフェンスカラー
+      "heading":"#ff14e0" ,     // 見出しカラー
+      "fencecomment":"#f0f0c0", // コードフェンスカラー
     },
     "posNote.kanbn.columnColors": [
       // プロットボードの列の背景色。設定した上から順に、実際の画面上の左から表示されます。
@@ -499,18 +488,18 @@ setting.jsonにて、変更可能。数値はデフォルト値。
       "解決": "#2fa8c9"
     }
   },
-  "posNote.semantic.enabled"：true,
-  "posNote.semantic.enabledMd"：true,
-  "posNote.semantic.bracketsOverride.enabled"：true,
-  "posNote.headings.foldMinLevel"：2,
-  "posNote.kinsoku.bannedStart"：[
+  "posNote.semantic.enabled":true,
+  "posNote.semantic.enabledMd":true,
+  "posNote.semantic.bracketsOverride.enabled":true,
+  "posNote.headings.foldMinLevel":2,
+  "posNote.kinsoku.bannedStart":[
     "」","）","『","』","》","】","。","、",
     "’","”","！","？","…","—","―"
   ],
-  "posNote.workload.dailyTarget"：5000, // 一日の作業量目標
-  "posNote.workload.imeGuardMsNormal"：50, // 通常入力ディレイ
-  "posNote.workload.imeGuardMsCandidate"：800, // 変換（2文字以上増減する場合）
-  "posNote.workload.graphStyle"："radial"
+  "posNote.workload.dailyTarget":5000, // 一日の作業量目標
+  "posNote.workload.imeGuardMsNormal":50, // 通常入力ディレイ
+  "posNote.workload.imeGuardMsCandidate":800, // 変換（2文字以上増減する場合）
+  "posNote.workload.graphStyle":"radial"
 }
 ```
 
