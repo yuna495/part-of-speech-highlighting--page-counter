@@ -1,10 +1,10 @@
 # POS & Note (小説・論文執筆アシスト)
 
-**小説・論文執筆向け**の VSCode 拡張です。（最新版:v2.3.5）
+**小説・論文執筆向け**の VSCode 拡張です。（最新版:v2.4.0）
 
 - [品詞ごとの色分け（semantic token）](#ハイライト)
   - 全角スペースのハイライト設定について
-  v2.3.5 より、全角スペースのハイライト設定が **fwspace** から **space** に変更されました。
+  v2.4.0 より、全角スペースのハイライト設定が **fwspace** から **space** に変更されました。
   `editor.semanticTokenColorCustomizations` 内で以下のように設定します。
 
   ```json
@@ -27,7 +27,7 @@
 - [見出し機能](#見出し機能)
   - ミニマップ強調／折りたたみ制御／コードフェンスによるコメント(.txt)
 
-- [ストーリープロットボード](#ストーリープロットボードv235)
+- [ストーリープロットボード](#ストーリープロットボードv240)
 
 - [フォルダ内、同一ファイル形式結合](#ファイル結合機能v220)
 
@@ -289,7 +289,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
     ### 見出しレベル三
     ```
 
-### ストーリープロットボード（v2.3.5）
+### ストーリープロットボード（v2.4.0）
 
 ![story_plot_board](https://raw.githubusercontent.com/yuna495/part-of-speech-highlighting--page-counter/master/demo/demo_plot_board.png)
 

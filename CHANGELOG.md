@@ -2,7 +2,7 @@
 
 All notable changes to this extension are documented here.
 
-## [2.3.5]
+## [2.4.0] - 2025/12/08
 
 ### **注意**：ReadMeを確認してください
 
