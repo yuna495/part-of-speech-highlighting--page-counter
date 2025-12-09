@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented here.
 
+## [2.4.1]
+
+### 変更
+
+- マークダウンファイルのコードフェンス内のハイライトを無効。（markmapを除く）
+
 ## [2.4.0] - 2025/12/08
 
 ### **注意**：ReadMeを確認してください
