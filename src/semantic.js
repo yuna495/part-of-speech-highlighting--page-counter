@@ -263,25 +263,37 @@ function computeFenceRanges(doc) {
   const ranges = [];
   let inFence = false;
   let fenceStartPos = null;
+  let ignoringMarkmap = false;
 
   for (let i = 0; i < doc.lineCount; i++) {
     const text = doc.lineAt(i).text;
-    // 行頭/行中問わず ``` を検出（単純化：3連バッククォートが含まれたらフェンストグル）
+    // 行頭/行中問わず ``` を検出（単純化）
     if (text.includes("```")) {
       if (!inFence) {
+        // 開始
         inFence = true;
-        fenceStartPos = new vscode.Position(i, 0);
+        // markmap ならこのフェンス区間は「フェンス扱いしない（＝ハイライト有効）」
+        // 言語判定: ```markmap ...
+        const m = text.match(/```\s*([a-zA-Z0-9_\-\.]+)/);
+        if (m && m[1] === "markmap") {
+          ignoringMarkmap = true;
+        } else {
+          fenceStartPos = new vscode.Position(i, 0);
+        }
       } else {
-        // フェンス終端。終端行の末尾まで含める
-        const endPos = new vscode.Position(i, text.length);
-        ranges.push(new vscode.Range(fenceStartPos, endPos));
+        // 終了
+        if (!ignoringMarkmap && fenceStartPos) {
+          const endPos = new vscode.Position(i, text.length);
+          ranges.push(new vscode.Range(fenceStartPos, endPos));
+        }
         inFence = false;
         fenceStartPos = null;
+        ignoringMarkmap = false;
       }
     }
   }
-  // 末尾まで閉じられなかった場合はファイル末尾までをフェンス扱い
-  if (inFence && fenceStartPos) {
+  // 末尾まで閉じられなかった場合
+  if (inFence && fenceStartPos && !ignoringMarkmap) {
     const lastLine = doc.lineCount - 1;
     const endPos = new vscode.Position(
       lastLine,
@@ -842,9 +854,10 @@ class JapaneseSemanticProvider {
         fenceSegsByLine.get(line) || []
       );
       // 辞書が存在しても、フェンス内は辞書やPOSを出さない（完全除外）
+      const isMd = (document.languageId || "").toLowerCase() === "markdown";
       for (const [sCh, eCh] of fenceSegs) {
         const len = eCh - sCh;
-        if (len > 0) builder.push(line, sCh, len, idxFence, 0);
+        if (len > 0 && !isMd) builder.push(line, sCh, len, idxFence, 0);
       }
 
       // 以降の処理は「フェンスに重ならない残り部分」だけに適用する
@@ -865,8 +878,9 @@ class JapaneseSemanticProvider {
         fenceSegs.map(([s, e]) => ({ start: s, end: e }))
       ).map(([s, e]) => ({ start: s, end: e }));
 
-      // push: character/glossary（既存のまま）
+      // push: character/glossary（フェンス内は除外）
       for (const r of dictRanges) {
+        if (isInsideAnySegment(r.start, r.end, fenceSegs)) continue;
         const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
         builder.push(line, r.start, r.end - r.start, typeIdx, 0);
       }
@@ -989,6 +1003,18 @@ class JapaneseSemanticProvider {
           const start = seg.start,
             end = seg.end;
           const length = end - start;
+
+          // フェンス内ならスキップ
+          if (fenceSegs && fenceSegs.length > 0) {
+            let inFence = false;
+            for (const [fs, fe] of fenceSegs) {
+              if (start >= fs && end <= fe) {
+                inFence = true;
+                break;
+              }
+            }
+            if (inFence) continue;
+          }
 
           // 辞書マスクとの重なりチェック
           if (dictRanges.some((R) => !(end <= R.start || R.end <= start)))
