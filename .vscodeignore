@@ -23,3 +23,19 @@ npm-debug.log*
 **/.DS_Store
 **/*.py
 .tmp_vsix/**
+
+# 辞書は node_modules/kuromoji/dict を使用するため、ルートの dict/ はパッケージに含めない
+dict/**
+demo/**
+
+# node_modules 内の不要ファイルを除外
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/example/**
+node_modules/**/examples/**
+node_modules/**/demo/**
+node_modules/**/*.map
+node_modules/**/*.ts
+node_modules/**/*.md
+!node_modules/**/LICENSE*
+!node_modules/**/license*

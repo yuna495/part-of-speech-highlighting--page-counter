@@ -78,7 +78,19 @@ let tokenizer = null;
 async function ensureTokenizer(context) {
   if (tokenizer) return;
   try {
-    const dictPath = path.join(context.extensionPath, "dict");
+    // 1. まず node_modules 内の kuromoji 辞書を探す（パッケージサイズ削減のため）
+    let dictPath = path.join(
+      context.extensionPath,
+      "node_modules",
+      "kuromoji",
+      "dict"
+    );
+
+    // 2. 見つからなければ従来のルート直下 dict を探す（開発環境やフォールバック用）
+    if (!fs.existsSync(dictPath)) {
+      dictPath = path.join(context.extensionPath, "dict");
+    }
+
     if (!fs.existsSync(dictPath)) {
       console.warn("kuromoji dictionary not found at:", dictPath);
       return;
