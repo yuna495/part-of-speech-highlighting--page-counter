@@ -156,7 +156,13 @@ function initSidebarUtilities(context) {
   // 新規ファイル
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.newFileAt", async (arg) => {
-      const base = await resolveBaseForSibling(arg);
+      let base = null;
+      if (arg) {
+        base = await resolveBaseForSibling(arg);
+      } else {
+        base = getSidebarBaseDirUri();
+      }
+
       if (!base) return;
       const name = await vscode.window.showInputBox({
         prompt: "新規ファイル名",
@@ -173,7 +179,13 @@ function initSidebarUtilities(context) {
   // 新規フォルダ
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.newFolderAt", async (arg) => {
-      const base = await resolveBaseForSibling(arg);
+      let base = null;
+      if (arg) {
+        base = await resolveBaseForSibling(arg);
+      } else {
+        base = getSidebarBaseDirUri();
+      }
+
       if (!base) return;
       const name = await vscode.window.showInputBox({
         prompt: "新規フォルダ名",
@@ -190,6 +202,7 @@ function initSidebarUtilities(context) {
   // コピー
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.copyPath", async (arg) => {
+      if (!arg) return; // copyPath needs explicit target
       const uri = asUri(arg);
       if (!uri) return;
       await setClipboardEntry("copy", uri);
@@ -200,6 +213,7 @@ function initSidebarUtilities(context) {
   // 切り取り
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.cutPath", async (arg) => {
+      if (!arg) return; // cutPath needs explicit target
       const uri = asUri(arg);
       if (!uri) return;
       await setClipboardEntry("cut", uri);
@@ -210,7 +224,13 @@ function initSidebarUtilities(context) {
   // 貼り付け
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.pasteHere", async (arg) => {
-      const destDir = await resolveBaseForSibling(arg);
+      let destDir = null;
+      if (arg) {
+        destDir = await resolveBaseForSibling(arg);
+      } else {
+        destDir = getSidebarBaseDirUri();
+      }
+
       if (!destDir) return;
 
       const entry = await getClipboardEntry();
@@ -381,11 +401,29 @@ function initSidebarUtilities(context) {
   // 外部エクスプローラー
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.revealInOS", async (arg) => {
-      const uri = asUri(arg);
+      let uri = asUri(arg);
+      if (!uri) {
+        uri = getSidebarBaseDirUri();
+      }
+
       if (!uri) return;
       try {
-        await vscode.commands.executeCommand("revealFileInOS", uri);
+        const stat = await vscode.workspace.fs.stat(uri);
+        // ディレクトリなら中身を開く
+        if (stat.type === vscode.FileType.Directory) {
+          // Windowsの場合、explorer コマンドを直接叩くことで確実にOSエクスプローラーを開く
+          if (process.platform === "win32") {
+            const cp = require("child_process");
+            cp.spawn("explorer", [uri.fsPath]);
+          } else {
+            await vscode.env.openExternal(uri);
+          }
+        } else {
+          // ファイルなら親フォルダを開いて選択 (revealFileInOS)
+          await vscode.commands.executeCommand("revealFileInOS", uri);
+        }
       } catch {
+        // フォールバック
         await vscode.env.openExternal(uri);
       }
     })

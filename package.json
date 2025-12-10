@@ -298,6 +298,16 @@
         "icon": "$(new-folder)"
       },
       {
+        "command": "posNote.newFileAt",
+        "title": "POS/Note: 新規ファイル作成",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "posNote.revealInOS",
+        "title": "POS/Note: 外部エクスプローラーで表示",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "posNote.combineTxtAt",
         "title": "POS/Note: このフォルダの .txt を結合",
         "icon": "$(symbol-text)"
@@ -382,6 +392,16 @@
           "command": "posNote.utilities.refreshView",
           "when": "view == novelUtilities",
           "group": "navigation@0"
+        },
+        {
+          "command": "posNote.newFileAt",
+          "when": "view == novelUtilities",
+          "group": "navigation@1"
+        },
+        {
+          "command": "posNote.revealInOS",
+          "when": "view == novelUtilities",
+          "group": "navigation@2"
         },
         {
           "command": "posNote.createScaffoldHere",

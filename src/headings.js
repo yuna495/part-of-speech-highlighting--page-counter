@@ -393,7 +393,16 @@ function findHeadingSection(editor) {
   let endLine = doc.lineCount - 1;
   for (let i = startIndex + 1; i < headings.length; i++) {
     if (headings[i].level <= currentLevel) {
-      endLine = headings[i].line - 1;
+      // 次の見出しが見つかったら、その手前の「空行でない行」までを選択範囲とする
+      let limitLine = headings[i].line - 1;
+      while (limitLine > startLine) {
+        const text = doc.lineAt(limitLine).text;
+        if (text.trim().length > 0) {
+          break;
+        }
+        limitLine--;
+      }
+      endLine = limitLine;
       break;
     }
   }
