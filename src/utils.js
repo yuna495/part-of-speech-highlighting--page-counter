@@ -83,38 +83,168 @@ function countCharsForDisplay(text, c) {
   }
 }
 
-// notesetting.json をディレクトリ単位でキャッシュして取得
-const _noteCache = new Map(); // dir -> { key, data, mtimeMs }
+// notesetting.json をファイルパス単位でキャッシュ
+const _fileCache = new Map(); // path -> { key: "path:mtime", data, mtimeMs }
 
 /**
- * アクティブ文書と同一フォルダの notesetting.json を読み込む（ディレクトリ単位キャッシュ付き）。
+ * JSONファイルを読み込んでキャッシュする内部ヘルパ
+ * @param {string} filePath
+ * @returns {Promise<{ data: any|null, mtimeMs: number|null }>}
+ */
+async function _loadUniqueJson(filePath) {
+  try {
+    const fs = require("fs");
+    let st;
+    try {
+      st = await fs.promises.stat(filePath);
+    } catch {
+      _fileCache.delete(filePath);
+      return { data: null, mtimeMs: null };
+    }
+    const key = `${filePath}:${st.mtimeMs}`;
+    const cached = _fileCache.get(filePath);
+    if (cached && cached.key === key) {
+      return { data: cached.data, mtimeMs: cached.mtimeMs };
+    }
+
+    const txt = await fs.promises.readFile(filePath, "utf8");
+    const json = JSON.parse(txt);
+    _fileCache.set(filePath, { key, data: json, mtimeMs: st.mtimeMs });
+    return { data: json, mtimeMs: st.mtimeMs };
+  } catch {
+    return { data: null, mtimeMs: null };
+  }
+}
+
+/**
+ * 2つの設定オブジェクトをマージする
+ * - 配列 (characters, glossary): Union (和集合)
+ * - オブジェクト (conversion): Merge (後勝ち)
+ * - その他: 後勝ち
+ */
+function _mergeSettings(base, override) {
+  if (!base) return override || null;
+  if (!override) return base;
+
+  const merged = { ...base, ...override };
+
+  // Array Union
+  const unionArray = (k) => {
+    const a = Array.isArray(base[k]) ? base[k] : [];
+    const b = Array.isArray(override[k]) ? override[k] : [];
+    if (a.length || b.length) {
+      // Set で重複排除
+      merged[k] = Array.from(new Set([...a, ...b]));
+    }
+  };
+  unionArray("characters");
+  unionArray("glossary");
+
+  // Object Merge (conversion)
+  if (base.conversion && typeof base.conversion === "object" && !Array.isArray(base.conversion)) {
+    const overConv = (override.conversion && typeof override.conversion === "object" && !Array.isArray(override.conversion))
+      ? override.conversion
+      : {};
+
+    // 単純マージではなく、逆定義の競合解決を行う
+    // Base: { "A": "B" }, Override: { "B": "A" } -> Result: { "B": "A" } ("A": "B" must be removed)
+    const mergedConv = { ...base.conversion };
+
+    for (const [k, v] of Object.entries(overConv)) {
+      // 1. 上書き (spreadで自動だが明示的に整合性を取るならここで扱う)
+      mergedConv[k] = v;
+
+      // 2. 逆定義の削除
+      // もし Base に "v": "k" があれば、それは競合しているので削除する
+      if (mergedConv[v] === k) {
+        delete mergedConv[v];
+      }
+    }
+
+    merged.conversion = mergedConv;
+  }
+
+  return merged;
+}
+
+/**
+ * アクティブ文書のパスに基づき、以下の優先順位で notesetting.json をマージして返す。
+ * 1. <WorkspaceRoot>/.vscode/notesetting.json
+ * 2. <DocumentDir>/notesetting.json (優先)
+ *
  * @param {import("vscode").TextDocument | { uri: { fsPath?: string }}} doc 対象ドキュメント
- * @returns {Promise<{ data: any|null, path: string|null, mtimeMs: number|null }>} 読み込んだ JSON とパス
+ * @returns {Promise<{ data: any|null, path: string|null, mtimeMs: number|null }>}
+ *   path はローカル側を返す（代表パス）。mtimeMs は両者の最大値（変更検知用）。
  */
 async function loadNoteSettingForDoc(doc) {
   try {
     const fsPath = doc?.uri?.fsPath;
     if (!fsPath) return { data: null, path: null, mtimeMs: null };
-    const dir = require("path").dirname(fsPath);
-    const notePath = require("path").join(dir, "notesetting.json");
-    const fs = require("fs");
-    let st;
-    try {
-      st = await fs.promises.stat(notePath);
-    } catch {
-      _noteCache.delete(dir);
+
+    const pathModule = require("path");
+    const vscode = require("vscode");
+
+    // 1. Workspace Setting
+    let wsData = null;
+    let wsMtime = 0;
+
+    // uri が vscode.Uri かどうか判定し、そうでなければ fsPath から生成
+    let uriForWs = null;
+    if (doc.uri && doc.uri["scheme"]) {
+      uriForWs = /** @type {vscode.Uri} */ (doc.uri);
+    } else if (doc.uri && doc.uri.fsPath) {
+      uriForWs = vscode.Uri.file(doc.uri.fsPath);
+    }
+
+    const wsFolder = uriForWs ? vscode.workspace.getWorkspaceFolder(uriForWs) : null;
+    if (wsFolder) {
+      const wsNotePath = pathModule.join(wsFolder.uri.fsPath, ".vscode", "notesetting.json");
+      const res = await _loadUniqueJson(wsNotePath);
+      if (res.data) {
+        wsData = res.data;
+        wsMtime = res.mtimeMs || 0;
+      }
+    }
+
+    // 2. Local Setting
+    let localData = null;
+    let localMtime = 0;
+    let localPath = null;
+    const dir = pathModule.dirname(fsPath);
+    localPath = pathModule.join(dir, "notesetting.json");
+
+    // ワークスペース設定と同じファイルを指しているなら二重読み込みしない
+    // (ルート直下のファイルを編集している場合など)
+    // ただしパス文字列比較で簡易判定
+    if (!wsFolder || !localPath.includes(".vscode")) { // 簡易ガード(厳密ではないが通常運用で十分)
+        // Check if localPath is same as wsNotePath?
+        // 厳密には `pathModule.relative` などが必要だが、
+        // 「.vscode/notesetting.json」自体を編集中でなければ被らない。
+        // もし被っても _mergeSettings で同じ内容がマージされるだけなので無害 (UnionSetなので)。
+        // 唯一 conversion の単純マージだけ無駄だが、結果は変わらない。
+        const res = await _loadUniqueJson(localPath);
+        if (res.data) {
+            localData = res.data;
+            localMtime = res.mtimeMs || 0;
+        }
+    }
+
+    if (!wsData && !localData) {
       return { data: null, path: null, mtimeMs: null };
     }
-    const key = `${dir}:${st.mtimeMs}`;
-    const cached = _noteCache.get(dir);
-    if (cached && cached.key === key) {
-      return { data: cached.data, path: notePath, mtimeMs: cached.mtimeMs };
-    }
-    const txt = await fs.promises.readFile(notePath, "utf8");
-    const json = JSON.parse(txt);
-    _noteCache.set(dir, { key, data: json, mtimeMs: st.mtimeMs });
-    return { data: json, path: notePath, mtimeMs: st.mtimeMs };
-  } catch {
+
+    // Merge: Workspace < Local
+    const mergedData = _mergeSettings(wsData, localData);
+    const maxMtime = Math.max(wsMtime, localMtime);
+
+    return {
+      data: mergedData,
+      path: localPath, // 代表パス（監視登録用など、既存互換）
+      mtimeMs: maxMtime
+    };
+
+  } catch (e) {
+    console.warn("loadNoteSettingForDoc failed", e);
     return { data: null, path: null, mtimeMs: null };
   }
 }
