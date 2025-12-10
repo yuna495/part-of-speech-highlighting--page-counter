@@ -223,51 +223,68 @@ function ensureWatcher(context) {
   wNote.onDidDelete(reload);
 }
 
-// ===== 全文一括置換 =====
+async function convertToKanji(editor) {
+  const mapping = _dictCache.toKanji;
+  const n = await applyConversion(editor, mapping);
+  showResult(n, _dictCache.loadedFromFile ? "かな→漢字（辞書）" : "かな→漢字");
+}
+
+async function convertToKana(editor) {
+  const mapping = _dictCache.toKana;
+  const n = await applyConversion(editor, mapping);
+  showResult(n, _dictCache.loadedFromFile ? "漢字→かな（辞書）" : "漢字→かな");
+}
+
 /**
+ * 辞書に基づいて置換を実行
+ * 選択範囲があればその範囲内のみ、なければ全文を対象とする
  * @param {vscode.TextEditor} editor
  * @param {Record<string,string>} mapping
  * @returns {Promise<number>}
  */
-async function replaceWholeDocument(editor, mapping) {
+async function applyConversion(editor, mapping) {
   const doc = editor.document;
-  const fullText = doc.getText();
-
   const keys = Object.keys(mapping);
   if (keys.length === 0) return 0;
 
   // 長いキーを先にマッチさせて再置換を抑止
   keys.sort((a, b) => b.length - a.length);
-
   const pattern = new RegExp(keys.map(escapeRegExp).join("|"), "g");
 
-  let count = 0;
-  fullText.replace(pattern, (m) => {
-    if (m in mapping) count++;
-    return m;
+  // 選択範囲チェック: すべてが空(カーソルのみ)なら全文対象
+  /** @type {vscode.Range[]} */
+  let ranges = [...editor.selections];
+  const hasSelection = ranges.some((r) => !r.isEmpty);
+  if (!hasSelection) {
+    const lastLine = doc.lineCount - 1;
+    ranges = [
+      new vscode.Range(0, 0, lastLine, doc.lineAt(lastLine).text.length),
+    ];
+  }
+
+  let totalCount = 0;
+
+  const ok = await editor.edit((editBuilder) => {
+    for (const range of ranges) {
+      const text = doc.getText(range);
+      let countInRange = 0;
+
+      const newText = text.replace(pattern, (m) => {
+        if (Object.prototype.hasOwnProperty.call(mapping, m)) {
+          countInRange++;
+          return mapping[m];
+        }
+        return m;
+      });
+
+      if (countInRange > 0) {
+        editBuilder.replace(range, newText);
+        totalCount += countInRange;
+      }
+    }
   });
-  if (count === 0) return 0;
 
-  const newText = fullText.replace(pattern, (m) => mapping[m] ?? m);
-  const fullRange = new vscode.Range(
-    doc.positionAt(0),
-    doc.positionAt(fullText.length)
-  );
-  const ok = await editor.edit((edit) => edit.replace(fullRange, newText));
-  return ok ? count : 0;
-}
-
-// ===== コマンド本体 =====
-async function convertToKanji(editor) {
-  const mapping = _dictCache.toKanji; // 空なら何もしない
-  const n = await replaceWholeDocument(editor, mapping);
-  showResult(n, _dictCache.loadedFromFile ? "かな→漢字（辞書）" : "かな→漢字");
-}
-
-async function convertToKana(editor) {
-  const mapping = _dictCache.toKana; // 空なら何もしない
-  const n = await replaceWholeDocument(editor, mapping);
-  showResult(n, _dictCache.loadedFromFile ? "漢字→かな（辞書）" : "漢字→かな");
+  return ok ? totalCount : 0;
 }
 
 function showResult(n, label) {
