@@ -284,6 +284,10 @@
         "title": "POS/Note: 漢字→かな（微か/僅か → かすか/わずか）"
       },
       {
+        "command": "posNote.convert.formatspacelines",
+        "title": "POS/Note: スペース整形（ 　→改行＋全角空白 ／ [空白]括弧→改行括弧）"
+      },
+      {
         "command": "posNote.createNewNovel",
         "title": "POS/Note: 新しい小説を作成",
         "icon": "$(add)"
@@ -842,6 +846,11 @@
       {
         "command": "posNote.convert.toKana",
         "key": "alt+.",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
+      },
+      {
+        "command": "posNote.convert.formatspacelines",
+        "key": "ctrl+alt+g",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       },
       {

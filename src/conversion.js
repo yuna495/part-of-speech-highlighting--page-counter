@@ -320,8 +320,43 @@ function registerConversionCommands(context, { isTargetDoc }) {
     vscode.commands.registerCommand(
       "posNote.convert.toKana",
       guardAndRun(convertToKana)
+    ),
+    vscode.commands.registerCommand(
+      "posNote.convert.formatspacelines",
+      guardAndRun(formatSpaceLines)
     )
   );
+}
+
+// ===== 整形コマンド: 空白＋全角空白→改行 等 =====
+async function formatSpaceLines(editor) {
+  const doc = editor.document;
+  const fullText = doc.getText();
+  if (!fullText) return;
+
+  // 1. " 　" (半角スペース+全角スペース) を "\n　" (改行+全角スペース) に置換
+  // 2. " " (半角スペース) が括弧開きの直前にある場合、改行に置換
+  //    ただし、Markdownのリスト記号(# - . *)やインデント(空白)の直後は除外する
+  //    対象: ([^#\-\.\* ]) + " " + (?=「『...)
+  const regex1 = / 　/g;
+  const regex2 = /([^#\-\.\* ]) (?=[「『（［｛〈《【〔“‘])/g;
+
+  let newText = fullText.replace(regex1, "\n　");
+  newText = newText.replace(regex2, "$1\n");
+
+  if (newText === fullText) {
+    vscode.window.setStatusBarMessage("P/N: 整形対象が見つかりませんでした", 2000);
+    return;
+  }
+
+  const fullRange = new vscode.Range(
+    doc.positionAt(0),
+    doc.positionAt(fullText.length)
+  );
+  const ok = await editor.edit((edit) => edit.replace(fullRange, newText));
+  if (ok) {
+    vscode.window.setStatusBarMessage("P/N: スペース整形を実行しました", 2000);
+  }
 }
 
 module.exports = { registerConversionCommands };
