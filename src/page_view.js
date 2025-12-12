@@ -521,17 +521,20 @@ class PageViewPanel {
       padding: 0;
     }
     rt {
-      /* ルビをフローから外して絶対配置（行幅への影響なし） */
+      /* ルビをフローから外して絶対配置 */
       position: absolute;
-      /* 縦書き(vertical-rl)で右側に配置 */
-      /* width 1em の右端に対する相対位置 */
       right: -1em;
-      top: 1em;
+      top: 0;          /* 親の最上部ら開始 */
+      height: 100%;    /* 親(親文字ブロック)の高さ一杯に広げる */
       width: 1em;
 
-      font-size: 0.45em;
+      display: flex;             /* Flexboxで配置制御 */
+      flex-direction: row;       /* vertical-rl下では row=縦方向が主軸 */
+      justify-content: center;   /* 主軸(縦)方向の中央寄せ */
+      align-items: center;       /* 交差軸(横)方向の中央寄せ */
+
+      font-size: 0.5em;
       line-height: 1;
-      text-align: center;
       writing-mode: vertical-rl;
       white-space: nowrap;
       pointer-events: none;
@@ -539,7 +542,7 @@ class PageViewPanel {
 
     /* カーソル同期用スタイル */
     .char.cursor-active, .ruby-container.cursor-active {
-        background-color: rgba(255, 255, 0, 0.3);
+        background-color: rgba(255, 255, 0, 0.25);
         outline: 1px solid rgba(255, 255, 0, 0.8);
     }
     .char:hover, .ruby-container:hover {
