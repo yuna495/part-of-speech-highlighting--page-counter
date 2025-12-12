@@ -593,6 +593,18 @@
             "type": "number",
             "default": 40,
             "description": "ページビューのデフォルト文字数（アイコン緑点灯時）。"
+          },
+          "posNote.Preview.backgroundColor": {
+            "type": "string",
+            "format": "color",
+            "default": "#101010",
+            "description": "ページビューの背景色 (例: #101010)。"
+          },
+          "posNote.Preview.textColor": {
+            "type": "string",
+            "format": "color",
+            "default": "#eeeeee",
+            "description": "ページビューの文字色 (例: #eeeeee)。"
           }
         }
       },
@@ -721,7 +733,7 @@
         "properties": {
           "posNote.Preview.backgroundColor": {
             "type": "string",
-            "default": "#050505",
+            "default": "#101010",
             "markdownDescription": "プレビューの背景色（例: `#ffffff`, `black`, `rgb(30,30,30)` など）"
           },
           "posNote.Preview.textColor": {

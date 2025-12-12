@@ -161,6 +161,7 @@ class PageViewPanel {
     this._panel.title = "縦書き: " + editor.document.fileName.split(/[/\\]/).pop();
 
     const cfg = vscode.workspace.getConfiguration("posNote");
+    const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
 
     // 設定値の取得 (Note用とPage用)
     const noteRows = cfg.get("Note.rowsPerNote", 20);
@@ -190,7 +191,9 @@ class PageViewPanel {
         pages,
         rowsPerNote,
         colsPerRow,
-        isPageMode: this._usePageSettings // モード状態を送る
+        isPageMode: this._usePageSettings,
+        bgColor: previewCfg.get("backgroundColor", "#101010"),
+        textColor: previewCfg.get("textColor", "#eeeeee")
       }
     });
   }
@@ -753,6 +756,15 @@ class PageViewPanel {
       state.pages = payload.pages;
       state.rows = payload.rowsPerNote;
       state.cols = payload.colsPerRow;
+
+      if (payload.bgColor) {
+          document.body.style.backgroundColor = payload.bgColor;
+          document.documentElement.style.backgroundColor = payload.bgColor;
+      }
+      if (payload.textColor) {
+          document.body.style.color = payload.textColor;
+          document.documentElement.style.color = payload.textColor;
+      }
 
       container.innerHTML = '';
       refreshBtn.classList.remove('spinning');
