@@ -274,12 +274,13 @@ class PageViewPanel {
         if (match.index > lastIndex) {
             const plain = line.substring(lastIndex, match.index);
             for (const char of plain) {
+                // 通常文字もすべて <span> で囲み、1文字1マスを強制する
                 tokens.push({
                     type: 'char',
                     char: char,
                     firstChar: char,
                     length: 1,
-                    html: this._escapeHtml(char)
+                    html: `<span class="char">${this._escapeHtml(char)}</span>`
                 });
             }
         }
@@ -292,7 +293,7 @@ class PageViewPanel {
         tokens.push({
             type: 'ruby',
             length: base.length,
-            firstChar: base[0], // ルビの親文字の1文字目で判定
+            firstChar: base[0],
             html: rubyHtml
         });
 
@@ -308,7 +309,7 @@ class PageViewPanel {
                 char: char,
                 firstChar: char,
                 length: 1,
-                html: this._escapeHtml(char)
+                html: `<span class="char">${this._escapeHtml(char)}</span>`
             });
         }
     }
@@ -326,13 +327,17 @@ class PageViewPanel {
 
   _generateRubyHtml(base, reading) {
     const esc = this._escapeHtml;
-    // preview_panel.js から移植・簡略化
+    const baseLen = base.length;
+    // ルビブロック全体の高さを親文字数に合わせる
+    // vertical-rl における height は文字の積み上げ方向の長さ
+    const style = `style="height: ${baseLen}em;"`;
+
     const baseChars = [...base];
     const onlyDots = reading.replace(/・/g, "") === "";
 
     if (onlyDots) {
         const pairs = baseChars.map(c => `<rb>${esc(c)}</rb><rt>・</rt>`).join("");
-        return `<ruby class="rb-group">${pairs}</ruby>`;
+        return `<ruby class="rb-group" ${style}>${pairs}</ruby>`;
     }
 
     const hasSep = reading.includes("・");
@@ -346,10 +351,10 @@ class PageViewPanel {
              const rt = esc(readingParts[i] ?? "");
              pairs += `<rb>${rb}</rb><rt>${rt}</rt>`;
         }
-        return `<ruby class="rb-group">${pairs}</ruby>`;
+        return `<ruby class="rb-group" ${style}>${pairs}</ruby>`;
     }
 
-    return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
+    return `<ruby ${style}><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
   }
 
   _getHtmlForWebview(webview) {
@@ -374,7 +379,9 @@ class PageViewPanel {
       overflow: hidden;
       background-color: #101010;
       color: #eee;
-      font-family: serif;
+      /* 1マス1文字レイアウト (Grid/Lattice behavior) for proper alignment */
+      font-family: "HiraMinProN-W3", "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "MS Mincho", "TakaoMincho", serif;
+      font-variant-east-asian: full-width;
     }
 
     #container {
@@ -438,8 +445,33 @@ class PageViewPanel {
       font-feature-settings: "palt" 0;
     }
 
+    /* 文字単位のスタイル：1文字1マスを強制 */
+    .char {
+        display: inline-flex;
+        width: 1em;
+        height: 1em;
+        justify-content: center;
+        align-items: center;
+        /* 行方向のズレを防ぐ */
+        vertical-align: middle;
+    }
+
     ruby {
         ruby-align: center;
+        /* ruby要素自体もインラインブロック的に振る舞わせ、高さを指定できるようにする */
+        display: inline-flex;
+        flex-direction: column;
+        justify-content: center;
+        /* height はインラインスタイルで動的に指定される */
+        width: 1em; /* 横幅は1行分 */
+        vertical-align: middle;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    rb, rt {
+       /* ensure contents are centered */
+       text-align: center;
     }
 
     /* フッター */
