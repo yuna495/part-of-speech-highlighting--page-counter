@@ -259,7 +259,7 @@
   }
 
   function applyStyles({
-    bgColor = "#111111",
+    bgColor = "#050505",
     textColor = "#fafafa",
     activeBg = "rgba(255, 215, 0, 0.2)",
     tokenCss = "",

@@ -1,6 +1,6 @@
 ﻿/* media/style.css */
 :root {
-  --vw-padding: 5px;
+  --vw-padding: 10px;
   --ellipsis-color: #fd9bcc;
   --dash-color: #fd9bcc;
 }
@@ -16,18 +16,24 @@ body {
   padding: 0;
   margin: 0;
   background: transparent;
+  /* Viewport Fitting */
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden; /* Body scroll off */
 }
 
 #toolbar {
-  position: sticky;
-  top: 0;
-  left: 0;
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  top: auto;
+
   display: flex;
-  justify-content: flex-end;
-  padding: 6px 10px;
+  justify-content: flex-start;
+  padding: 0;
   gap: 8px;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.35), transparent);
-  z-index: 10;
+  background: transparent;
+  z-index: 999;
 }
 
 #refresh-btn {
@@ -40,7 +46,9 @@ body {
   place-items: center;
   border-radius: 50%;
   cursor: pointer;
+  cursor: pointer;
   transition: transform 0.2s ease, background 0.2s ease;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.4);
 }
 
 #refresh-btn:hover {
@@ -63,13 +71,17 @@ body {
 }
 #content {
   writing-mode: vertical-rl; /* 縦書き */
-  width: 100%;
-  margin: var(--vw-padding);
-  overflow: auto;
+  /* width: 100%; height: 100%; box-sizing: border-box; */
+  /* padding: var(--vw-padding); */ /* 変数だと反映されない環境の可能性? 一旦直接指定 */
 
-  /* 上下に余白（端がカツカツにならないように） */
-  padding-top: 5em;
-  padding-bottom: 5em;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20px; /* 16px */
+  box-sizing: border-box;
+  overflow: auto;
 }
 
 p {

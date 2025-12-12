@@ -240,6 +240,11 @@
         "title": "POS/Note: 再描画"
       },
       {
+        "command": "posNote.showPageView",
+        "title": "POS/Note: 縦書きページビュー",
+        "icon": "$(book)"
+      },
+      {
         "command": "posNote.combineTxt",
         "title": "POS/Note: フォルダ内の .txt を結合"
       },
@@ -432,6 +437,11 @@
         {
           "command": "posNote.Preview.open",
           "group": "navigation@100",
+          "when": "resourceExtname == .txt || resourceExtname == .md"
+        },
+        {
+          "command": "posNote.showPageView",
+          "group": "navigation@101",
           "when": "resourceExtname == .txt || resourceExtname == .md"
         }
       ],
@@ -696,7 +706,7 @@
         "properties": {
           "posNote.Preview.backgroundColor": {
             "type": "string",
-            "default": "#111111",
+            "default": "#050505",
             "markdownDescription": "プレビューの背景色（例: `#ffffff`, `black`, `rgb(30,30,30)` など）"
           },
           "posNote.Preview.textColor": {

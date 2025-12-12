@@ -343,9 +343,12 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
       let take = Math.min(cols, n - pos);
       if (kinsokuEnabled) {
         let ni = pos + take;
-        while (ni < n && banned.has(arr[ni])) {
+        let extended = 0;
+        const MAX_EXTEND = 2;
+        while (ni < n && banned.has(arr[ni]) && extended < MAX_EXTEND) {
           take++;
           ni++;
+          extended++;
         }
       }
       rows += 1;
@@ -854,4 +857,9 @@ async function cmdSetNoteSize() {
   vscode.window.showInformationMessage(`行×桁を ${rows}×${cols} に変更しました`);
 }
 
-module.exports = { initStatusBar, getBannedStart, scheduleUpdateWithPrecount };
+module.exports = {
+  initStatusBar,
+  getBannedStart,
+  scheduleUpdateWithPrecount,
+  DEFAULT_BANNED_START,
+};

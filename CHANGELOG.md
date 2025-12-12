@@ -12,6 +12,7 @@ All notable changes to this extension are documented here.
 ### 変更
 
 - マークダウンファイルのコードフェンス内のハイライトを無効。（markmapを除く）
+- ルビ内容記入ウインドウの表示について。カーソルが外れる現象を改善するために僅かに遅延を追加。
 
 ### 修正
 

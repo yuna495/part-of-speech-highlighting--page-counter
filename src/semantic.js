@@ -604,6 +604,24 @@ class JapaneseSemanticProvider {
     // <br> Highlight (Red)
     this._brDecoration = null;
     this._brRangesByDoc = new Map();
+    this._brHighlightEnabled = false; // Default OFF
+
+    // Command to toggle BR highlight
+    context.subscriptions.push(
+      vscode.commands.registerCommand("posNote.semantic.setBrHighlight", (enabled) => {
+        this._brHighlightEnabled = !!enabled;
+        this._onDidChangeSemanticTokens.fire();
+
+        // If disabled, explicitly clear decorations for all visible editors
+        if (!this._brHighlightEnabled) {
+             for (const ed of vscode.window.visibleTextEditors) {
+               const key = ed.document.uri.toString();
+               this._brRangesByDoc.set(key, []);
+               if (this._brDecoration) ed.setDecorations(this._brDecoration, []);
+             }
+        }
+      })
+    );
 
     // トークンキャッシュ (行単位)
     this._tokenCache = new Map(); // key: docUri -> Map<lineIndex, { text: string, tokens: any[] }>
@@ -897,7 +915,7 @@ class JapaneseSemanticProvider {
       }
 
       // <br> highlight (Simple string match, override everything logic implicitly because it's a decoration)
-      {
+      if (this._brHighlightEnabled) {
         const brRe = /<br>/gi;
         let mBr;
         while ((mBr = brRe.exec(text)) !== null) {

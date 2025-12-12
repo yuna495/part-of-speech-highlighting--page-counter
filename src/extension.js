@@ -9,6 +9,7 @@ const { initSidebarUtilities } = require("./sidebar_util");
 const { initKanbn } = require("./kanbn");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
 const { PreviewPanel } = require("./preview_panel");
+const PageViewPanel = require("./page_view");
 const { registerBracketSupport } = require("./bracket");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
@@ -143,6 +144,9 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("posNote.Preview.refresh", () => {
       PreviewPanel.refresh({ forceFull: true, showSpinner: true });
+    }),
+    vscode.commands.registerCommand("posNote.showPageView", () => {
+      PageViewPanel.createOrShow(context);
     }),
     vscode.commands.registerCommand("posNote.combineTxt", (resourceUri) => {
       // エクスプローラーで右クリックしたフォルダ URI が渡ってくる

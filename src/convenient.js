@@ -144,6 +144,10 @@ async function toggleLineSuffix(editor) {
       }
     }
   });
+
+  // 4. ハイライト状態の更新
+  // 追加モードならON、削除モードならOFF
+  vscode.commands.executeCommand("posNote.semantic.setBrHighlight", !isRemoveMode);
 }
 
 /**
