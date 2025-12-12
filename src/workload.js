@@ -814,7 +814,7 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
 </head>
 <body>
   <header>
-    <h1>純作業量（過去30日）・円環</h1>
+    <h1>純作業量（過去30日）</h1>
     <div class="meta">右回りで過去へ。12時＝最新。内から外へ半径が増える。</div>
   </header>
   <div class="wrap">

@@ -79,6 +79,74 @@ async function countSelectedString() {
 }
 
 /**
+ * 行末に `<br>` をトグルする。
+ * - 選択なし: 全行対象
+ * - 選択あり: 選択行対象
+ * - 全対象行に既にある場合: 一括削除
+ * - それ以外: 一括付与（ない行に足す）
+ */
+async function toggleLineSuffix(editor) {
+  const doc = editor.document;
+  const lines = new Set();
+  const suffix = "<br>";
+
+  // 1. 対象行の収集
+  if (editor.selections.length === 0 || (editor.selections.length === 1 && editor.selections[0].isEmpty)) {
+    // 選択なし → 全行
+    for (let i = 0; i < doc.lineCount; i++) {
+        lines.add(i);
+    }
+  } else {
+    // 選択あり → 含まれる全行
+    for (const sel of editor.selections) {
+      const start = sel.start.line;
+      let end = sel.end.line;
+      // 選択終了が行頭ちょうどの場合、その行は含めない
+      if (sel.end.line > sel.start.line && sel.end.character === 0) {
+        end--;
+      }
+      for (let i = start; i <= end; i++) {
+        lines.add(i);
+      }
+    }
+  }
+
+  // 2. モード判定（削除 or 付与）
+  let allHaveSuffix = true;
+  for (const lineNum of lines) {
+    const text = doc.lineAt(lineNum).text;
+    if (!text.endsWith(suffix)) {
+      allHaveSuffix = false;
+      break;
+    }
+  }
+
+  const isRemoveMode = allHaveSuffix;
+
+  // 3. 編集適用
+  await editor.edit(editBuilder => {
+    for (const lineNum of lines) {
+      const line = doc.lineAt(lineNum);
+      const text = line.text;
+
+      if (isRemoveMode) {
+        // 削除: 末尾の suffix を消す
+        if (text.endsWith(suffix)) {
+          const startChar = text.length - suffix.length;
+          const range = new vscode.Range(lineNum, startChar, lineNum, text.length);
+          editBuilder.delete(range);
+        }
+      } else {
+        // 付与: なければ足す
+        if (!text.endsWith(suffix)) {
+          editBuilder.insert(line.range.end, suffix);
+        }
+      }
+    }
+  });
+}
+
+/**
  * 便利機能（行末スペース削除・選択文字列カウント）を登録する。
  * @param {vscode.ExtensionContext} context
  */
@@ -97,6 +165,9 @@ function registerConvenientFeatures(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.convenient.countSelectedString", () =>
       countSelectedString()
+    ),
+    vscode.commands.registerTextEditorCommand("posNote.convenient.toggleLineSuffix", (editor) =>
+      toggleLineSuffix(editor)
     )
   );
 }

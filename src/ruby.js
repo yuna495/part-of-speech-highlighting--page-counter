@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * 入力ボックスでルビ文字列を取得する。キャンセル・空は null。
  */
 async function askRubyText() {
-  // await sleep(100); // 100ms 待機（ショートカットキー離脱待ち・フォーカス安定化）
+  await sleep(250); // 待機（ショートカットキー離脱待ち・フォーカス安定化）
 
   const val = await vscode.window.showInputBox({
     title: "《》の中に入れるルビを入力",

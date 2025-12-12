@@ -601,6 +601,10 @@ class JapaneseSemanticProvider {
     this._spaceColor = null;
     this._spaceRangesByDoc = new Map(); // key: docUri -> vscode.Range[]
 
+    // <br> Highlight (Red)
+    this._brDecoration = null;
+    this._brRangesByDoc = new Map();
+
     // トークンキャッシュ (行単位)
     this._tokenCache = new Map(); // key: docUri -> Map<lineIndex, { text: string, tokens: any[] }>
 
@@ -608,6 +612,7 @@ class JapaneseSemanticProvider {
       vscode.workspace.onDidCloseTextDocument((doc) => {
         this._spaceRangesByDoc.delete(doc.uri.toString());
         this._tokenCache.delete(doc.uri.toString());
+        this._brRangesByDoc.delete(doc.uri.toString());
       })
     );
   }
@@ -659,6 +664,34 @@ class JapaneseSemanticProvider {
     );
     const next = kept.concat(rangesForWindow);
     this._spaceRangesByDoc.set(key, next);
+
+    for (const ed of vscode.window.visibleTextEditors) {
+      if (ed.document === document) {
+        ed.setDecorations(deco, next);
+      }
+    }
+  }
+
+  // <br> 用の赤色ハイライト
+  _ensureBrDecoration() {
+    if (this._brDecoration) return this._brDecoration;
+    this._brDecoration = vscode.window.createTextEditorDecorationType({
+      color: "#ff0000", // 文字色を赤に固定
+      fontWeight: "bold"
+      // backgroundColor: ... 必要なら
+    });
+    return this._brDecoration;
+  }
+
+  _applyBrDecorations(document, fromLine, toLine, rangesForWindow) {
+    const deco = this._ensureBrDecoration();
+    const key = document.uri.toString();
+    const prev = this._brRangesByDoc.get(key) || [];
+    const kept = prev.filter(
+      (r) => r.start.line < fromLine || r.start.line > toLine
+    );
+    const next = kept.concat(rangesForWindow);
+    this._brRangesByDoc.set(key, next);
 
     for (const ed of vscode.window.visibleTextEditors) {
       if (ed.document === document) {
@@ -831,6 +864,8 @@ class JapaneseSemanticProvider {
     // ★ ループは一つに統一（ネストしていた二重ループを削除）
     /** @type {import("vscode").Range[]} */
     const spaceDecoRanges = [];
+    /** @type {import("vscode").Range[]} */
+    const brDecoRanges = [];
     let processedFrom = null;
     let processedTo = null;
 
@@ -858,6 +893,17 @@ class JapaneseSemanticProvider {
             );
             continue; // 見出し行は他トークン不要で抜ける
           }
+        }
+      }
+
+      // <br> highlight (Simple string match, override everything logic implicitly because it's a decoration)
+      {
+        const brRe = /<br>/gi;
+        let mBr;
+        while ((mBr = brRe.exec(text)) !== null) {
+          brDecoRanges.push(
+            new vscode.Range(line, mBr.index, line, mBr.index + mBr[0].length)
+          );
         }
       }
 
@@ -1049,6 +1095,12 @@ class JapaneseSemanticProvider {
         processedFrom,
         processedTo,
         spaceDecoRanges
+      );
+      this._applyBrDecorations(
+        document,
+        processedFrom,
+        processedTo,
+        brDecoRanges
       );
     }
 

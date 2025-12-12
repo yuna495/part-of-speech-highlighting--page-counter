@@ -219,6 +219,10 @@
         "title": "POS/Note: 選択文字列の出現数をカウント"
       },
       {
+        "command": "posNote.convenient.toggleLineSuffix",
+        "title": "POS/Note: 行末に <br> をトグル（全行/選択範囲）"
+      },
+      {
         "command": "posNote.headings.refresh",
         "title": "POS/Note: 見出しを更新"
       },
@@ -876,6 +880,11 @@
       {
         "command": "posNote.convenient.countSelectedString",
         "key": "ctrl+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "posNote.convenient.toggleLineSuffix",
+        "key": "ctrl+alt+y",
         "when": "editorTextFocus"
       }
     ]
