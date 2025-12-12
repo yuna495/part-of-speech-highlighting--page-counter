@@ -233,7 +233,7 @@
       {
         "command": "posNote.showPageView",
         "title": "POS/Note: 縦書きページビュー",
-        "icon": "$(file-text)"
+        "icon": "$(book)"
       },
       {
         "command": "posNote.combineTxt",
