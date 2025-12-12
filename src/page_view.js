@@ -77,6 +77,19 @@ class PageViewPanel {
         }
     }, null, this._disposables);
 
+    // カーソル移動同期
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+        if (this._targetEditor && e.textEditor === this._targetEditor && this._panel.visible) {
+            const anchor = e.selections[0].anchor; // or active
+            // character level sync
+            this._panel.webview.postMessage({
+                type: 'syncCursor',
+                line: anchor.line,
+                char: anchor.character
+            });
+        }
+    }, null, this._disposables);
+
     // メッセージ受信
     panel.webview.onDidReceiveMessage((msg) => {
         if (msg.type === "refresh") {
@@ -100,6 +113,21 @@ class PageViewPanel {
                     }
                 }
             });
+        } else if (msg.type === "jumpToPosition") {
+            // Webviewからのクリックでエディタ移動
+            const line = msg.line;
+            const char = msg.char;
+            if (this._targetEditor && typeof line === 'number' && typeof char === 'number') {
+                const pos = new vscode.Position(line, char);
+                const sel = new vscode.Selection(pos, pos);
+                this._targetEditor.selection = sel;
+                this._targetEditor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+                // エディタにフォーカスを戻す（お好みで）
+                vscode.window.showTextDocument(this._targetEditor.document, {
+                     viewColumn: this._targetEditor.viewColumn,
+                     selection: new vscode.Range(pos, pos)
+                });
+            }
         }
     }, null, this._disposables);
   }
@@ -157,26 +185,30 @@ class PageViewPanel {
     let safeText = text.replace(/\r\n/g, "\n");
 
     // コードフェンス除去
-    const rawLines = safeText.split("\n");
+    // 元の行番号を維持するために、オブジェクトの配列として処理する
+    const rawLines = safeText.split("\n").map((text, index) => ({ text, lineNo: index }));
     const lines = [];
     let inFence = false;
-    for (const line of rawLines) {
-        if (line.trim().startsWith("```")) {
+    for (const item of rawLines) {
+        if (item.text.trim().startsWith("```")) {
             inFence = !inFence;
-            continue;
+            continue; // フェンス行自体も表示しないなら continue
         }
         if (inFence) {
             continue;
         }
-        lines.push(line);
+        lines.push(item);
     }
     const bannedSet = new Set(kinsokuEnabled ? bannedChars : []);
 
     let pages = [];
     let currentLines = [];
 
-    for (let rawLine of lines) {
-        if (rawLine.length === 0) {
+    for (let lineObj of lines) {
+        let rawText = lineObj.text;
+        const lineNo = lineObj.lineNo;
+
+        if (rawText.length === 0) {
             currentLines.push("\u3000");
             if (currentLines.length >= rowsPerNote) {
                 pages.push(currentLines);
@@ -185,13 +217,14 @@ class PageViewPanel {
             continue;
         }
 
-        // 見出し置換
-        rawLine = rawLine.replace(/^(#+)\s+/, (match, hashes) => {
+        // 見出し置換（元の文字数とずれるが、行番号は維持される）
+        // ※正確な文字単位の同期はずれる可能性があるが、行単位同期は確保
+        rawText = rawText.replace(/^(#+)\s+/, (match, hashes) => {
             return "\u3000".repeat(hashes.length + 1);
         });
 
-        // トークン化
-        const tokens = this._tokenizeLine(rawLine);
+        // トークン化 (lineNo を渡す)
+        const tokens = this._tokenizeLine(rawText, lineNo);
 
         let tokenIdx = 0;
 
@@ -263,7 +296,7 @@ class PageViewPanel {
     return pages;
   }
 
-  _tokenizeLine(line) {
+  _tokenizeLine(line, lineNo) {
     const tokens = [];
     const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
 
@@ -275,14 +308,15 @@ class PageViewPanel {
         // マッチ前の通常文字
         if (match.index > lastIndex) {
             const plain = line.substring(lastIndex, match.index);
-            for (const char of plain) {
-                // 通常文字もすべて <span> で囲み、1文字1マスを強制する
+            for (let i = 0; i < plain.length; i++) {
+                const char = plain[i];
+                const charIdx = lastIndex + i; // 元の文字列でのインデックス (置換後)
                 tokens.push({
                     type: 'char',
                     char: char,
                     firstChar: char,
                     length: 1,
-                    html: `<span class="char">${this._escapeHtml(char)}</span>`
+                    html: `<span class="char" data-l="${lineNo}" data-c="${charIdx}">${this._escapeHtml(char)}</span>`
                 });
             }
         }
@@ -291,12 +325,15 @@ class PageViewPanel {
         const base = match[1];
         const ruby = match[2];
         const rubyHtml = this._generateRubyHtml(base, ruby);
+        const startIdx = match.index; // ルビ開始位置
+
         // ルビブロックの長さは親文字の長さ
+        // data-l, data-c は親文字の開始位置を基準にする
         tokens.push({
             type: 'ruby',
             length: base.length,
             firstChar: base[0],
-            html: rubyHtml
+            html: `<span class="ruby-container" data-l="${lineNo}" data-c="${startIdx}">${rubyHtml}</span>`
         });
 
         lastIndex = RUBY_RE.lastIndex;
@@ -305,13 +342,15 @@ class PageViewPanel {
     // 残りの文字
     if (lastIndex < line.length) {
         const plain = line.substring(lastIndex);
-        for (const char of plain) {
+        for (let i = 0; i < plain.length; i++) {
+            const char = plain[i];
+            const charIdx = lastIndex + i;
             tokens.push({
                 type: 'char',
                 char: char,
                 firstChar: char,
                 length: 1,
-                html: `<span class="char">${this._escapeHtml(char)}</span>`
+                html: `<span class="char" data-l="${lineNo}" data-c="${charIdx}">${this._escapeHtml(char)}</span>`
             });
         }
     }
@@ -471,6 +510,17 @@ class PageViewPanel {
         padding: 0;
         box-sizing: border-box;
     }
+
+    /* カーソル同期用スタイル */
+    .char.cursor-active, .ruby-container.cursor-active {
+        background-color: rgba(255, 255, 0, 0.3);
+        outline: 1px solid rgba(255, 255, 0, 0.8);
+    }
+    .char:hover, .ruby-container:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+        cursor: pointer;
+    }
+
     rb, rt {
        /* ensure contents are centered */
        text-align: center;
@@ -583,19 +633,65 @@ class PageViewPanel {
       e.preventDefault();
     }, { passive: false });
 
-    // クリック処理（ページ送り）
-    container.addEventListener('click', (e) => {
+    // --- Click Navigation (Remove scroll logic, keep jump logic) ---
+    // .char や .ruby-container のクリックはエディタへのジャンプとして処理
+    document.body.addEventListener('click', (e) => {
       // footer等は無視
       if (e.target.closest('#footer')) return;
 
-      const w = window.innerWidth;
-      // 左右クリックでページ送り
-      if (e.clientX < w / 2) {
-        // Left -> Next
-        container.scrollBy({ left: -w, behavior: 'smooth' });
-      } else {
-        // Right -> Prev
-        container.scrollBy({ left: w, behavior: 'smooth' });
+      // 文字クリック (jump)
+      const target = e.target.closest('.char, .ruby-container');
+      if (target && target.dataset.l) {
+          const line = parseInt(target.dataset.l, 10);
+          const char = parseInt(target.dataset.c, 10);
+          vscode.postMessage({ type: 'jumpToPosition', line, char });
+          e.stopPropagation();
+      }
+      // ページ送り（左右クリック）は廃止
+    });
+
+    // --- Message Handling (Sync) ---
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'update') {
+          const payload = msg.payload;
+          render(payload);
+      } else if (msg.type === 'jumpTo') {
+          const pg = msg.page;
+          const pages = document.querySelectorAll('.page');
+          if (pages[pg - 1]) {
+              // 縦書きなので inline: center が無難
+              pages[pg - 1].scrollIntoView({ inline: 'center' });
+          }
+      } else if (msg.type === 'syncCursor') {
+          // カーソル位置へスクロール＆ハイライト
+          const line = msg.line;
+          const char = msg.char;
+
+          // 既存ハイライト除去
+          document.querySelectorAll('.cursor-active').forEach(el => el.classList.remove('cursor-active'));
+
+          // data-l は一致、data-c は最も近いもの
+          const targets = document.querySelectorAll('.char[data-l="' + line + '"], .ruby-container[data-l="' + line + '"]');
+          if (targets.length === 0) return;
+
+          let best = null;
+          let minDiff = 9999;
+
+          targets.forEach(el => {
+              const c = parseInt(el.dataset.c, 10);
+              const diff = Math.abs(c - char);
+              if (diff < minDiff) {
+                  minDiff = diff;
+                  best = el;
+              }
+          });
+
+          if (best) {
+              best.classList.add('cursor-active');
+              // スムーズスクロールで該当要素を表示
+              best.scrollIntoView({ inline: 'center', block: 'center', behavior: 'smooth' });
+          }
       }
     });
 
