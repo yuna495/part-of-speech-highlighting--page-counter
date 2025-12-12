@@ -186,7 +186,9 @@ class PageViewPanel {
         }
 
         // 見出し置換
-        rawLine = rawLine.replace(/^#+\s+/, "\u3000\u3000\u3000");
+        rawLine = rawLine.replace(/^(#+)\s+/, (match, hashes) => {
+            return "\u3000".repeat(hashes.length + 1);
+        });
 
         // トークン化
         const tokens = this._tokenizeLine(rawLine);
@@ -500,7 +502,7 @@ class PageViewPanel {
       background: rgba(0,0,0,0.5); /* 背景追加 */
     }
     #page-info:hover {
-      background: rgba(255,255,255,0.2);
+      background: rgba(255, 255, 255, 0.1);
       color: #fff;
     }
     #refresh-btn {
@@ -508,7 +510,7 @@ class PageViewPanel {
       cursor: pointer;
       background: transparent;
       border: none;
-      color: #888;
+      color: #fff;
       width: 24px; height: 24px;
       padding: 0;
       display: flex;
