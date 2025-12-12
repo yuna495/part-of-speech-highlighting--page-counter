@@ -582,6 +582,21 @@
         }
       },
       {
+        "title": "POS & Note: ページビュー設定",
+        "properties": {
+          "posNote.Page.defaultRows": {
+            "type": "number",
+            "default": 18,
+            "description": "ページビューのデフォルト行数（アイコン緑点灯時）。"
+          },
+          "posNote.Page.defaultCols": {
+            "type": "number",
+            "default": 40,
+            "description": "ページビューのデフォルト文字数（アイコン緑点灯時）。"
+          }
+        }
+      },
+      {
         "title": "POS & Note: 見出し機能",
         "properties": {
           "posNote.headings.folding.enabled": {

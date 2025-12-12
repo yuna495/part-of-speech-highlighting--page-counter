@@ -90,11 +90,18 @@ class PageViewPanel {
         }
     }, null, this._disposables);
 
+    // デフォルト表示モード (true: Page (Default)設定, false: Note設定)
+    this._usePageSettings = true;
+
     // メッセージ受信
     panel.webview.onDidReceiveMessage((msg) => {
         if (msg.type === "refresh") {
             // リフレッシュ時は強制的に現在の保持しているドキュメントで更新
             this._update();
+        } else if (msg.type === "toggleMode") {
+             // 表示モード切替
+             this._usePageSettings = !this._usePageSettings;
+             this._update();
         } else if (msg.type === "askPageJump") {
             const total = msg.total || 1;
             vscode.window.showInputBox({
@@ -154,8 +161,18 @@ class PageViewPanel {
     this._panel.title = "縦書き: " + editor.document.fileName.split(/[/\\]/).pop();
 
     const cfg = vscode.workspace.getConfiguration("posNote");
-    const rowsPerNote = cfg.get("Note.rowsPerNote", 20);
-    const colsPerRow = cfg.get("Note.colsPerRow", 20);
+
+    // 設定値の取得 (Note用とPage用)
+    const noteRows = cfg.get("Note.rowsPerNote", 20);
+    const noteCols = cfg.get("Note.colsPerRow", 20);
+
+    const pageRows = cfg.get("Page.defaultRows", 15);
+    const pageCols = cfg.get("Page.defaultCols", 40);
+
+    // モードに応じて切り替え
+    const rowsPerNote = this._usePageSettings ? pageRows : noteRows;
+    const colsPerRow = this._usePageSettings ? pageCols : noteCols;
+
     const kinsokuEnabled = cfg.get("kinsoku.enabled", true);
 
     // 禁則文字設定（独自設定があれば取得、なければデフォルト）
@@ -172,7 +189,8 @@ class PageViewPanel {
       payload: {
         pages,
         rowsPerNote,
-        colsPerRow
+        colsPerRow,
+        isPageMode: this._usePageSettings // モード状態を送る
       }
     });
   }
@@ -367,35 +385,27 @@ class PageViewPanel {
   }
 
   _generateRubyHtml(base, reading) {
-    const esc = this._escapeHtml;
-    const baseLen = base.length;
-    // ルビブロック全体の高さを親文字数に合わせる
-    // vertical-rl における height は文字の積み上げ方向の長さ
-    const style = `style="height: ${baseLen}em;"`;
+    const esc = this._escapeHtml.bind(this);
 
-    const baseChars = [...base];
+    // 親文字を1文字ずつ .char で囲む (格子に合わせるため)
+    let baseHtml = "";
+    for (const c of base) {
+        baseHtml += `<span class="char">${esc(c)}</span>`;
+    }
+
     const onlyDots = reading.replace(/・/g, "") === "";
-
     if (onlyDots) {
-        const pairs = baseChars.map(c => `<rb>${esc(c)}</rb><rt>・</rt>`).join("");
-        return `<ruby class="rb-group" ${style}>${pairs}</ruby>`;
+        return `<ruby class="rb-group"><rb>${baseHtml}</rb><rt>・</rt></ruby>`;
     }
 
     const hasSep = reading.includes("・");
-    const readingParts = hasSep ? reading.split("・") : [...reading];
-    const perChar = hasSep || readingParts.length === baseChars.length;
-
-    if (perChar) {
-        let pairs = "";
-        for (let i = 0; i < baseChars.length; i++) {
-             const rb = esc(baseChars[i]);
-             const rt = esc(readingParts[i] ?? "");
-             pairs += `<rb>${rb}</rb><rt>${rt}</rt>`;
-        }
-        return `<ruby class="rb-group" ${style}>${pairs}</ruby>`;
+    if (hasSep) {
+        // 分割時は簡易実装
+        return `<ruby><rb>${baseHtml}</rb><rt>${esc(reading)}</rt></ruby>`;
     }
 
-    return `<ruby ${style}><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
+    // 通常
+    return `<ruby><rb>${baseHtml}</rb><rt>${esc(reading)}</rt></ruby>`;
   }
 
   _getHtmlForWebview(webview) {
@@ -497,18 +507,34 @@ class PageViewPanel {
         vertical-align: middle;
     }
 
+    /* === ルビ（縦書き用）=== */
     ruby {
-        ruby-align: center;
-        /* ruby要素自体もインラインブロック的に振る舞わせ、高さを指定できるようにする */
-        display: inline-flex;
-        flex-direction: column;
-        justify-content: center;
-        /* height はインラインスタイルで動的に指定される */
-        width: 1em; /* 横幅は1行分 */
-        vertical-align: middle;
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+      ruby-position: over;
+      ruby-align: center;
+      /* 行幅を広げないために inline-block 固定幅 + relative */
+      display: inline-block;
+      width: 1em; /* 格子サイズに固定 */
+      position: relative;
+      vertical-align: middle;
+      line-height: 1;
+      margin: 0;
+      padding: 0;
+    }
+    rt {
+      /* ルビをフローから外して絶対配置（行幅への影響なし） */
+      position: absolute;
+      /* 縦書き(vertical-rl)で右側に配置 */
+      /* width 1em の右端に対する相対位置 */
+      right: -1em;
+      top: 1em;
+      width: 1em;
+
+      font-size: 0.45em;
+      line-height: 1;
+      text-align: center;
+      writing-mode: vertical-rl;
+      white-space: nowrap;
+      pointer-events: none;
     }
 
     /* カーソル同期用スタイル */
@@ -521,46 +547,50 @@ class PageViewPanel {
         cursor: pointer;
     }
 
-    rb, rt {
-       /* ensure contents are centered */
-       text-align: center;
-    }
-
     /* フッター */
     #footer {
       position: fixed;
-      bottom: 30px; /* 少し上げる */
+      bottom: 30px;
       left: 0;
       width: 100%;
       height: 30px;
-      pointer-events: none; /* 下のクリックを邪魔しないようにするならnoneだが、ボタン押せなくなる */
-      /* page-infoだけクリックさせたい */
+      pointer-events: none;
+      /* 中心揃え */
       display: flex;
-      align-items: center;
       justify-content: center;
-      gap: 16px; /* ボタンとの間隔 */
+      align-items: center;
       z-index: 100;
       font-family: sans-serif;
-      font-size: 14px; /* 少し大きく */
+      font-size: 14px;
       color: #ccc;
     }
+
+    /* 中央配置のためのコンテナ */
+    #footer-center {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        pointer-events: auto; /* ここだけクリック有効 */
+        background: rgba(0,0,0,0.5);
+        padding: 4px 16px;
+        border-radius: 20px;
+    }
+
     #page-info {
-      pointer-events: auto;
       cursor: pointer;
-      padding: 4px 12px;
-      border-radius: 16px;
-      background: rgba(0,0,0,0.5); /* 背景追加 */
+      color: #ccc;
+      min-width: 60px;
+      text-align: center;
     }
     #page-info:hover {
-      background: rgba(255, 255, 255, 0.1);
       color: #fff;
     }
-    #refresh-btn {
+    #refresh-btn, #toggle-btn {
       pointer-events: auto;
       cursor: pointer;
       background: transparent;
       border: none;
-      color: #fff;
+      color: #ccc;
       width: 24px; height: 24px;
       padding: 0;
       display: flex;
@@ -568,26 +598,35 @@ class PageViewPanel {
       justify-content: center;
       transition: color 0.3s;
     }
-    #refresh-btn:hover {
+    #refresh-btn:hover, #toggle-btn:hover {
       color: #fff;
     }
-    #refresh-btn svg {
+    #toggle-btn.active {
+      color: #11ff84;
+    }
+    #refresh-btn svg, #toggle-btn svg {
       width: 18px; height: 18px;
       fill: currentColor;
     }
     #refresh-btn.spinning svg {
         animation: spin 1s linear infinite;
     }
+
     @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div id="container"></div>
   <div id="footer">
-    <button id="refresh-btn" title="更新">
-        <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-    </button>
-    <span id="page-info" title="クリックでページ移動">-- / --</span>
+    <div id="footer-center">
+        <button id="toggle-btn" title="表示切替 (Page/Note)">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+        </button>
+        <button id="refresh-btn" title="更新">
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </button>
+        <span id="page-info" title="クリックでページ移動">-- / --</span>
+    </div>
   </div>
 
   <script nonce="${nonce}">
@@ -595,6 +634,7 @@ class PageViewPanel {
     const container = document.getElementById('container');
     const pageInfo = document.getElementById('page-info');
     const refreshBtn = document.getElementById('refresh-btn');
+    const toggleBtn = document.getElementById('toggle-btn');
 
     let state = { pages: [], rows: 20, cols: 20 };
 
@@ -610,6 +650,10 @@ class PageViewPanel {
     refreshBtn.addEventListener('click', () => {
       refreshBtn.classList.add('spinning');
       vscode.postMessage({ type: 'refresh' });
+    });
+
+    toggleBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'toggleMode' });
     });
 
     // リサイズ監視
@@ -707,6 +751,13 @@ class PageViewPanel {
 
       container.innerHTML = '';
       refreshBtn.classList.remove('spinning');
+
+      // アイコン色更新
+      if (payload.isPageMode) {
+          toggleBtn.classList.add('active');
+      } else {
+          toggleBtn.classList.remove('active');
+      }
 
       // row-reverse なので、配列先頭(Page 1)がDOM最後に追加されると「左端」になってしまう？
       // いいえ。row-reverse は "item1 item2 item3" を "item3 item2 item1" と右から並べる。
