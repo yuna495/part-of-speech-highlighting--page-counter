@@ -568,29 +568,29 @@
         }
       },
       {
-        "title": "POS & Note: ページビュー設定",
+        "title": "POS & Note: ページプレビュー設定",
         "properties": {
           "posNote.Page.defaultRows": {
             "type": "number",
             "default": 18,
-            "description": "ページビューのデフォルト行数（アイコン緑点灯時）。"
+            "description": "ページプレビューのデフォルト行数（アイコン緑点灯時）。"
           },
           "posNote.Page.defaultCols": {
             "type": "number",
             "default": 40,
-            "description": "ページビューのデフォルト文字数（アイコン緑点灯時）。"
+            "description": "ページプレビューのデフォルト文字数（アイコン緑点灯時）。"
           },
           "posNote.Preview.backgroundColor": {
             "type": "string",
             "format": "color",
             "default": "#101010",
-            "description": "ページビューの背景色 (例: #101010)。"
+            "description": "ページプレビューの背景色 (例: #101010)。"
           },
           "posNote.Preview.textColor": {
             "type": "string",
             "format": "color",
             "default": "#eeeeee",
-            "description": "ページビューの文字色 (例: #eeeeee)。"
+            "description": "ページプレビューの文字色 (例: #eeeeee)。"
           }
         }
       },
@@ -678,13 +678,13 @@
             "type": "number",
             "default": 20,
             "minimum": 1,
-            "description": "1ページの行数。"
+            "description": "ページ計算：1ページの行数。"
           },
           "posNote.Note.colsPerRow": {
             "type": "number",
             "default": 20,
             "minimum": 1,
-            "description": "1行の文字数。"
+            "description": "ページ計算：1行の文字数。"
           },
           "posNote.kinsoku.enabled": {
             "type": "boolean",

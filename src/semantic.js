@@ -1054,7 +1054,6 @@ class JapaneseSemanticProvider {
       }
 
       // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
-      // ▼ (3) 品詞ハイライト（辞書マスクに重なるトークンは出さない）
       if (tokenizer && text.trim()) {
         // キャッシュ確認
         const docKey = document.uri.toString();
