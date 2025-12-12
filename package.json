@@ -231,15 +231,6 @@
         "title": "POS/Note: ミニマップハイライトを更新"
       },
       {
-        "command": "posNote.Preview.open",
-        "title": "POS/Note: プレビューを開く",
-        "icon": "$(book)"
-      },
-      {
-        "command": "posNote.Preview.refresh",
-        "title": "POS/Note: 再描画"
-      },
-      {
         "command": "posNote.showPageView",
         "title": "POS/Note: 縦書きページビュー",
         "icon": "$(file-text)"
@@ -434,11 +425,6 @@
         }
       ],
       "editor/title": [
-        {
-          "command": "posNote.Preview.open",
-          "group": "navigation@100",
-          "when": "resourceExtname == .txt || resourceExtname == .md"
-        },
         {
           "command": "posNote.showPageView",
           "group": "navigation@101",
@@ -725,74 +711,6 @@
             "default": 1000,
             "minimum": 100,
             "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。"
-          }
-        }
-      },
-      {
-        "title": "POS & Note: プレビュー",
-        "properties": {
-          "posNote.Preview.backgroundColor": {
-            "type": "string",
-            "default": "#101010",
-            "markdownDescription": "プレビューの背景色（例: `#ffffff`, `black`, `rgb(30,30,30)` など）"
-          },
-          "posNote.Preview.textColor": {
-            "type": "string",
-            "default": "#4dd0e1",
-            "markdownDescription": "本文のフォントカラー"
-          },
-          "posNote.Preview.activeLineBackground": {
-            "type": "string",
-            "default": "rgba(150, 100, 0, 0.1)",
-            "markdownDescription": "プレビュー側でハイライトされる行の背景色"
-          },
-          "posNote.Preview.fontSize": {
-            "type": "number",
-            "default": 20,
-            "minimum": 8,
-            "maximum": 72,
-            "markdownDescription": "本文のフォントサイズ（px）。既定: 20"
-          },
-          "posNote.Preview.showCursor": {
-            "type": "boolean",
-            "default": false,
-            "markdownDescription": "プレビューにカーソル（縦線）を表示するか。false で非表示。"
-          },
-          "posNote.Preview.autoRefreshOnSave": {
-            "type": "boolean",
-            "default": true,
-            "markdownDescription": "保存時にプレビューを自動更新するかどうか。false にしても手動更新ボタンは利用できます。"
-          },
-          "posNote.Preview.posHighlight.enabled": {
-            "type": "boolean",
-            "default": true,
-            "description": "プレビューで品詞ハイライトを有効化（保存時のみ更新。無効化すると高速化）"
-          },
-          "posNote.Preview.posHighlight.mode": {
-            "type": "boolean",
-            "default": true,
-            "description": "ON: プレビュー画面での品詞ハイライトを適用する。"
-          },
-          "posNote.Preview.posHighlight.applyToMd": {
-            "type": "boolean",
-            "default": true,
-            "description": ".md でもプレビューPOSハイライトを適用する"
-          },
-          "posNote.Preview.posHighlight.maxLines": {
-            "default": "none",
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 10
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "none"
-                ]
-              }
-            ],
-            "markdownDescription": "プレビューでPOS着色する最大行数（パフォーマンス上限）。`\"none\"` を指定すると全文を表示。"
           }
         }
       },

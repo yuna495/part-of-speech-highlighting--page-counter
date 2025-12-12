@@ -185,6 +185,20 @@ class PageViewPanel {
     const text = editor.document.getText();
     const pages = this._paginateText(text, rowsPerNote, colsPerRow, kinsokuEnabled, bannedChars);
 
+    // 色指定の正規化ヘルパー (CSSとして有効にするため、HEXなら # を付与)
+    const normalizeColor = (c) => {
+        if (!c) return c;
+        const s = c.trim();
+        // "ff0000" や "FFF" のようなハッシュなしHEXに対応
+        if (/^[0-9a-fA-F]{3,8}$/.test(s)) {
+            return "#" + s;
+        }
+        return s;
+    };
+
+    const bgColorRaw = previewCfg.get("backgroundColor", "#101010");
+    const textColorRaw = previewCfg.get("textColor", "#eeeeee");
+
     this._panel.webview.postMessage({
       type: "update",
       payload: {
@@ -192,8 +206,8 @@ class PageViewPanel {
         rowsPerNote,
         colsPerRow,
         isPageMode: this._usePageSettings,
-        bgColor: previewCfg.get("backgroundColor", "#101010"),
-        textColor: previewCfg.get("textColor", "#eeeeee")
+        bgColor: normalizeColor(bgColorRaw),
+        textColor: normalizeColor(textColorRaw)
       }
     });
   }

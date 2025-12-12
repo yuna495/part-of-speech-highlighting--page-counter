@@ -8,7 +8,6 @@ const { initHeadings } = require("./headings");
 const { initSidebarUtilities } = require("./sidebar_util");
 const { initKanbn } = require("./kanbn");
 const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
-const { PreviewPanel } = require("./preview_panel");
 const PageViewPanel = require("./page_view");
 const { registerBracketSupport } = require("./bracket");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
@@ -139,12 +138,6 @@ function activate(context) {
     vscode.commands.registerCommand("posNote.setNoteSize", () =>
       sb.cmdSetNoteSize()
     ),
-    vscode.commands.registerCommand("posNote.Preview.open", () => {
-      PreviewPanel.show(context.extensionUri, context);
-    }),
-    vscode.commands.registerCommand("posNote.Preview.refresh", () => {
-      PreviewPanel.refresh({ forceFull: true, showSpinner: true });
-    }),
     vscode.commands.registerCommand("posNote.showPageView", () => {
       PageViewPanel.createOrShow(context);
     }),
@@ -233,19 +226,6 @@ function activate(context) {
         if (ed && ed.document === doc) {
           sb.recomputeOnSaveIfNeeded(doc);
           headings.refresh(ed, { immediate: true });
-          // プレビューの再描画（設定でONのとき）
-          const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
-          if (previewCfg.get("autoRefreshOnSave", true)) {
-            const cp = PreviewPanel.currentPanel;
-            const sameDoc =
-              cp &&
-              ((cp._docUri &&
-                doc.uri.toString() === cp._docUri.toString()) ||
-                (!cp._docUri && cp._editor?.document === doc));
-            if (sameDoc) {
-              PreviewPanel.refresh({ forceFull: true, showSpinner: true });
-            }
-          }
         }
       } catch (err) {
         console.error("[POSNote] onDidSaveTextDocument error:", err);
@@ -258,37 +238,12 @@ function activate(context) {
       sb.onActiveEditorChanged(ed);
       // headings update is handled by headings.js internal listener (or should be?)
       // headings.js HAS internal onDidChangeActiveTextEditor listener. So no need to call here.
-
-      // 直参照で統一（再 require はしない）
-      const cp = PreviewPanel.currentPanel;
-      if (
-        cp &&
-        cp._docUri &&
-        ed.document.uri.toString() === cp._docUri.toString()
-      ) {
-        PreviewPanel.highlight(ed.selection.active.line);
-      }
     }),
 
     // 選択変更：選択文字数の即時反映
     vscode.window.onDidChangeTextEditorSelection((e) => {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
       sb.onSelectionChanged(e.textEditor);
-
-      // 直参照で統一（再 require はしない）
-      const cp = PreviewPanel.currentPanel;
-      if (
-        cp &&
-        cp._docUri &&
-        e.textEditor.document.uri.toString() === cp._docUri.toString()
-      ) {
-        // highlight 呼び出しをデバウンス（50ms）
-        if (cp._highlightTimer) clearTimeout(cp._highlightTimer);
-        cp._highlightTimer = setTimeout(() => {
-          PreviewPanel.highlight(e.textEditor.selection.active.line);
-          cp._highlightTimer = null;
-        }, 50);
-      }
     }),
 
     // 設定変更：再計算＋セマンティック再発行
@@ -308,6 +263,11 @@ function activate(context) {
       if (semProvider && semProvider.fireDidChange) {
         semProvider.fireDidChange();
       }
+
+      // PageViewPanel 更新
+      if (PageViewPanel.currentPanel) {
+        PageViewPanel.currentPanel._update();
+      }
     })
   );
   // 保存：自動整形（行末スペース削除）
@@ -318,9 +278,6 @@ function activate(context) {
  * プレビュー Webview が残らないように明示破棄する。
  */
 function deactivate() {
-  if (PreviewPanel.currentPanel) {
-    PreviewPanel.currentPanel.dispose();
-  }
 }
 
 module.exports = { activate, deactivate };
