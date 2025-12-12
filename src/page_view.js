@@ -479,8 +479,10 @@ class PageViewPanel {
       height: calc((var(--cols) + 2) * var(--font-size));
 
       /* 罫線：最初の行の右（＝Block Start）、最後の行の左（＝Block End） */
-      border-right: 1px solid #444;
-      border-left: 1px solid #444;
+      border-right: 1px solid #333;
+      border-left: 1px solid #333;
+
+      padding-right: 0.5em; /* 最初の行と右罫線の間を空ける */
 
       /* ボックス内での配置 */
       /* margin: auto; flexで中央寄せ済み */
