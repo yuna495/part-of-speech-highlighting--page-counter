@@ -57,6 +57,7 @@ class PageViewPanel {
       };
     };
 
+    // 更新処理のデバウンス
     const onDocChange = debounce(() => {
         if (this._panel.visible) {
             this._update();
@@ -64,21 +65,24 @@ class PageViewPanel {
     }, 500);
 
     vscode.workspace.onDidChangeTextDocument((e) => {
-        if (vscode.window.activeTextEditor && e.document === vscode.window.activeTextEditor.document) {
+        if (this._targetEditor && e.document === this._targetEditor.document) {
             onDocChange();
         }
     }, null, this._disposables);
 
-    vscode.window.onDidChangeActiveTextEditor(() => {
-        this._update();
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (editor) {
+            this._targetEditor = editor;
+            this._update();
+        }
     }, null, this._disposables);
 
-    // メッセージ受信 (再描画要求など)
+    // メッセージ受信
     panel.webview.onDidReceiveMessage((msg) => {
         if (msg.type === "refresh") {
+            // リフレッシュ時は強制的に現在の保持しているドキュメントで更新
             this._update();
         } else if (msg.type === "askPageJump") {
-            // ページジャンプ入力
             const total = msg.total || 1;
             vscode.window.showInputBox({
                 prompt: `移動先のページ番号 (1〜${total})`,
@@ -91,7 +95,9 @@ class PageViewPanel {
             }).then(val => {
                 if (val) {
                     const page = parseInt(val, 10);
-                    this._panel.webview.postMessage({ type: "jumpTo", page });
+                    if (!isNaN(page) && page >= 1 && page <= total) {
+                        this._panel.webview.postMessage({ type: "jumpTo", page });
+                    }
                 }
             });
         }
@@ -108,8 +114,14 @@ class PageViewPanel {
   }
 
   _update() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || !this._panel) return;
+    if (!this._panel) return;
+
+    // アクティブエディタが無い場合（Webviewフォーカス時など）は、最後に記憶したエディタを使う
+    const editor = vscode.window.activeTextEditor || this._targetEditor;
+    if (!editor) return;
+
+    // 記憶も更新
+    this._targetEditor = editor;
 
     this._panel.title = "縦書き: " + editor.document.fileName.split(/[/\\]/).pop();
 
@@ -176,50 +188,57 @@ class PageViewPanel {
         // 見出し置換
         rawLine = rawLine.replace(/^#+\s+/, "\u3000\u3000\u3000");
 
-        // トークン化（ルビと通常文字に分割）
+        // トークン化
         const tokens = this._tokenizeLine(rawLine);
 
         let tokenIdx = 0;
 
         while (tokenIdx < tokens.length) {
-            // 1行(currentLine)を構築する
             let lineStr = "";
-            let currentLen = 0; // 文字数カウント
+            let currentLen = 0;
 
-            // 行容量いっぱいまでトークンを取り込む
+            // 1. まずは行容量 (colsPerRow) いっぱいまで埋める
             while (tokenIdx < tokens.length) {
                 const token = tokens[tokenIdx];
-                const tokenLen = token.length;
-
-                // 次の1文字（またはルビブロック）が入るか？
-                // 禁則処理：次が禁則で、かつ行頭に来てしまう場合、前の行に詰め込む？
-                // ここでは「行の残り容量」と比較
-
-                // 禁則判定用の先読み
-                // もし次のトークンを入れるとあふれる場合...
-                if (currentLen + tokenLen > colsPerRow) {
-                   // あふれる。
-                   // でも「ぶら下げ」が有効なら、禁則文字(length=1)は+2まで許容
-                   if (kinsokuEnabled && tokenLen === 1 && bannedSet.has(token.char)) {
-                       // ぶら下げ許容範囲内(colsPerRow + 2)か？
-                       const maxLen = colsPerRow + 2;
-                       if (currentLen + tokenLen <= maxLen) {
-                           // OK, push it
-                           lineStr += token.html;
-                           currentLen += tokenLen;
-                           tokenIdx++;
-                           // ぶら下げ成功したら、その行はそこで終わり（無理やり詰め込んだので）
-                           break;
-                       }
-                   }
-
-                   // 収まらないので改行
-                   break;
+                if (currentLen + token.length > colsPerRow) {
+                    break;
                 }
-
-                // 通常追加
                 lineStr += token.html;
-                currentLen += tokenLen;
+                currentLen += token.length;
+                tokenIdx++;
+            }
+
+            // 2. ぶら下げ処理 (status_bar.js: wrappedRowsForText 互換)
+            // 次に来る文字が禁則文字なら、最大2文字分まで拡張して取り込む
+            if (kinsokuEnabled) {
+                let extended = 0;
+                const MAX_EXTEND = 2; // status_bar.js に合わせる
+
+                while (tokenIdx < tokens.length && extended < MAX_EXTEND) {
+                    const token = tokens[tokenIdx];
+                    // トークンの先頭文字が禁則かどうか判定
+                    // bannedChars check uses the first char of the token
+                    if (token.firstChar && bannedSet.has(token.firstChar)) {
+                        // 拡張した場合の長さチェック (colsPerRow + 2 を超えないこと)
+                        if (currentLen + token.length <= colsPerRow + MAX_EXTEND) {
+                            lineStr += token.html;
+                            currentLen += token.length;
+                            // extended は文字数ベースで増やす（status_bar.jsは char単位ループなので）
+                            extended += token.length;
+                            tokenIdx++;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            // 行が空（1つも入らなかった＝巨大トークン等）なら強制的に1つ入れる
+            if (currentLen === 0 && tokenIdx < tokens.length) {
+                const token = tokens[tokenIdx];
+                lineStr += token.html;
                 tokenIdx++;
             }
 
@@ -258,6 +277,7 @@ class PageViewPanel {
                 tokens.push({
                     type: 'char',
                     char: char,
+                    firstChar: char,
                     length: 1,
                     html: this._escapeHtml(char)
                 });
@@ -272,6 +292,7 @@ class PageViewPanel {
         tokens.push({
             type: 'ruby',
             length: base.length,
+            firstChar: base[0], // ルビの親文字の1文字目で判定
             html: rubyHtml
         });
 
@@ -285,6 +306,7 @@ class PageViewPanel {
             tokens.push({
                 type: 'char',
                 char: char,
+                firstChar: char,
                 length: 1,
                 html: this._escapeHtml(char)
             });
@@ -350,7 +372,7 @@ class PageViewPanel {
       margin: 0; padding: 0;
       width: 100vw; height: 100vh;
       overflow: hidden;
-      background-color: #1a1a1a;
+      background-color: #101010;
       color: #eee;
       font-family: serif;
     }
@@ -399,8 +421,8 @@ class PageViewPanel {
       height: calc((var(--cols) + 2) * var(--font-size));
 
       /* 罫線：最初の行の右（＝Block Start）、最後の行の左（＝Block End） */
-      border-right: 1px solid #333;
-      border-left: 1px solid #333;
+      border-right: 1px solid #444;
+      border-left: 1px solid #444;
 
       /* ボックス内での配置 */
       /* margin: auto; flexで中央寄せ済み */
@@ -452,22 +474,35 @@ class PageViewPanel {
     #refresh-btn {
       pointer-events: auto;
       cursor: pointer;
-      background: rgba(0,0,0,0.5);
-      border: 1px solid #666;
-      color: #fff;
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-size: 12px;
+      background: transparent;
+      border: none;
+      color: #888;
+      width: 24px; height: 24px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.3s;
     }
     #refresh-btn:hover {
-      background: #444;
+      color: #fff;
     }
+    #refresh-btn svg {
+      width: 18px; height: 18px;
+      fill: currentColor;
+    }
+    #refresh-btn.spinning svg {
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div id="container"></div>
   <div id="footer">
-    <button id="refresh-btn">更新</button>
+    <button id="refresh-btn" title="更新">
+        <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
     <span id="page-info" title="クリックでページ移動">-- / --</span>
   </div>
 
@@ -489,6 +524,7 @@ class PageViewPanel {
     });
 
     refreshBtn.addEventListener('click', () => {
+      refreshBtn.classList.add('spinning');
       vscode.postMessage({ type: 'refresh' });
     });
 
@@ -540,6 +576,7 @@ class PageViewPanel {
       state.cols = payload.colsPerRow;
 
       container.innerHTML = '';
+      refreshBtn.classList.remove('spinning');
 
       // row-reverse なので、配列先頭(Page 1)がDOM最後に追加されると「左端」になってしまう？
       // いいえ。row-reverse は "item1 item2 item3" を "item3 item2 item1" と右から並べる。
