@@ -591,6 +591,16 @@
             "format": "color",
             "default": "#eeeeee",
             "description": "ページプレビューの文字色 (例: #eeeeee)。"
+          },
+          "posNote.Preview.fontFamily": {
+            "type": "string",
+            "default": "\"HiraMinProN-W3\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"YuMincho\", \"MS Mincho\", \"TakaoMincho\", serif",
+            "description": "ページプレビューで使用するフォント（CSSのfont-family形式）。"
+          },
+          "posNote.Preview.PDFoutputfontFamily": {
+            "type": "string",
+            "default": "\"HiraMinProN-W3\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"YuMincho\", \"MS Mincho\", \"TakaoMincho\", serif",
+            "description": "PDF出力時に使用するフォント（CSSのfont-family形式）。空欄ならプレビュー設定を使用。"
           }
         }
       },
@@ -860,7 +870,8 @@
     "textlint-rule-no-doubled-conjunction": "^3.0.0",
     "textlint-rule-no-doubled-joshi": "^5.1.0",
     "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet": "^1.0.1",
-    "textlint-rule-preset-jtf-style": "^3.0.2"
+    "textlint-rule-preset-jtf-style": "^3.0.2",
+    "puppeteer-core": "^23.1.0"
   },
   "devDependencies": {
     "@types/node": "20.x",

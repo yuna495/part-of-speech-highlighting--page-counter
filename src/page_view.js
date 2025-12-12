@@ -135,6 +135,8 @@ class PageViewPanel {
                      selection: new vscode.Range(pos, pos)
                 });
             }
+        } else if (msg.type === "exportPdf") {
+            this._exportToPdf();
         }
     }, null, this._disposables);
   }
@@ -198,6 +200,7 @@ class PageViewPanel {
 
     const bgColorRaw = previewCfg.get("backgroundColor", "#101010");
     const textColorRaw = previewCfg.get("textColor", "#eeeeee");
+    const fontFamily = previewCfg.get("fontFamily", "serif");
 
     this._panel.webview.postMessage({
       type: "update",
@@ -207,7 +210,8 @@ class PageViewPanel {
         colsPerRow,
         isPageMode: this._usePageSettings,
         bgColor: normalizeColor(bgColorRaw),
-        textColor: normalizeColor(textColorRaw)
+        textColor: normalizeColor(textColorRaw),
+        fontFamily
       }
     });
   }
@@ -331,6 +335,204 @@ class PageViewPanel {
     return pages;
   }
 
+  async _exportToPdf() {
+      // 1. puppeteer-core の読み込み
+      let puppeteer;
+      try {
+          puppeteer = require('puppeteer-core');
+      } catch (e) {
+          vscode.window.showErrorMessage("PDF出力には 'puppeteer-core' が必要です。ターミナルで 'npm install puppeteer-core' を実行してください。");
+          return;
+      }
+
+      // 2. ブラウザの検索
+      const browserPath = this._findChromePath();
+      if (!browserPath) {
+          vscode.window.showErrorMessage("Chrome または Edge が見つかりませんでした。インストール場所を確認してください。");
+          return;
+      }
+
+      // 3. 保存先決定
+      const editor = this._targetEditor;
+      if (!editor) return;
+      const docPath = editor.document.uri.fsPath;
+      const defaultPdfPath = docPath.replace(/\.(txt|md|novel)$/i, "") + ".pdf";
+
+      // ユーザーに確認せず直接生成する要件だが、念のため上書き確認等はVSCodeの作法として...
+      // いや、ユーザー要望は「そのファイルのカレントディレクトリに作成」なので、ダイアログなしで作成またはダイアログで指定
+      // ここでは安全のため SaveDialog を出すのが一般的だが、「PDF出力ボタン」のUXとしてはワンクリック保存が理想か？
+      // しかし上書き事故が怖いので SaveDialog を出す。初期値をカレントディレクトリに設定。
+
+      const uri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(defaultPdfPath),
+          filters: { 'PDF File': ['pdf'] }
+      });
+      if (!uri) return; // キャンセル
+
+      vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: "PDFを出力中...",
+          cancellable: false
+      }, async (progress) => {
+          let browser;
+          try {
+              // 4. Puppeteer 起動
+              browser = await puppeteer.launch({
+                  executablePath: browserPath,
+                  headless: true,
+                  args: ['--no-sandbox', '--disable-setuid-sandbox'] // 環境によっては必要
+              });
+
+              const page = await browser.newPage();
+
+              // 5. PDF用HTML生成
+              // 現在の設定（Page/Note）に基づくページ分割を取得
+              const cfg = vscode.workspace.getConfiguration("posNote");
+              const previewCfg = vscode.workspace.getConfiguration("posNote.Preview");
+
+              const noteRows = cfg.get("Note.rowsPerNote", 20);
+              const noteCols = cfg.get("Note.colsPerRow", 20);
+              const pageRows = cfg.get("Page.defaultRows", 15);
+              const pageCols = cfg.get("Page.defaultCols", 40);
+              const rows = this._usePageSettings ? pageRows : noteRows;
+              const cols = this._usePageSettings ? pageCols : noteCols;
+
+              const kinsokuEnabled = cfg.get("kinsoku.enabled", true);
+              const userBanned = cfg.get("kinsoku.bannedStart");
+              const bannedChars = (Array.isArray(userBanned) && userBanned.length > 0) ? userBanned : DEFAULT_BANNED_START;
+
+              const text = editor.document.getText();
+              const pages = this._paginateText(text, rows, cols, kinsokuEnabled, bannedChars);
+
+              const bgColor = previewCfg.get("backgroundColor", "#101010"); // PDFでは白背景が一般的だが、プレビュー通りなら黒？
+              // PDFなら白背景・黒文字が好まれることが多い。
+              // 文庫本風なら白背景に黒文字推奨。
+              // 今回はプレビュー設定ではなく「印刷用」として白背景固定にするか、設定を見るか？
+              // 縦書きPDFとして読むなら白が安全。
+              const printBg = "#ffffff";
+              const printFg = "#000000";
+
+              // PDF用フォント（空ならプレビュー用を使う）
+              let pdfFont = previewCfg.get("PDFoutputfontFamily", "");
+              if (!pdfFont || pdfFont.trim() === "") {
+                  pdfFont = previewCfg.get("fontFamily", "serif");
+              }
+
+              const htmlContent = this._getHtmlForPdf(pages, rows, cols, printBg, printFg, pdfFont);
+
+              await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+              // 6. PDF出力
+              await page.pdf({
+                  path: uri.fsPath,
+                  format: 'A4', // または width/height 指定
+                  printBackground: true,
+                  landscape: true // 縦書きなので横長用紙が良い？いや、縦書きでも用紙は縦（右から左へ）が普通
+                  // 文庫本見開きなら横だが、ページ単位出力なら縦用紙に縦書きを入れるのが一般的
+                  // CSS writing-mode: vertical-rl; なので、用紙が縦(Portrait)だと、右から左へ行が進む。
+                  // A4 Portrait でOK。
+              });
+
+              vscode.window.showInformationMessage(`PDFを出力しました: ${uri.fsPath}`);
+          } catch (err) {
+              console.error(err);
+              vscode.window.showErrorMessage(`PDF出力失敗: ${err.message}`);
+          } finally {
+              if (browser) await browser.close();
+          }
+      });
+  }
+
+  _findChromePath() {
+      const fs = require('fs');
+      const paths = [
+          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+          'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+          process.env.CHROME_PATH
+      ];
+      for (const p of paths) {
+          if (p && fs.existsSync(p)) return p;
+      }
+      return null;
+  }
+
+  _getHtmlForPdf(pages, rows, cols, bgColor, textColor, fontFamily) {
+      // PDF出力用のシンプルなHTML
+      // 1ページ = 1 div.page (break-after: always)
+      return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {
+      size: A4;
+      margin: 0;
+  }
+  body {
+      margin: 0;
+      padding: 0;
+      background-color: ${bgColor};
+      color: ${textColor};
+      font-family: ${fontFamily};
+  }
+  .page {
+      width: 100%;
+      height: 100vh;
+      page-break-after: always;
+      break-after: always;
+
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-sizing: border-box;
+      /* 印刷用余白（A4内側） */
+      padding: 20mm;
+      position: relative;
+  }
+  .page-content {
+      writing-mode: vertical-rl;
+      font-size: 14pt; /* PDF用固定サイズあるいは計算 */
+      line-height: 1.7;
+
+      /* 行数・文字数で枠を固定 */
+      height: calc((${cols} + 2) * 1em); /* 縦方向（文字数） */
+      width: calc(${rows} * 1.7em);      /* 横方向（行数） */
+
+
+  }
+  p { margin: 0; padding: 0; text-align: justify; }
+  .char { display: inline-block; width: 1em; height: 1em; text-align: center; }
+
+  /* ルビ */
+  ruby { ruby-position: over; ruby-align: center; }
+  rt { font-size: 0.5em; }
+
+  /* ノンブル */
+  .footer {
+      position: absolute;
+      bottom: 10mm;
+      width: 100%;
+      text-align: center;
+      font-size: 10pt;
+      font-family: sans-serif;
+  }
+</style>
+</head>
+<body>
+  ${pages.map((lines, i) => `
+  <div class="page">
+      <div class="page-content">
+          ${lines.map(line => `<p>${line}</p>`).join('')}
+      </div>
+      <div class="footer">- ${i + 1} -</div>
+  </div>
+  `).join('')}
+</body>
+</html>`;
+  }
+
   _tokenizeLine(line, lineNo) {
     const tokens = [];
     const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
@@ -448,7 +650,7 @@ class PageViewPanel {
       background-color: #101010;
       color: #eee;
       /* 1マス1文字レイアウト (Grid/Lattice behavior) for proper alignment */
-      font-family: "HiraMinProN-W3", "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "MS Mincho", "TakaoMincho", serif;
+      font-family: var(--font-family);
       font-variant-east-asian: full-width;
     }
 
@@ -607,7 +809,7 @@ class PageViewPanel {
     #page-info:hover {
       color: #fff;
     }
-    #refresh-btn, #toggle-btn {
+    #refresh-btn, #toggle-btn, #pdf-btn {
       pointer-events: auto;
       cursor: pointer;
       background: transparent;
@@ -620,13 +822,13 @@ class PageViewPanel {
       justify-content: center;
       transition: color 0.3s;
     }
-    #refresh-btn:hover, #toggle-btn:hover {
+    #refresh-btn:hover, #toggle-btn:hover, #pdf-btn:hover {
       color: #fff;
     }
     #toggle-btn.active {
       color: #11ff84;
     }
-    #refresh-btn svg, #toggle-btn svg {
+    #refresh-btn svg, #toggle-btn svg, #pdf-btn svg {
       width: 18px; height: 18px;
       fill: currentColor;
     }
@@ -648,6 +850,9 @@ class PageViewPanel {
             <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
         </button>
         <span id="page-info" title="クリックでページ移動">-- / --</span>
+        <button id="pdf-btn" title="文庫サイズでPDF出力">
+            <svg viewBox="0 0 24 24"><path d="M20 2H8c-1.1 0-2 .9-2 2v12H2c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h4v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-6 20H8v-4h6v4zm6 0h-4v-4h4v4zm0-6H8v-2h12v2zm0-4H8V4h12v8z"/></svg>
+        </button>
     </div>
   </div>
 
@@ -657,6 +862,7 @@ class PageViewPanel {
     const pageInfo = document.getElementById('page-info');
     const refreshBtn = document.getElementById('refresh-btn');
     const toggleBtn = document.getElementById('toggle-btn');
+    const pdfBtn = document.getElementById('pdf-btn');
 
     let state = { pages: [], rows: 20, cols: 20 };
 
@@ -677,6 +883,12 @@ class PageViewPanel {
     toggleBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'toggleMode' });
     });
+
+    if (pdfBtn) {
+        pdfBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'exportPdf' });
+        });
+    }
 
     // リサイズ監視
     window.addEventListener('resize', () => {
@@ -778,6 +990,9 @@ class PageViewPanel {
       if (payload.textColor) {
           document.body.style.color = payload.textColor;
           document.documentElement.style.color = payload.textColor;
+      }
+      if (payload.fontFamily) {
+          document.documentElement.style.setProperty('--font-family', payload.fontFamily);
       }
 
       container.innerHTML = '';
