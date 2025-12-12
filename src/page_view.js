@@ -15,7 +15,7 @@ class PageViewPanel {
   }
 
   static createOrShow(context) {
-    const column = vscode.ViewColumn.Active;
+    const column = vscode.ViewColumn.Beside;
 
     // 既存ならそこへフォーカス
     if (PageViewPanel.currentPanel) {
@@ -144,17 +144,17 @@ class PageViewPanel {
     // 改行正規化
     let safeText = text.replace(/\r\n/g, "\n");
 
-    // コードフェンス除去（行単位で処理して、行数カウントにも含めない）
+    // コードフェンス除去
     const rawLines = safeText.split("\n");
     const lines = [];
     let inFence = false;
     for (const line of rawLines) {
         if (line.trim().startsWith("```")) {
             inFence = !inFence;
-            continue; // フェンス行自体も除外
+            continue;
         }
         if (inFence) {
-            continue; // フェンス内の行も除外
+            continue;
         }
         lines.push(line);
     }
@@ -164,9 +164,8 @@ class PageViewPanel {
     let currentLines = [];
 
     for (let rawLine of lines) {
-        // 空行対応：全角スペースを入れて1行確保（または空文字でもCSSでmin-heightがあればよいが、文字として扱うほうが安全）
         if (rawLine.length === 0) {
-            currentLines.push("\u3000"); // 全角スペース1つで空行を表現
+            currentLines.push("\u3000");
             if (currentLines.length >= rowsPerNote) {
                 pages.push(currentLines);
                 currentLines = [];
@@ -174,41 +173,58 @@ class PageViewPanel {
             continue;
         }
 
-        // 見出し置換（#+ のあとにスペースがある場合、全角スペース3つに）
+        // 見出し置換
         rawLine = rawLine.replace(/^#+\s+/, "\u3000\u3000\u3000");
 
-        // 文字の切り出し（禁則対応）
-        const chars = Array.from(rawLine);
-        let pos = 0;
-        const len = chars.length;
+        // トークン化（ルビと通常文字に分割）
+        const tokens = this._tokenizeLine(rawLine);
 
-        while (pos < len) {
-            let take = colsPerRow;
+        let tokenIdx = 0;
 
-            // 禁則処理：次行の1文字目が禁則文字なら、今の行に収める（ぶら下げ）
-            // 最大2文字まで拡張
-            if (kinsokuEnabled) {
-                const maxExtend = 2;
-                let extended = 0;
-                // まだ文字があり、かつ次の行頭になる文字が禁則の場合
-                while (
-                    pos + take + extended < len &&
-                    bannedSet.has(chars[pos + take + extended]) &&
-                    extended < maxExtend
-                ) {
-                    extended++;
+        while (tokenIdx < tokens.length) {
+            // 1行(currentLine)を構築する
+            let lineStr = "";
+            let currentLen = 0; // 文字数カウント
+
+            // 行容量いっぱいまでトークンを取り込む
+            while (tokenIdx < tokens.length) {
+                const token = tokens[tokenIdx];
+                const tokenLen = token.length;
+
+                // 次の1文字（またはルビブロック）が入るか？
+                // 禁則処理：次が禁則で、かつ行頭に来てしまう場合、前の行に詰め込む？
+                // ここでは「行の残り容量」と比較
+
+                // 禁則判定用の先読み
+                // もし次のトークンを入れるとあふれる場合...
+                if (currentLen + tokenLen > colsPerRow) {
+                   // あふれる。
+                   // でも「ぶら下げ」が有効なら、禁則文字(length=1)は+2まで許容
+                   if (kinsokuEnabled && tokenLen === 1 && bannedSet.has(token.char)) {
+                       // ぶら下げ許容範囲内(colsPerRow + 2)か？
+                       const maxLen = colsPerRow + 2;
+                       if (currentLen + tokenLen <= maxLen) {
+                           // OK, push it
+                           lineStr += token.html;
+                           currentLen += tokenLen;
+                           tokenIdx++;
+                           // ぶら下げ成功したら、その行はそこで終わり（無理やり詰め込んだので）
+                           break;
+                       }
+                   }
+
+                   // 収まらないので改行
+                   break;
                 }
-                take += extended;
+
+                // 通常追加
+                lineStr += token.html;
+                currentLen += tokenLen;
+                tokenIdx++;
             }
 
-            // 切り出し
-            // 今回の「行」が確定
-            const lineStr = chars.slice(pos, pos + take).join("");
             currentLines.push(lineStr);
 
-            pos += take;
-
-            // ページ送り判定
             if (currentLines.length >= rowsPerNote) {
                 pages.push(currentLines);
                 currentLines = [];
@@ -216,16 +232,102 @@ class PageViewPanel {
         }
     }
 
-    // 残りがあればページ追加
     if (currentLines.length > 0) {
         pages.push(currentLines);
     }
-    // 空ファイル対応
     if (pages.length === 0) {
         pages.push([""]);
     }
 
     return pages;
+  }
+
+  _tokenizeLine(line) {
+    const tokens = [];
+    const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+
+    let lastIndex = 0;
+    let match;
+
+    // ルビ処理
+    while ((match = RUBY_RE.exec(line)) !== null) {
+        // マッチ前の通常文字
+        if (match.index > lastIndex) {
+            const plain = line.substring(lastIndex, match.index);
+            for (const char of plain) {
+                tokens.push({
+                    type: 'char',
+                    char: char,
+                    length: 1,
+                    html: this._escapeHtml(char)
+                });
+            }
+        }
+
+        // ルビ部分
+        const base = match[1];
+        const ruby = match[2];
+        const rubyHtml = this._generateRubyHtml(base, ruby);
+        // ルビブロックの長さは親文字の長さ
+        tokens.push({
+            type: 'ruby',
+            length: base.length,
+            html: rubyHtml
+        });
+
+        lastIndex = RUBY_RE.lastIndex;
+    }
+
+    // 残りの文字
+    if (lastIndex < line.length) {
+        const plain = line.substring(lastIndex);
+        for (const char of plain) {
+            tokens.push({
+                type: 'char',
+                char: char,
+                length: 1,
+                html: this._escapeHtml(char)
+            });
+        }
+    }
+
+    return tokens;
+  }
+
+  _escapeHtml(str) {
+      return str.replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+  }
+
+  _generateRubyHtml(base, reading) {
+    const esc = this._escapeHtml;
+    // preview_panel.js から移植・簡略化
+    const baseChars = [...base];
+    const onlyDots = reading.replace(/・/g, "") === "";
+
+    if (onlyDots) {
+        const pairs = baseChars.map(c => `<rb>${esc(c)}</rb><rt>・</rt>`).join("");
+        return `<ruby class="rb-group">${pairs}</ruby>`;
+    }
+
+    const hasSep = reading.includes("・");
+    const readingParts = hasSep ? reading.split("・") : [...reading];
+    const perChar = hasSep || readingParts.length === baseChars.length;
+
+    if (perChar) {
+        let pairs = "";
+        for (let i = 0; i < baseChars.length; i++) {
+             const rb = esc(baseChars[i]);
+             const rt = esc(readingParts[i] ?? "");
+             pairs += `<rb>${rb}</rb><rt>${rt}</rt>`;
+        }
+        return `<ruby class="rb-group">${pairs}</ruby>`;
+    }
+
+    return `<ruby><rb>${esc(base)}</rb><rt>${esc(reading)}</rt></ruby>`;
   }
 
   _getHtmlForWebview(webview) {
@@ -269,7 +371,7 @@ class PageViewPanel {
     /* 各ページ */
     .page {
       flex: 0 0 100vw;
-      height: 100vh;
+      height: 100%;
       scroll-snap-align: center;
 
       display: flex;
@@ -297,8 +399,8 @@ class PageViewPanel {
       height: calc((var(--cols) + 2) * var(--font-size));
 
       /* 罫線：最初の行の右（＝Block Start）、最後の行の左（＝Block End） */
-      border-right: 1px solid #666;
-      border-left: 1px solid #666;
+      border-right: 1px solid #333;
+      border-left: 1px solid #333;
 
       /* ボックス内での配置 */
       /* margin: auto; flexで中央寄せ済み */
@@ -314,6 +416,10 @@ class PageViewPanel {
       font-feature-settings: "palt" 0;
     }
 
+    ruby {
+        ruby-align: center;
+    }
+
     /* フッター */
     #footer {
       position: fixed;
@@ -326,6 +432,7 @@ class PageViewPanel {
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 16px; /* ボタンとの間隔 */
       z-index: 100;
       font-family: sans-serif;
       font-size: 14px; /* 少し大きく */
@@ -342,11 +449,25 @@ class PageViewPanel {
       background: rgba(255,255,255,0.2);
       color: #fff;
     }
+    #refresh-btn {
+      pointer-events: auto;
+      cursor: pointer;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid #666;
+      color: #fff;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    #refresh-btn:hover {
+      background: #444;
+    }
   </style>
 </head>
 <body>
   <div id="container"></div>
   <div id="footer">
+    <button id="refresh-btn">更新</button>
     <span id="page-info" title="クリックでページ移動">-- / --</span>
   </div>
 
@@ -354,6 +475,7 @@ class PageViewPanel {
     const vscode = acquireVsCodeApi();
     const container = document.getElementById('container');
     const pageInfo = document.getElementById('page-info');
+    const refreshBtn = document.getElementById('refresh-btn');
 
     let state = { pages: [], rows: 20, cols: 20 };
 
@@ -364,6 +486,10 @@ class PageViewPanel {
       } else if (msg.type === 'jumpTo') {
         jumpToPage(msg.page);
       }
+    });
+
+    refreshBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'refresh' });
     });
 
     // リサイズ監視
@@ -379,9 +505,10 @@ class PageViewPanel {
     // ホイール処理（縦スクロール → 横スクロール変換）
     // Shiftキーなしでも横スクロールするように
     container.addEventListener('wheel', (e) => {
-      if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+      if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return; // 横スクロール成分が強ければブラウザに任せる
 
       const delta = e.deltaY;
+      // "scrollLeft -= delta" で左へ（次へ）
       container.scrollBy({ left: -delta, behavior: 'auto' });
       e.preventDefault();
     }, { passive: false });
@@ -425,7 +552,9 @@ class PageViewPanel {
 
         const contentDiv = document.createElement('div');
         contentDiv.className = 'page-content';
-        contentDiv.innerHTML = lines.map(line => \`<p>\${escapeHtml(line)}</p>\`).join('');
+
+        // すでにHTML化されているので escapeHtml はしない
+        contentDiv.innerHTML = lines.map(line => \`<p>\${line}</p>\`).join('');
 
         pageDiv.appendChild(contentDiv);
         container.appendChild(pageDiv);
@@ -461,15 +590,23 @@ class PageViewPanel {
       const cols = state.cols;
       const lineHeightRatio = 1.7;
 
-      // 目標: page-content が 画面(W, H) - padding に収まる最大フォントサイズ
-      // page-content 幅 = rows * fontSize * 1.7
-      // page-content 高さ = cols * fontSize
-      // page padding = 40px * 2 = 80px
+      // Vertical Padding:
+      // #container: 10px top + 10px bottom = 20px
+      // .page: 40px top + 40px bottom = 80px
+      // Total V-Padding = 100px
+      const safeH = H - 100;
 
+      // Horizontal Padding:
+      // .page: 40px left + 40px right = 80px
       const safeW = W - 80;
-      const safeH = H - 80;
 
-      const vFit = safeH / cols;
+      // 縦方向の制約 (Height / (cols + 2文字分))
+      // CSS height = calc((var(--cols) + 2) * var(--font-size))
+      // なので、fontSize * (cols + 2) <= safeH
+      const vFit = safeH / (cols + 2);
+
+      // 横方向の制約
+      // CSS width = calc(var(--rows) * var(--font-size) * var(--line-height-ratio))
       const hFit = safeW / (rows * lineHeightRatio);
 
       const fontSize = Math.min(vFit, hFit);
@@ -494,13 +631,7 @@ class PageViewPanel {
       }
     }
 
-    function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-    }
+
   </script>
 </body>
 </html>`;
