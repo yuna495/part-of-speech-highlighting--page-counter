@@ -91,7 +91,7 @@ class PageViewPanel {
     }, null, this._disposables);
 
     // デフォルト表示モード (true: Page (Default)設定, false: Note設定)
-    this._usePageSettings = true;
+    this._usePageSettings = false;
 
     // メッセージ受信
     panel.webview.onDidReceiveMessage((msg) => {
