@@ -789,15 +789,29 @@ class PageViewPanel {
       color: #ccc;
     }
 
-    /* 中央配置のためのコンテナ */
+    /* 中央配置のためのコンテナ（ページ番号） */
     #footer-center {
         display: flex;
         align-items: center;
-        gap: 12px;
-        pointer-events: auto; /* ここだけクリック有効 */
+        justify-content: center;
+        pointer-events: auto;
         background: rgba(0,0,0,0.5);
         padding: 4px 16px;
         border-radius: 20px;
+    }
+
+    /* 左下配置のためのコンテナ（ボタン類） */
+    #footer-left {
+        position: absolute;
+        left: 30px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        pointer-events: auto;
+        background: rgba(0,0,0,0.5);
+        padding: 4px 16px;
+        border-radius: 20px;
+        backdrop-filter: blur(4px);
     }
 
     #page-info {
@@ -809,7 +823,7 @@ class PageViewPanel {
     #page-info:hover {
       color: #fff;
     }
-    #refresh-btn, #toggle-btn, #pdf-btn {
+    #refresh-btn, #toggle-btn, #pdf-btn, #btn-next, #btn-prev {
       pointer-events: auto;
       cursor: pointer;
       background: transparent;
@@ -822,13 +836,13 @@ class PageViewPanel {
       justify-content: center;
       transition: color 0.3s;
     }
-    #refresh-btn:hover, #toggle-btn:hover, #pdf-btn:hover {
+    #refresh-btn:hover, #toggle-btn:hover, #pdf-btn:hover, #btn-next:hover, #btn-prev:hover {
       color: #fff;
     }
     #toggle-btn.active {
       color: #11ff84;
     }
-    #refresh-btn svg, #toggle-btn svg, #pdf-btn svg {
+    #refresh-btn svg, #toggle-btn svg, #pdf-btn svg, #btn-next svg, #btn-prev svg {
       width: 18px; height: 18px;
       fill: currentColor;
     }
@@ -842,16 +856,24 @@ class PageViewPanel {
 <body>
   <div id="container"></div>
   <div id="footer">
-    <div id="footer-center">
+    <div id="footer-left">
         <button id="toggle-btn" title="文庫サイズに切替 (Page/Note)">
             <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
         </button>
         <button id="refresh-btn" title="更新">
             <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
         </button>
-        <span id="page-info" title="クリックでページ移動">-- / --</span>
         <button id="pdf-btn" title="文庫サイズでPDF出力">
             <svg viewBox="0 0 24 24"><path d="M20 2H8c-1.1 0-2 .9-2 2v12H2c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h4v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-6 20H8v-4h6v4zm6 0h-4v-4h4v4zm0-6H8v-2h12v2zm0-4H8V4h12v8z"/></svg>
+        </button>
+    </div>
+    <div id="footer-center">
+        <button id="btn-next" title="次のページへ">
+            <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+        <span id="page-info" title="クリックでページ移動">-- / --</span>
+        <button id="btn-prev" title="前のページへ">
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
         </button>
     </div>
   </div>
@@ -863,6 +885,8 @@ class PageViewPanel {
     const refreshBtn = document.getElementById('refresh-btn');
     const toggleBtn = document.getElementById('toggle-btn');
     const pdfBtn = document.getElementById('pdf-btn');
+    const btnNext = document.getElementById('btn-next');
+    const btnPrev = document.getElementById('btn-prev');
 
     let state = { pages: [], rows: 20, cols: 20 };
 
@@ -976,6 +1000,19 @@ class PageViewPanel {
     // ページ番号クリック
     pageInfo.addEventListener('click', () => {
       vscode.postMessage({ type: 'askPageJump', total: state.pages.length });
+    });
+
+    // ページ送りボタン
+    btnNext.addEventListener('click', () => {
+        if (state.currentPage < state.pages.length) {
+            jumpToPage(state.currentPage + 1);
+        }
+    });
+
+    btnPrev.addEventListener('click', () => {
+        if (state.currentPage > 1) {
+            jumpToPage(state.currentPage - 1);
+        }
     });
 
     function render(payload) {
