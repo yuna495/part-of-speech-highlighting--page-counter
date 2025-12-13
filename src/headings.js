@@ -410,11 +410,23 @@ function findHeadingSection(editor) {
   const endLineText = doc.lineAt(endLine).text;
   const fullRange = new vscode.Range(startLine, 0, endLine, endLineText.length);
 
+
+
   let bodyRange = null;
-  const bodyStartLine = startLine + 2;
-  if (bodyStartLine <= endLine) {
+
+  // bodyStartLine を探索（見出し行の次から、空行をスキップ）
+  let realBodyStart = startLine + 1;
+  while (realBodyStart <= endLine) {
+    const text = doc.lineAt(realBodyStart).text;
+    if (text.trim().length > 0) {
+      break;
+    }
+    realBodyStart++;
+  }
+
+  if (realBodyStart <= endLine) {
     bodyRange = new vscode.Range(
-      bodyStartLine,
+      realBodyStart,
       0,
       endLine,
       endLineText.length
