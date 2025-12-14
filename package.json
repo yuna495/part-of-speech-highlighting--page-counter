@@ -19,7 +19,7 @@
     "kinsoku",
     "genko-yoshi"
   ],
-  "main": "./src/extension.js",
+  "main": "./dist/extension.js",
   "icon": "./image/icon.png",
   "extensionKind": [
     "ui"
@@ -855,10 +855,16 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "echo \"no build (JS only)\"",
-    "package": "vsce package || echo 'Install @vscode/vsce if missing'"
+    "vscode:prepublish": "npm run esbuild",
+    "esbuild-base": "node esbuild.js",
+    "esbuild": "npm run esbuild-base -- --production",
+    "esbuild-watch": "npm run esbuild-base -- --watch",
+    "package": "vsce package"
   },
   "dependencies": {
+    "puppeteer-core": "^23.1.0"
+  },
+  "devDependencies": {
     "@textlint/kernel": "^13.4.1",
     "@textlint/textlint-plugin-markdown": "^12.6.1",
     "@textlint/textlint-plugin-text": "^12.6.1",
@@ -871,12 +877,10 @@
     "textlint-rule-no-doubled-joshi": "^5.1.0",
     "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet": "^1.0.1",
     "textlint-rule-preset-jtf-style": "^3.0.2",
-    "puppeteer-core": "^23.1.0"
-  },
-  "devDependencies": {
     "@types/node": "20.x",
     "@types/vscode": "1.103.0",
     "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.1",
     "globals": "^13.24.0"
   },
   "repository": {

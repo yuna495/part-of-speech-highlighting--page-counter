@@ -1,6 +1,8 @@
 .vscode/**
 .vscode-test/**
 .git/**
+src/**
+esbuild.js
 scripts/**
 test/**
 .venv/**
@@ -23,9 +25,11 @@ npm-debug.log*
 **/.DS_Store
 **/*.py
 .tmp_vsix/**
+memo.md
 
-# 辞書は node_modules/kuromoji/dict を使用するため、ルートの dict/ はパッケージに含めない
-dict/**
+# 辞書は node_modules/kuromoji/dict を使用するか、ルートの dict を使う
+# バンドル時は node_modules がないため、ルートの dict を含める
+!dict/**
 demo/**
 
 # node_modules 内の不要ファイルを除外
