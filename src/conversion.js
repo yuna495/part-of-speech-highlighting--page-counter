@@ -373,18 +373,15 @@ async function formatSpaceLines(editor) {
 
   if (!fullText) return;
 
-  // 1. " 　" (半角スペース+全角スペース) を "\n　" (改行+全角スペース) に置換
+// 1. " 　" (半角スペース+全角スペース) を "\n　" (改行+全角スペース) に置換
   // 2. " " (半角スペース) が括弧開きの直前にある場合、改行に置換
   //    ただし、Markdownのリスト記号(# - . *)やインデント(空白)の直後は除外する
   //    対象: ([^#\-\.\* ]) + " " + (?=「『...)
-  const regex1 = / 　/g;
-  const regex2 = /([^#\-\.\* ]) (?=[「『（［｛〈《【〔“‘])/g;
   // 3. "（...）" (全角括弧と中身) を削除
-  const regex3 = /（.*?）/g;
+  // 4. 見出しの次でない行頭について、括弧開きで無ければ全角スペースを挿入
 
-  let newText = fullText.replace(regex1, "\n　");
-  newText = newText.replace(regex2, "$1\n");
-  newText = newText.replace(regex3, "");
+  // 純粋なテキスト変換ロジックを分離（テスト容易化のため）
+  const newText = formatText(fullText);
 
   if (newText === fullText) {
     vscode.window.setStatusBarMessage("P/N: 整形対象が見つかりませんでした", 1000);
@@ -397,4 +394,53 @@ async function formatSpaceLines(editor) {
   }
 }
 
-module.exports = { registerConversionCommands };
+/**
+ * テキスト整形ロジック
+ * @param {string} text
+ * @returns {string}
+ */
+function formatText(text) {
+  // Regex Definitions
+  const regex1 = / 　/g; // Plain Space + Full Space -> Newline + Full Space
+  const regex2 = /([^#\-\.\* ]) (?=[「『（［｛〈《【〔“‘—―])/g; // Plain Space before brackets/dashes -> Newline
+  const regex3 = /（.*?）/g; // Remove Fullwidth Parentheses content
+
+  // Step 1-3: Existing Replacements
+  let newText = text.replace(regex1, "\n　");
+  newText = newText.replace(regex2, "$1\n");
+  newText = newText.replace(regex3, "");
+
+  // Step 4: Add Indentation (Full-width space) to lines not starting with brackets/spaces
+  // Split into lines to handle line-by-line logic
+  const lines = newText.split(/\r?\n/);
+  const indentedLines = lines.map((line) => {
+    // Empty line check
+    if (!line) return line;
+
+    // Check if line starts with specific characters
+    const firstChar = line.charAt(0);
+
+    // Already indented? (Full-width space)
+    if (firstChar === "　") return line;
+
+    // Is Heading? (Markdown Heading #) -> Skip indentation logic?
+    // Wait, requirement says "見出しの次のから行でない行頭について"
+    // Usually headings themselves shouldn't be indented, but let's stick to the prompt's negative logic:
+    // "括弧開きで無ければ" -> Insert space.
+    // Does this apply to Headings? Usually headings are top-level.
+    // Assuming we shouldn't indent headings starting with #.
+    if (firstChar === "#") return line;
+
+    // Opening Brackets check
+    // 「『（［｛〈《【〔“‘
+    const brackets = "「『（［｛〈《【〔“‘—―";
+    if (brackets.includes(firstChar)) return line;
+
+    // Otherwise, insert Full-width space
+    return "　" + line;
+  });
+
+  return indentedLines.join("\n");
+}
+
+module.exports = { registerConversionCommands, formatText };
