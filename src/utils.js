@@ -388,6 +388,23 @@ function invalidateHeadingCache(doc) {
   _headingCache.delete(doc);
 }
 
+/**
+ * 開発者用パスコードが正しいかチェックする
+ * @returns {boolean}
+ */
+function checkDevPasscode() {
+  const vscode = require("vscode");
+  const cfg = vscode.workspace.getConfiguration("posNote");
+  /** @type {string} */
+  const code = cfg.get("developer.passcode", "");
+  const SECRET = "1247"; // Shared Secret
+  if (code !== SECRET) {
+      console.log("[posNote] Dev mode not enabled or passcode incorrect.");
+      return false;
+  }
+  return true;
+}
+
 module.exports = {
   getHeadingLevel,
   stripClosedCodeFences,
@@ -397,5 +414,6 @@ module.exports = {
   // 新API
   getHeadingsCached,
   getHeadingMetricsCached,
-  invalidateHeadingCache
+  invalidateHeadingCache,
+  checkDevPasscode
 };

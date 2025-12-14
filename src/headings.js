@@ -856,4 +856,4 @@ function initHeadings(context, helpers) {
   };
 }
 
-module.exports = { initHeadings };
+module.exports = { initHeadings, findHeadingSection };

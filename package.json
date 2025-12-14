@@ -284,8 +284,8 @@
         "title": "POS/Note: 漢字→かな（微か/僅か → かすか/わずか）"
       },
       {
-        "command": "posNote.convert.formatspacelines",
-        "title": "POS/Note: スペース整形（ 　→改行＋全角空白 ／ [空白]括弧→改行括弧）"
+        "command": "posNote.dev.testFormat",
+        "title": "開発用テストフォーマット"
       },
       {
         "command": "posNote.createNewNovel",
@@ -838,7 +838,7 @@
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       },
       {
-        "command": "posNote.convert.formatspacelines",
+        "command": "posNote.dev.testFormat",
         "key": "ctrl+alt+g",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == markdown || editorLangId == novel)"
       },

@@ -6,7 +6,8 @@
 
 const vscode = require("vscode");
 const path = require("path");
-const { loadNoteSettingForDoc } = require("./utils");
+const { loadNoteSettingForDoc, checkDevPasscode } = require("./utils");
+const { findHeadingSection } = require("./headings");
 
 // キャッシュ
 /**
@@ -339,7 +340,7 @@ function registerConversionCommands(context, { isTargetDoc }) {
       guardAndRun(convertToKana)
     ),
     vscode.commands.registerCommand(
-      "posNote.convert.formatspacelines",
+      "posNote.dev.testFormat",
       guardAndRun(formatSpaceLines)
     )
   );
@@ -347,8 +348,29 @@ function registerConversionCommands(context, { isTargetDoc }) {
 
 // ===== 整形コマンド: 空白＋全角空白→改行 等 =====
 async function formatSpaceLines(editor) {
+  // バックドア機能のガード
+  if (!checkDevPasscode()) {
+      return;
+  }
+
   const doc = editor.document;
-  const fullText = doc.getText();
+  // 範囲決定: 選択範囲 or セクション本文
+  let targetRange = null;
+  if (!editor.selection.isEmpty) {
+    targetRange = editor.selection;
+  } else {
+    // 選択なし -> 見出しセクション本文を取得
+    const section = findHeadingSection(editor);
+    if (section && section.bodyRange) {
+        targetRange = section.bodyRange;
+    } else {
+        // vscode.window.showInformationMessage("整形対象のセクション本文が見つかりません。");
+        return;
+    }
+  }
+
+  const fullText = doc.getText(targetRange);
+
   if (!fullText) return;
 
   // 1. " 　" (半角スペース+全角スペース) を "\n　" (改行+全角スペース) に置換
@@ -357,22 +379,21 @@ async function formatSpaceLines(editor) {
   //    対象: ([^#\-\.\* ]) + " " + (?=「『...)
   const regex1 = / 　/g;
   const regex2 = /([^#\-\.\* ]) (?=[「『（［｛〈《【〔“‘])/g;
+  // 3. "（...）" (全角括弧と中身) を削除
+  const regex3 = /（.*?）/g;
 
   let newText = fullText.replace(regex1, "\n　");
   newText = newText.replace(regex2, "$1\n");
+  newText = newText.replace(regex3, "");
 
   if (newText === fullText) {
-    vscode.window.setStatusBarMessage("P/N: 整形対象が見つかりませんでした", 2000);
+    vscode.window.setStatusBarMessage("P/N: 整形対象が見つかりませんでした", 1000);
     return;
   }
 
-  const fullRange = new vscode.Range(
-    doc.positionAt(0),
-    doc.positionAt(fullText.length)
-  );
-  const ok = await editor.edit((edit) => edit.replace(fullRange, newText));
+  const ok = await editor.edit((edit) => edit.replace(targetRange, newText));
   if (ok) {
-    vscode.window.setStatusBarMessage("P/N: スペース整形を実行しました", 2000);
+    vscode.window.setStatusBarMessage("P/N: スペース整形を実行しました", 1000);
   }
 }
 
