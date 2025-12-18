@@ -1,4 +1,6 @@
 const esbuild = require("esbuild");
+const fs = require("fs");
+const path = require("path");
 
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
@@ -25,6 +27,36 @@ const esbuildProblemMatcherPlugin = {
   },
 };
 
+const copyDictPlugin = {
+  name: "copy-dict-plugin",
+  setup(build) {
+    build.onEnd(() => {
+      const srcDir = path.join(__dirname, "node_modules", "kuromoji", "dict");
+      const destDir = path.join(__dirname, "dist", "dict");
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      fs.readdirSync(srcDir).forEach((file) => {
+        if (file.endsWith(".dat") || file.endsWith(".dat.gz")) {
+          fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+        }
+      });
+      console.log("[build] copied kuromoji dicts to dist/dict");
+    });
+  },
+};
+
+const aliasPlugin = {
+  name: "alias-plugin",
+  setup(build) {
+    build.onResolve({ filter: /^kuromojin$/ }, (args) => {
+      return {
+        path: path.join(__dirname, "src", "kuromojin_shim.js"),
+      };
+    });
+  },
+};
+
 async function main() {
   const ctx = await esbuild.context({
     entryPoints: ["src/extension.js"],
@@ -37,7 +69,7 @@ async function main() {
     outfile: "dist/extension.js",
     external: ["vscode", "puppeteer-core"], // exclude vscode api and puppeteer
     logLevel: "silent",
-    plugins: [esbuildProblemMatcherPlugin],
+    plugins: [esbuildProblemMatcherPlugin, copyDictPlugin, aliasPlugin],
   });
 
   if (watch) {

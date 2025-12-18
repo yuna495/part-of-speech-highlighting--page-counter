@@ -14,18 +14,17 @@ try {
 } catch {}
 
 // ===== textlint ルール構成 =====
-const OPTIONAL_RULES = [
-  ["textlint-rule-ja-no-abusage", "ja-no-abusage"],
-  ["textlint-rule-ja-no-redundant-expression", "ja-no-redundant-expression"],
-  ["textlint-rule-ja-unnatural-alphabet", "ja-unnatural-alphabet"],
-  ["textlint-rule-max-ten", "max-ten"],
-  ["textlint-rule-no-doubled-conjunction", "no-doubled-conjunction"],
-  ["textlint-rule-no-doubled-joshi", "no-doubled-joshi"],
-  [
-    "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet",
-    "no-mixed-zenkaku-and-hankaku-alphabet",
-  ],
-  ["textlint-rule-preset-jtf-style", "preset-jtf-style"], // preset
+// ===== textlint ルール構成 =====
+/** @type {[string, any][]} */
+const LOADED_RULES = [
+  ["ja-no-abusage", require("textlint-rule-ja-no-abusage")],
+  ["ja-no-redundant-expression", require("textlint-rule-ja-no-redundant-expression")],
+  ["ja-unnatural-alphabet", require("textlint-rule-ja-unnatural-alphabet")],
+  ["max-ten", require("textlint-rule-max-ten")],
+  ["no-doubled-conjunction", require("textlint-rule-no-doubled-conjunction")],
+  ["no-doubled-joshi", require("textlint-rule-no-doubled-joshi")],
+  ["no-mixed-zenkaku-and-hankaku-alphabet", require("textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet")],
+  ["preset-jtf-style", require("textlint-rule-preset-jtf-style")],
 ];
 
 const DEFAULT_RULES = {
@@ -221,14 +220,13 @@ function buildKernelOptions(channel) {
   // どれが preset か知るため先に形だけ読み込む
   /** @type {[string, { type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }][]} */
   const loadedModules = [];
-  for (const [pkg, baseId] of OPTIONAL_RULES) {
+  for (const [baseId, mod] of LOADED_RULES) {
     try {
-      const mod = require(pkg);
       const shape = normalizeRuleModule(mod, log);
       loadedModules.push([baseId, shape]);
       if (shape.type === "preset") presetIds.add(baseId);
     } catch {
-      log(`[info] ${pkg} は未導入のためスキップ`);
+      log(`[info] ${baseId} の読み込みに失敗 (static loaded)`);
     }
   }
   for (const [k, v] of nested) {
@@ -246,9 +244,8 @@ function buildKernelOptions(channel) {
   }
 
   // 最終 rules を組み立て（false は登録しない／options は直接埋める）
-  for (const [pkg, baseId] of OPTIONAL_RULES) {
+  for (const [baseId, mod] of LOADED_RULES) {
     try {
-      const mod = require(pkg);
       const shape =
         loadedModules.find(([id]) => id === baseId)?.[1] ||
         normalizeRuleModule(mod, log);

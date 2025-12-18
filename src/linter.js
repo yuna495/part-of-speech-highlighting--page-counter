@@ -16,12 +16,14 @@ const {
 const channel = vscode.window.createOutputChannel("textlint-kernel-linter");
 
 // ---- ログ抑止：Output へ一切書き込まない ----
-try {
-  const _origAppend = channel.appendLine.bind(channel);
-  channel.appendLine = (_s) => {
-    /* no-op */
-  };
-} catch {}
+// ---- ログ抑止：Output へ一切書き込まない ----
+// (Debugging: Logging enabled)
+// try {
+//   const _origAppend = channel.appendLine.bind(channel);
+//   channel.appendLine = (_s) => {
+//     /* no-op */
+//   };
+// } catch {}
 
 const lastSaveReason = new Map(); // 保存理由（Auto Save をスキップ判定に使う）
 const docCache = new Map(); // uriString -> { textLines: string[], diagnostics: vscode.Diagnostic[] }
@@ -191,6 +193,7 @@ async function triggerLint(
     await lintActiveOnly(collection, doc);
   } catch (err) {
     channel.appendLine(`[error] triggerLint failed: ${err}`);
+    vscode.window.showErrorMessage(`PosNote Linter Error (trigger): ${err}`);
     finishLintUI("Error");
   }
 }
@@ -385,8 +388,6 @@ async function lintDocumentIncremental(doc, collection) {
       });
       const diagnostics = toDiagnostics(uri, result.messages || []);
       // 句読点連続の独自診断を追加
-      diagnostics.push(...findRepeatedPunctDiagnostics(uri, maskedText, 0));
-      // 「！」「？」直後の全角スペース不足の独自診断を追加
       diagnostics.push(
         ...findExclamQuestionSpaceDiagnostics(uri, maskedText, 0)
       );
@@ -503,6 +504,7 @@ async function lintDocumentIncremental(doc, collection) {
     channel.appendLine(
       `[error] lintDocument 失敗: ${err && err.stack ? err.stack : String(err)}`
     );
+    vscode.window.showErrorMessage(`PosNote Linter Error (doc): ${err}`);
     finishLintUI("Error");
   }
 }
