@@ -88,7 +88,7 @@ async function ensureTokenizer(context) {
 
     // 2. 見つからなければ従来のルート直下 dict を探す（開発環境やフォールバック用）
     if (!fs.existsSync(dictPath)) {
-      dictPath = path.join(context.extensionPath, "dict");
+      dictPath = path.join(context.extensionPath, "dist", "dict");
     }
 
     if (!fs.existsSync(dictPath)) {
