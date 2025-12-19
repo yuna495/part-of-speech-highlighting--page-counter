@@ -388,6 +388,8 @@ async function lintDocumentIncremental(doc, collection) {
       });
       const diagnostics = toDiagnostics(uri, result.messages || []);
       // 句読点連続の独自診断を追加
+      diagnostics.push(...findRepeatedPunctDiagnostics(uri, maskedText, 0));
+      // 「！」「？」直後の全角スペース不足の独自診断を追加
       diagnostics.push(
         ...findExclamQuestionSpaceDiagnostics(uri, maskedText, 0)
       );
