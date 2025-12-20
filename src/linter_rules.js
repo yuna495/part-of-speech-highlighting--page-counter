@@ -43,6 +43,7 @@ const DEFAULT_RULES = {
     "3.1.1.全角文字と半角文字の間": false,
     "3.1.2.全角文字どうし": false,
     "3.3.かっこ類と隣接する文字の間のスペースの有無": false,
+    "4.2.7.コロン(：)": false,
     "4.2.9.ダッシュ(-)": false,
     "4.3.1.丸かっこ（）": false,
     "4.3.2.大かっこ［］": false,
@@ -63,7 +64,7 @@ const DEFAULT_RULES = {
   },
   "no-mixed-zenkaku-and-hankaku-alphabet": true,
   "no-doubled-joshi": {
-    allow: ["も", "や", "か"],
+    allow: ["も", "や", "か", "と"],
     separatorCharacters: [
       ".",
       "．",
