@@ -6,8 +6,17 @@ const vscode = require("vscode");
  * @param {vscode.TextDocument} doc
  * @returns {Promise<void>}
  */
-async function trimTrailingSpaces(doc) {
-  if (!doc || doc.isUntitled || doc.isDirty) return;
+/**
+ * 行末の全角・半角スペースを削除する（保存前イベント用）。
+ * @param {vscode.TextDocumentWillSaveEvent} e
+ */
+function trimTrailingSpaces(e) {
+  const doc = e.document;
+  if (!doc || doc.isUntitled) return;
+
+  // 変更理由が "Auto Save" の場合などは除外したい場合はここで check (e.reason)
+  // ここではユーザー要望に合わせて無条件に近い形で適用するが、
+  // 言語チェックは行う。
 
   const lang = (doc.languageId || "").toLowerCase();
   const fsPath = (doc.uri?.fsPath || "").toLowerCase();
@@ -20,24 +29,26 @@ async function trimTrailingSpaces(doc) {
 
   if (!isTarget) return;
 
-  const editor = await vscode.window.showTextDocument(doc, { preview: false });
   const text = doc.getText();
+  const edits = [];
 
-  // 正規表現で行末スペースを削除
-  const newText = text.replace(/[ \u3000]+$/gm, "");
+  // 行ごとにチェックして、末尾スペースがある行だけ Edit を作成
+  for (let i = 0; i < doc.lineCount; i++) {
+    const line = doc.lineAt(i);
+    const lineText = line.text;
+    // 末尾の空白（半角・全角）をマッチ
+    const match = lineText.match(/[ \u3000]+$/);
+    if (match) {
+      // マッチした部分（末尾空白）を削除する Edit
+      const startChar = match.index;
+      const endChar = lineText.length;
+      edits.push(vscode.TextEdit.delete(new vscode.Range(i, startChar, i, endChar)));
+    }
+  }
 
-  // 差分がなければ何もしない
-  if (text === newText) return;
-
-  const fullRange = new vscode.Range(
-    doc.positionAt(0),
-    doc.positionAt(text.length)
-  );
-
-  await editor.edit((editBuilder) => {
-    editBuilder.replace(fullRange, newText);
-  });
-
+  if (edits.length > 0) {
+    e.waitUntil(Promise.resolve(edits));
+  }
 }
 
 /**
@@ -157,12 +168,8 @@ async function toggleLineSuffix(editor) {
 function registerConvenientFeatures(context) {
   // 保存時に行末スペースを削除
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(async (doc) => {
-      try {
-        await trimTrailingSpaces(doc);
-      } catch (err) {
-        console.error("[POSNote:convenient] trim error:", err);
-      }
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      trimTrailingSpaces(e);
     })
   );
 
