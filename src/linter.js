@@ -1,13 +1,11 @@
 // textlint kernel と VS Code をつなぎ、差分リントと診断表示を行う。
 // VSCode API
 const vscode = require("vscode");
+const path = require("path");
+const fs = require("fs");
+const { Worker } = require("worker_threads");
 
-// textlint kernel & ルール定義
-const { TextlintKernel } = require("@textlint/kernel");
 const {
-  buildKernelOptions,
-  findRepeatedPunctDiagnostics,
-  findExclamQuestionSpaceDiagnostics,
   maskCodeBlocks,
   fenceStateBefore,
 } = require("./linter_rules");
@@ -15,51 +13,158 @@ const {
 // ===== 0) グローバル状態 / ログ / 保存理由 =====
 const channel = vscode.window.createOutputChannel("textlint-kernel-linter");
 
-// ---- ログ抑止：Output へ一切書き込まない ----
-// ---- ログ抑止：Output へ一切書き込まない ----
-// (Debugging: Logging enabled)
-// try {
-//   const _origAppend = channel.appendLine.bind(channel);
-//   channel.appendLine = (_s) => {
-//     /* no-op */
-//   };
-// } catch {}
+const lastSaveReason = new Map();
+const docCache = new Map();
+let lintStatusItem = null;
+let lintRunning = 0;
 
-const lastSaveReason = new Map(); // 保存理由（Auto Save をスキップ判定に使う）
-const docCache = new Map(); // uriString -> { textLines: string[], diagnostics: vscode.Diagnostic[] }
-let lintStatusItem = null; // vscode.StatusBarItem
-let lintRunning = 0; // ネスト対策用カウンタ
-// キャッシュ: Kernel Instance, Options
-let _cachedKernel = null;
-let _cachedOptions = null;
+// Worker State
+let linterWorker = null;
+let nextReqId = 1;
+const workerPending = new Map();
 
-/** TextlintKernel インスタンスを取得（キャッシュ利用） */
-function getKernel() {
-  if (!_cachedKernel) {
-    _cachedKernel = new TextlintKernel();
+// ===== 独自診断（Main Thread） =====
+const RE_PUNCT_RUN = /(。。|、、|、。|。、)/g;
+function findRepeatedPunctDiagnostics(uri, text, baseLine = 0) {
+  const diags = [];
+  const lines = text.replace(/\r/g, "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const lineStr = lines[i];
+    RE_PUNCT_RUN.lastIndex = 0;
+    let m;
+    while ((m = RE_PUNCT_RUN.exec(lineStr)) !== null) {
+        const startCol = m.index;
+        const endCol = m.index + m[0].length;
+        const range = new vscode.Range(
+            baseLine + i,
+            startCol,
+            baseLine + i,
+            endCol
+        );
+        const diag = new vscode.Diagnostic(
+            range,
+            "句読点が連続しています。",
+            vscode.DiagnosticSeverity.Error
+        );
+        diag.source = "textlint-kernel-linter";
+        diag.code = "punctuation-run";
+        diags.push(diag);
+    }
   }
-  return _cachedKernel;
+  return diags;
 }
 
-/** ルール等のオプションを取得（キャッシュ利用） */
-function getOptions() {
-  if (!_cachedOptions) {
-    _cachedOptions = buildKernelOptions(channel);
+const RE_NEED_FW_SPACE = /[！？](?![！？　」』〉》）】`'”*~]|$)/g;
+function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
+  const diags = [];
+  const lines = text.replace(/\r/g, "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const lineStr = lines[i];
+    RE_NEED_FW_SPACE.lastIndex = 0;
+    let m;
+    while ((m = RE_NEED_FW_SPACE.exec(lineStr)) !== null) {
+        const startCol = m.index;
+        const endCol = m.index + 1;
+        const range = new vscode.Range(
+            baseLine + i,
+            startCol,
+            baseLine + i,
+            endCol
+        );
+        const diag = new vscode.Diagnostic(
+            range,
+            "「！」と「？」の後にはスペースが必要です。",
+            vscode.DiagnosticSeverity.Error
+        );
+        diag.source = "textlint-kernel-linter";
+        diag.code = "exclam-question-needs-fullwidth-space";
+        diags.push(diag);
+    }
   }
-  return _cachedOptions;
+  return diags;
 }
 
-/** 設定変更・拡張無効化時などにキャッシュをクリア */
+function ensureWorker(context) {
+  if (linterWorker) return;
+
+  let scriptPath = path.join(context.extensionPath, "dist", "worker", "linterWorker.js");
+  if (!fs.existsSync(scriptPath)) {
+      scriptPath = path.join(context.extensionPath, "src", "worker", "linterWorker.js");
+  }
+
+  try {
+      linterWorker = new Worker(scriptPath);
+      channel.appendLine(`[LinterWorker] Created at ${scriptPath}`);
+
+      linterWorker.on("message", (msg) => {
+        if (msg.command === "lint_result") {
+          const p = workerPending.get(msg.reqId);
+          if (p) {
+            workerPending.delete(msg.reqId);
+            p.resolve(msg.result);
+          }
+        } else if (msg.command === "log") {
+             channel.appendLine(msg.message);
+        } else if (msg.command === "error") {
+           const p = workerPending.get(msg.reqId);
+           if (p) {
+             workerPending.delete(msg.reqId);
+             p.reject(new Error(msg.error));
+           } else {
+             channel.appendLine(`[LinterWorker] Error: ${msg.error}`);
+           }
+        }
+      });
+
+      linterWorker.on("error", (err) => {
+          channel.appendLine(`[LinterWorker] FATAL: ${err}`);
+          console.error(`[LinterWorker] FATAL:`, err);
+      });
+
+      linterWorker.on("exit", (code) => {
+          channel.appendLine(`[LinterWorker] Worker exited with code ${code}`);
+          console.log(`[LinterWorker] Worker exited with code ${code}`);
+          linterWorker = null; // Prepare for restart?
+      });
+  } catch(e) {
+      channel.appendLine(`[LinterWorker] Failed to create: ${e}`);
+      console.error(e);
+  }
+}
+
+function lintTextWithWorker(text, options) {
+    if (!linterWorker) {
+        console.warn("[Linter] Worker not initialized");
+        return Promise.reject(new Error("Linter Worker not initialized"));
+    }
+    return new Promise((resolve, reject) => {
+        const reqId = nextReqId++;
+        workerPending.set(reqId, { resolve, reject });
+
+        // Retrieve user rules form config (Active Window Context)
+        let userRules = {};
+        try {
+            const cfg = vscode.workspace.getConfiguration("posNote.linter");
+            userRules = cfg.get("rules") || {};
+        } catch(e) {
+            channel.appendLine(`[Linter] config error: ${e}`);
+        }
+
+        linterWorker.postMessage({
+            command: "lint",
+            reqId,
+            text,
+            ext: options.ext,
+            filePath: options.filePath,
+            userRules // Pass config to worker
+        });
+    });
+}
+
 function invalidateKernelCache() {
-  _cachedKernel = null;
-  _cachedOptions = null;
-  channel.appendLine("[cache] Kernel/Options cleared.");
-  // 既存の診断結果もクリアしたほうが安全だが、
-  // 次回リントで再構築されるためそのままにしておく
+  channel.appendLine("[cache] (Worker-side) Cache invalidation not fully implemented yet");
 }
 
-// ===== 1) ステータスバー UI ヘルパー =====
-/** ステータスバー項目を生成・再利用する。 */
 function ensureStatusBar(context) {
   if (lintStatusItem) return lintStatusItem;
   lintStatusItem = vscode.window.createStatusBarItem(
@@ -69,12 +174,11 @@ function ensureStatusBar(context) {
   lintStatusItem.name = "textlint-kernel-linter";
   lintStatusItem.tooltip =
     "クリックでこのファイルを lint（保存不要） / Linter result";
-  lintStatusItem.command = "linter.lintActiveFile"; // クリックで lint 実行
+  lintStatusItem.command = "linter.lintActiveFile";
   context.subscriptions.push(lintStatusItem);
   return lintStatusItem;
 }
 
-// アイドル時の表示を、対象ドキュメントの前回結果に合わせて更新
 function updateIdleUIForDoc(doc) {
   if (!lintStatusItem) return;
   let count = 0;
@@ -88,7 +192,6 @@ function updateIdleUIForDoc(doc) {
   lintStatusItem.show();
 }
 
-// スピナー表示
 function startLintUI(text = "Linting...") {
   lintRunning++;
   if (lintStatusItem) {
@@ -97,7 +200,6 @@ function startLintUI(text = "Linting...") {
   }
 }
 
-// 完了表示（N iss / 0 iss / Error）
 function finishLintUI(resultText = "0 iss") {
   lintRunning = Math.max(0, lintRunning - 1);
   if (!lintStatusItem) return;
@@ -107,7 +209,6 @@ function finishLintUI(resultText = "0 iss") {
   }
 }
 
-// 対象外・早期 return 時でも前回件数で UI を確実に復帰
 function finishWithCachedCount(doc) {
   try {
     const key = doc?.uri?.toString();
@@ -123,13 +224,10 @@ function finishWithCachedCount(doc) {
   }
 }
 
-// ===== 2) 実行条件／トリガー共通化 =====
-/** Auto Save 設定と保存理由に応じてリントするか判定する。 */
 function shouldLintOnSave(docUriString, reason) {
   const cfg = vscode.workspace.getConfiguration("posNote.linter");
-  const lintOnAutoSave = cfg.get("lintOnAutoSave", false); // 既定: false
+  const lintOnAutoSave = cfg.get("lintOnAutoSave", false);
 
-  // Auto Save を無効にしている場合は、手動保存のみ
   if (
     !lintOnAutoSave &&
     (reason === vscode.TextDocumentSaveReason.AfterDelay ||
@@ -138,13 +236,10 @@ function shouldLintOnSave(docUriString, reason) {
     return false;
   }
 
-  // アクティブなエディタのドキュメントのみ対象
   const active = vscode.window.activeTextEditor?.document;
   return !!(active && active.uri.toString() === docUriString);
 }
 
-// このドキュメントを lint できるか？（.txt / plaintext / markdown）
-/** このドキュメントを lint 対象にできるかを判定する。 */
 function canLint(doc) {
   if (!doc) return false;
   if (doc.isUntitled) return false;
@@ -156,21 +251,25 @@ function canLint(doc) {
   return isPlain || isTxt || isMd || isMarkdown;
 }
 
-// 保存時/コマンド時の挙動を共通化
 async function triggerLint(
   doc,
   collection,
   { mode = "command", reason = undefined } = {}
 ) {
+  const enabled = vscode.workspace.getConfiguration("posNote.linter").get("enabled", false);
+  if (!enabled) {
+      collection.clear();
+      updateIdleUIForDoc(doc);
+      return;
+  }
+
   try {
     if (mode === "save") {
-      // 既存の保存ポリシー（Auto Save無効時は手動保存のみ）を尊重
       if (!shouldLintOnSave(doc.uri.toString(), reason)) {
         updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
         return;
       }
     } else {
-      // コマンド/クリック時はファイル種別だけ確認
       if (!canLint(doc)) {
         vscode.window.showInformationMessage(
           "このファイルは lint 対象ではありません（.txt / plaintext / markdown）。"
@@ -180,16 +279,21 @@ async function triggerLint(
       }
     }
 
-    // 即スピナー → 1ティック譲って描画 → 実行
     if (lintRunning === 0) startLintUI("Linting...");
 
-    // 初回保存（キャッシュなし）時は、他処理（見出し計算等）にCPUを譲るため少し待つ
-    const delay = mode === "save" && !_cachedKernel ? 1000 : 0;
+    const delay = mode === "save" ? 500 : 0;
     if (delay > 0) {
       channel.appendLine(`[lint] delay ${delay}ms for cold start...`);
     }
 
     await new Promise((r) => setTimeout(r, delay));
+
+    if (vscode.window.activeTextEditor?.document !== doc) {
+        channel.appendLine(`[lint] Cancelled: Active editor changed`);
+        finishWithCachedCount(doc);
+        return;
+    }
+
     await lintActiveOnly(collection, doc);
   } catch (err) {
     channel.appendLine(`[error] triggerLint failed: ${err}`);
@@ -198,15 +302,6 @@ async function triggerLint(
   }
 }
 
-// ===== 3) textlint のルール構築 =====
-// ルール・プラグインの組み立ては linter_rules.js に委譲
-// ===== 4) textlint → VS Code Diagnostics 変換 =====
-/**
- * textlint の messages を VS Code Diagnostics に変換する。
- * @param {vscode.Uri} uri
- * @param {any[]} messages
- * @returns {vscode.Diagnostic[]}
- */
 function toDiagnostics(uri, messages) {
   const diags = [];
   for (const m of messages) {
@@ -234,13 +329,10 @@ function toDiagnostics(uri, messages) {
   return diags;
 }
 
-// ===== 5) 差分リント用ユーティリティ =====
-/** CR を除去して行配列に分割する。 */
 function splitLines(s) {
   return s.replace(/\r/g, "").split("\n");
 }
 
-/** 先頭末尾の共通部分を除いた変更範囲を返す。 */
 function computeChangedRanges(prevLines, nextLines) {
   let a = 0;
   const aMax = prevLines.length;
@@ -255,21 +347,17 @@ function computeChangedRanges(prevLines, nextLines) {
     tb--;
   }
 
-  if (a > ta && a > tb) return []; // 変化なし
+  if (a > ta && a > tb) return [];
   const start = a;
-  const end = tb; // 含む index
+  const end = tb;
   return [{ start, end }];
 }
 
-/**
- * 変更範囲をパラグラフ単位に広げ、前後に context 行を付けて返す。
- * @returns {{start:number,end:number}[]}
- */
 function expandToParagraphRanges(lines, ranges, context = 0) {
   const res = [];
   const n = lines.length;
   for (const r of ranges) {
-    let s = Math.max(0, r.start);
+    let s = Math.max(0, Math.min(n - 1, r.start));
     let e = Math.min(n - 1, r.end);
     while (s > 0 && lines[s - 1].trim() !== "") s--;
     while (e < n - 1 && lines[e + 1].trim() !== "") e++;
@@ -292,7 +380,6 @@ function expandToParagraphRanges(lines, ranges, context = 0) {
   return merged;
 }
 
-/** 前回診断の範囲から再計算対象行を求める。 */
 function rangesFromPrevDiagnostics(lines, diagnostics) {
   if (!diagnostics || diagnostics.length === 0) return [];
   const ranges = diagnostics.map((d) => ({
@@ -302,7 +389,6 @@ function rangesFromPrevDiagnostics(lines, diagnostics) {
   return expandToParagraphRanges(lines, ranges, 0);
 }
 
-/** 置き換え対象範囲を新診断で差し替えつつ結合する。 */
 function mergeDiagnostics(oldDiags, newDiags, replacedRanges) {
   if (!oldDiags || oldDiags.length === 0) return newDiags;
   const keep = [];
@@ -320,18 +406,12 @@ function mergeDiagnostics(oldDiags, newDiags, replacedRanges) {
 }
 
 // ===== 6) 実行本体（差分リント） =====
-/** アクティブドキュメントだけを対象に差分リントする。 */
 async function lintActiveOnly(collection, doc) {
   if (!doc) return;
-  collection.clear(); // アクティブ以外の結果は消す
+  collection.clear();
   await lintDocumentIncremental(doc, collection);
 }
 
-/**
- * 差分リント本体。キャッシュを活用し、変更箇所と前回エラー行のみ再解析する。
- * @param {vscode.TextDocument} doc
- * @param {vscode.DiagnosticCollection} collection
- */
 async function lintDocumentIncremental(doc, collection) {
   try {
     if (!doc) return;
@@ -349,7 +429,6 @@ async function lintDocumentIncremental(doc, collection) {
       return;
     }
 
-    // onWillSave / triggerLint 側で出している可能性あり。二重防止。
     if (lintRunning === 0) startLintUI("Linting...");
     channel.appendLine(
       `[lint:start] ${doc.uri.fsPath} lang=${doc.languageId} isTxt=${isTxt}`
@@ -361,35 +440,29 @@ async function lintDocumentIncremental(doc, collection) {
 
     if (!fullText || fullText.trim().length === 0) {
       collection.set(uri, []);
-      channel.appendLine(`[lint:clear] ${uri.fsPath} 空のため診断をクリア`);
       docCache.set(uri.toString(), { textLines: nextLines, diagnostics: [] });
       finishLintUI("0 iss");
       return;
     }
 
-    const kernel = getKernel();
-    const { plugins, rules } = getOptions();
-    channel.appendLine(
-      `[lint:opts] plugins=${plugins.length} rules=${rules.length}`
-    );
     const ext = doc.languageId === "markdown" || isMd ? ".md" : ".txt";
-
     const cacheKey = uri.toString();
     const cached = docCache.get(cacheKey);
+
+    // Using WORKER for linting
 
     // 初回（キャッシュなし）→ 全文リント
     if (!cached) {
       const maskedText = maskCodeBlocks(fullText);
-      const result = await kernel.lintText(maskedText, {
-        filePath: uri.fsPath,
-        ext,
-        plugins,
-        rules,
-      });
+      const result = await lintTextWithWorker(maskedText, { filePath: uri.fsPath, ext });
+
+      if (vscode.window.activeTextEditor?.document !== doc) {
+          channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
+          return;
+      }
+
       const diagnostics = toDiagnostics(uri, result.messages || []);
-      // 句読点連続の独自診断を追加
       diagnostics.push(...findRepeatedPunctDiagnostics(uri, maskedText, 0));
-      // 「！」「？」直後の全角スペース不足の独自診断を追加
       diagnostics.push(
         ...findExclamQuestionSpaceDiagnostics(uri, maskedText, 0)
       );
@@ -422,7 +495,6 @@ async function lintDocumentIncremental(doc, collection) {
       targetRanges = targetRanges.concat(prevErr);
     }
 
-    // マージ（重複統合）
     targetRanges.sort((a, b) => a.start - b.start);
     const merged = [];
     for (const cur of targetRanges) {
@@ -436,7 +508,6 @@ async function lintDocumentIncremental(doc, collection) {
       }
     }
 
-    // 対象レンジが無ければスキップ（キャッシュだけ更新）
     if (merged.length === 0) {
       channel.appendLine(`[lint:skip] 差分が無いのでスキップ`);
       docCache.set(cacheKey, {
@@ -448,22 +519,18 @@ async function lintDocumentIncremental(doc, collection) {
       return;
     }
 
-    // 各レンジを個別に lint して集約
     const newPartialDiagnostics = [];
     for (const r of merged) {
-      const sliceText = nextLines.slice(r.start, r.end + 1).join("\n");
-      // ★ 差分スライス開始時点がフェンス内かどうかを判定
-      const initialFence = fenceStateBefore(nextLines, r.start);
-      // ★ フェンス内から始まる場合でも確実にマスク
-      const maskedSlice = maskCodeBlocks(sliceText, initialFence);
-      const res = await kernel.lintText(maskedSlice, {
-        filePath: uri.fsPath,
-        ext,
-        plugins,
-        rules,
-      });
+      if (vscode.window.activeTextEditor?.document !== doc) {
+           break;
+      }
 
-      // slice 内の 1-based loc を元行へオフセット
+      const sliceText = nextLines.slice(r.start, r.end + 1).join("\n");
+      const initialFence = fenceStateBefore(nextLines, r.start);
+      const maskedSlice = maskCodeBlocks(sliceText, initialFence);
+
+      const res = await lintTextWithWorker(maskedSlice, { filePath: uri.fsPath, ext });
+
       const adjusted = (res.messages || []).map((m) => {
         const msg = {
           ...m,
@@ -475,9 +542,7 @@ async function lintDocumentIncremental(doc, collection) {
       });
 
       const diags = toDiagnostics(uri, adjusted);
-      // この差分レンジ内の句読点連続診断を追加（ベース行 = r.start）
       diags.push(...findRepeatedPunctDiagnostics(uri, maskedSlice, r.start));
-      // この差分レンジ内の「！」「？」直後 全角スペース不足診断を追加（ベース行 = r.start）
       diags.push(
         ...findExclamQuestionSpaceDiagnostics(uri, maskedSlice, r.start)
       );
@@ -485,11 +550,19 @@ async function lintDocumentIncremental(doc, collection) {
       newPartialDiagnostics.push(...diags);
     }
 
-    // 旧診断の該当範囲を新診断で置き換え
+    if (vscode.window.activeTextEditor?.document !== doc) {
+         channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
+         return;
+    }
+
     const mergedDiagnostics = mergeDiagnostics(
       cached.diagnostics,
       newPartialDiagnostics,
       merged
+    );
+
+    channel.appendLine(
+      `[lint:done] ${uri.fsPath} → ${mergedDiagnostics.length} 件 (partial ×${merged.length})`
     );
 
     collection.set(uri, mergedDiagnostics);
@@ -498,9 +571,6 @@ async function lintDocumentIncremental(doc, collection) {
       diagnostics: mergedDiagnostics,
     });
 
-    channel.appendLine(
-      `[lint:done] ${uri.fsPath} → ${mergedDiagnostics.length} 件 (partial ×${merged.length})`
-    );
     finishLintUI(`${mergedDiagnostics.length} iss`);
   } catch (err) {
     channel.appendLine(
@@ -512,24 +582,17 @@ async function lintDocumentIncremental(doc, collection) {
 }
 
 // ===== 7) エントリポイント =====
-/** 拡張を初期化し、コマンド・イベントを登録する。 */
 function activate(context) {
-  // channel.appendLine("[activate] textlint-kernel-linter 起動");
-  // try {
-  //   channel.show(true);
-  // } catch {}
-
+  ensureWorker(context);
   ensureStatusBar(context);
-  updateIdleUIForDoc(vscode.window.activeTextEditor?.document); // 起動直後
+  updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
 
-  // ファイル切替時（自動リントなし方針のまま、直前結果だけ反映）
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       updateIdleUIForDoc(editor?.document);
     })
   );
 
-  // （既存）出力パネルを開くコマンド
   context.subscriptions.push(
     vscode.commands.registerCommand("linter.showOutput", () => {
       try {
@@ -543,7 +606,6 @@ function activate(context) {
   );
   context.subscriptions.push(collection);
 
-  // クリック/コマンド：今開いているファイルを lint
   context.subscriptions.push(
     vscode.commands.registerCommand("linter.lintActiveFile", async () => {
       const doc = vscode.window.activeTextEditor?.document;
@@ -553,25 +615,14 @@ function activate(context) {
         );
         return;
       }
-      if (!canLint(doc)) {
-        vscode.window.showInformationMessage(
-          "このファイルは lint 対象ではありません（.txt / plaintext / markdown のみ）。"
-        );
-        updateIdleUIForDoc(doc);
-        return;
-      }
       try {
         await triggerLint(doc, collection, { mode: "command" });
       } catch (e) {
-        channel.appendLine(
-          `[cmd] linter.lintActiveFile error: ${e?.stack || e}`
-        );
         finishLintUI("Error");
       }
     })
   );
 
-  // 保存直前：保存理由を記録し、予定されていれば即スピナー
   context.subscriptions.push(
     vscode.workspace.onWillSaveTextDocument((e) => {
       lastSaveReason.set(e.document.uri.toString(), e.reason);
@@ -583,14 +634,12 @@ function activate(context) {
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
-      // 設定変更があったらキャッシュをクリア
       if (e.affectsConfiguration("posNote.linter")) {
         invalidateKernelCache();
       }
     })
   );
 
-  // 保存時：共通トリガー経由で実行
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       try {
@@ -605,11 +654,8 @@ function activate(context) {
       }
     })
   );
-
-  // 起動時／ファイル切替時の自動リントは行わない（ポリシー継承）
 }
 
-/** 後片付け（現状は no-op）。 */
 function deactivate() {}
 
 module.exports = { activate, deactivate };

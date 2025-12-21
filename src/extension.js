@@ -7,7 +7,7 @@ const { initWorkload } = require("./workload");
 const { initHeadings } = require("./headings");
 const { initSidebarUtilities } = require("./sidebar_util");
 const { initKanbn } = require("./kanbn");
-const { JapaneseSemanticProvider, semanticLegend } = require("./semantic");
+const { JapaneseSemanticProvider, semanticLegend, ensureTokenizer } = require("./semantic");
 const PageViewPanel = require("./page_view");
 const { registerBracketSupport } = require("./bracket");
 const { combineTxtInFolder, combineMdInFolder } = require("./combine");
@@ -112,6 +112,9 @@ function activate(context) {
 
   // --- 5-3) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });
+
+  // Main Thread Tokenizer for Cursor (Async init)
+  ensureTokenizer(context);
 
   // 括弧補完＋Backspace同時削除は外部モジュールへ委譲
   registerBracketSupport(context, { cfg, isTargetDoc });

@@ -28,35 +28,57 @@ async function moveCursorByWord(direction) {
   const lineIndex = cursor.line;
   const lineText = doc.lineAt(lineIndex).text;
 
-  // 1. 行全体をトークナイズ
+  // 1. 周辺行(前後5行)を含めてトークナイズし、文脈精度向上
+  const startLine = Math.max(0, lineIndex - 5);
+  const endLine = Math.min(doc.lineCount - 1, lineIndex + 5);
+  let combinedText = "";
+  let currentLineOffset = 0;
+
+  for (let ln = startLine; ln <= endLine; ln++) {
+    const txt = doc.lineAt(ln).text;
+    if (ln === lineIndex) {
+      currentLineOffset = combinedText.length;
+    }
+    combinedText += txt + "\n"; // Kuromojiは改行があっても1文として処理可能だが、ここでは繋げる
+  }
+
   // tokenize(text) は同期処理
-  const tokens = tokenizer.tokenize(lineText);
+  const allTokens = tokenizer.tokenize(combinedText);
 
-  // 2. トークンの境界位置リストを作成
+  // 2. 現在行に該当するトークンだけを抽出し、相対位置を計算
+  // currentLineOffset <= token.word_position - 1 < currentLineOffset + lineText.length
 
-  // A) すべての境界候補と、助詞の開始位置を収集
   const boundaries = new Set();
   const particleStarts = new Set();
 
   boundaries.add(0);
   boundaries.add(lineText.length);
 
-  for (const t of tokens) {
-    if (t.word_position) {
-      const start = t.word_position - 1;
-      const end = start + t.surface_form.length;
+  for (const t of allTokens) {
+    if (!t.word_position) continue;
+    const globalStart = t.word_position - 1;
+    const globalEnd = globalStart + t.surface_form.length;
 
-      boundaries.add(start);
-      boundaries.add(end);
+    // 現在行の範囲内か判定
+    const lineStartLimit = currentLineOffset;
+    const lineEndLimit = currentLineOffset + lineText.length;
 
-      if (t.pos === "助詞") {
-        particleStarts.add(start);
-      }
+    // トークンが現在行と重なっている部分があれば境界として採用
+    if (globalEnd > lineStartLimit && globalStart < lineEndLimit) {
+        // 行内相対座標へ変換
+        const localStart = Math.max(0, globalStart - lineStartLimit);
+        const localEnd = Math.min(lineText.length, globalEnd - lineStartLimit);
+
+        boundaries.add(localStart);
+        boundaries.add(localEnd);
+
+        if (t.pos === "助詞") {
+            particleStarts.add(localStart);
+        }
     }
   }
 
   // B) 助詞の開始位置と重なる境界を除外する
-  // これにより、「名詞」の終わり（＝助詞の始まり）で止まらなくなる
   particleStarts.forEach((p) => {
     boundaries.delete(p);
   });

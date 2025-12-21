@@ -1,5 +1,5 @@
-// textlint のプラグイン／ルール構成と独自診断ユーティリティを提供する。
-const vscode = require("vscode");
+// textlint のプラグイン／ルール構成を提供する (Worker/Main 両対応)
+// VS Code 依存（vscodeモジュール）は排除すること。
 
 // textlint plugins (optional)
 let pluginText = null;
@@ -13,7 +13,6 @@ try {
   pluginMarkdown = require("@textlint/textlint-plugin-markdown");
 } catch {}
 
-// ===== textlint ルール構成 =====
 // ===== textlint ルール構成 =====
 /** @type {[string, any][]} */
 const LOADED_RULES = [
@@ -134,13 +133,9 @@ const normalizeRuleExport = (r) => {
 };
 
 /**
- * @typedef {{ type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }} RuleShape
- */
-
-/**
  * @param {*} mod
  * @param {(msg: string) => void} log
- * @returns {RuleShape}
+ * @returns {{ type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }}
  */
 const normalizeRuleModule = (mod, log) => {
   const m = mod?.default ?? mod;
@@ -151,20 +146,26 @@ const normalizeRuleModule = (mod, log) => {
       if (rr) out.push([childId, rr]);
       else log(`[warn] preset 内で不正な rule: ${childId}`);
     }
-    return { type: "preset", entries: out };
+    /** @type {{ type: 'preset', entries: any[][] }} */
+    return { type: 'preset', entries: out };
   }
   const single = normalizeRuleExport(m);
-  if (single) return { type: "rule", rule: single };
-  return { type: "invalid" };
+  if (single) {
+     /** @type {{ type: 'rule', rule: any }} */
+     return { type: 'rule', rule: single };
+  }
+  /** @type {{ type: 'invalid' }} */
+  return { type: 'invalid' };
 };
 
 /**
  * textlint の plugins / rules を組み立てる。
  * ユーザー設定と既定値をマージし、読み込めたものだけ返す。
+ * @param {Record<string, any>} userRulesFromConfig ユーザー設定の rules オブジェクト
  * @param {{ appendLine?: (msg:string)=>void } | undefined} channel ログ出力先
  * @returns {{ plugins: any[], rules: any[] }}
  */
-function buildKernelOptions(channel) {
+function buildKernelOptions(userRulesFromConfig, channel) {
   const log = (msg) => {
     try {
       if (channel?.appendLine) channel.appendLine(msg);
@@ -201,15 +202,7 @@ function buildKernelOptions(channel) {
     log("[warn] @textlint/textlint-plugin-markdown is missing; .md lint disabled");
   }
 
-  // ユーザー設定を読み、デフォルトとマージ（ユーザー優先）
-  let userRules = {};
-  try {
-    const cfg = vscode.workspace.getConfiguration("posNote.linter");
-    userRules = cfg.get("rules") || {};
-  } catch (e) {
-    log("[warn] ユーザー設定 rules 読み込み失敗: " + e.message);
-  }
-  const mergedRules = mergeRules(DEFAULT_RULES, userRules);
+  const mergedRules = mergeRules(DEFAULT_RULES, userRulesFromConfig || {});
 
   // フラット/入れ子を一元化
   const optionMap = new Map();
@@ -219,7 +212,7 @@ function buildKernelOptions(channel) {
   const nested = Object.entries(mergedRules).filter(([k]) => !k.includes("/"));
 
   // どれが preset か知るため先に形だけ読み込む
-  /** @type {[string, { type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }][]} */
+  /** @type {Array<[string, { type: 'preset', entries: any[][] } | { type: 'rule', rule: any } | { type: 'invalid' }]>} */
   const loadedModules = [];
   for (const [baseId, mod] of LOADED_RULES) {
     try {
@@ -289,69 +282,8 @@ function buildKernelOptions(channel) {
   return { plugins, rules };
 }
 
-// ===== 独自診断・ユーティリティ =====
-const RE_PUNCT_RUN = /(。。|、、|、。|。、)/g;
 
-function findRepeatedPunctDiagnostics(uri, text, baseLine = 0) {
-  const diags = [];
-  const lines = text.replace(/\r/g, "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const lineStr = lines[i];
-    RE_PUNCT_RUN.lastIndex = 0;
-    let m;
-    while ((m = RE_PUNCT_RUN.exec(lineStr)) !== null) {
-      const startCol = m.index;
-      const endCol = m.index + m[0].length;
-      const range = new vscode.Range(
-        baseLine + i,
-        startCol,
-        baseLine + i,
-        endCol
-      );
-      const diag = new vscode.Diagnostic(
-        range,
-        "句読点が連続しています。",
-        vscode.DiagnosticSeverity.Error
-      );
-      diag.source = "textlint-kernel-linter";
-      diag.code = "punctuation-run";
-      diags.push(diag);
-    }
-  }
-  return diags;
-}
-
-const RE_NEED_FW_SPACE = /[！？](?![！？　」』〉》）】`'”*~]|$)/g;
-
-function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
-  const diags = [];
-  const lines = text.replace(/\r/g, "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const lineStr = lines[i];
-    RE_NEED_FW_SPACE.lastIndex = 0;
-    let m;
-    while ((m = RE_NEED_FW_SPACE.exec(lineStr)) !== null) {
-      const startCol = m.index;
-      const endCol = m.index + 1;
-      const range = new vscode.Range(
-        baseLine + i,
-        startCol,
-        baseLine + i,
-        endCol
-      );
-      const diag = new vscode.Diagnostic(
-        range,
-        "「！」と「？」の後にはスペースが必要です。",
-        vscode.DiagnosticSeverity.Error
-      );
-      diag.source = "textlint-kernel-linter";
-      diag.code = "exclam-question-needs-fullwidth-space";
-      diags.push(diag);
-    }
-  }
-  return diags;
-}
-
+// ===== ユーティリティ（Workerでも使うなら別ファイルだが、今回はMainで使うため削除または移動） =====
 const RE_MASK_FENCE = /^\s*(```|~~~)/;
 const RE_INDENT_BLOCK = /^(?: {4}|\t)/;
 
@@ -413,8 +345,6 @@ function fenceStateBefore(lines, startLine) {
 
 module.exports = {
   buildKernelOptions,
-  findRepeatedPunctDiagnostics,
-  findExclamQuestionSpaceDiagnostics,
   maskCodeBlocks,
   fenceStateBefore,
 };

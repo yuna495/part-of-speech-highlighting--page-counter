@@ -79,14 +79,18 @@ const copyImagePlugin = {
 
 async function main() {
   const ctx = await esbuild.context({
-    entryPoints: ["src/extension.js"],
+    entryPoints: [
+    "./src/extension.js",
+    "./src/worker/linterWorker.js",
+    "./src/worker/semanticWorker.js",
+  ],
     bundle: true,
     format: "cjs",
     minify: production,
     sourcemap: !production,
     sourcesContent: false,
     platform: "node",
-    outfile: "dist/extension.js",
+    outdir: "dist",
     external: ["vscode", "puppeteer-core"], // exclude vscode api and puppeteer
     logLevel: "silent",
     plugins: [esbuildProblemMatcherPlugin, copyDictPlugin, aliasPlugin, copyImagePlugin],
