@@ -14,6 +14,7 @@ const { combineTxtInFolder, combineMdInFolder } = require("./combine");
 const { registerRubySupport } = require("./ruby");
 const { registerConversionCommands } = require("./conversion");
 const { registerConvenientFeatures } = require("./convenient");
+const { registerWeblioSearch } = require("./weblio");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開 API（activate で初期化）
@@ -272,6 +273,8 @@ function activate(context) {
   );
   // 保存：自動整形（行末スペース削除）
   registerConvenientFeatures(context);
+  // Weblio検索
+  registerWeblioSearch(context);
 }
 
 /**

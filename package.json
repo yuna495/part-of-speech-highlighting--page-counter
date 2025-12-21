@@ -288,6 +288,10 @@
         "title": "開発用テストフォーマット"
       },
       {
+        "command": "posNote.searchWeblio",
+        "title": "POS/Note: Weblioで類語検索（選択単語orカーソル単語）"
+      },
+      {
         "command": "posNote.createNewNovel",
         "title": "POS/Note: 新しい小説を作成",
         "icon": "$(add)"
@@ -851,6 +855,11 @@
         "command": "posNote.convenient.toggleLineSuffix",
         "key": "ctrl+alt+y",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "posNote.searchWeblio",
+        "key": "ctrl+t",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
       }
     ]
   },

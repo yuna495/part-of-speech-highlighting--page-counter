@@ -24,6 +24,7 @@
       - [PDF出力機能（v2.4.1）](#pdf出力機能v241)
     - [入力支援](#入力支援)
       - [文字列一括変換機能（v2.3.0）](#文字列一括変換機能v230)
+      - [Weblio検索（v2.4.1）](#weblio検索v241)
       - [リント機能](#リント機能)
   - [**辞書マージの例（ユーザー辞書、一括置換辞書）**（v2.4.1）](#辞書マージの例ユーザー辞書一括置換辞書v241)
   - [設定例](#設定例)
@@ -219,12 +220,12 @@ workspace/
 
 - **コマンド一覧**
 
-  | コマンド ID | 内容 |
-  |--------------|------|
+  | コマンド ID              | 内容                                                       |
+  | ------------------------ | ---------------------------------------------------------- |
   | `posNote.combineTxtHere` | サイドバー上部のボタンで、アクティブフォルダの .txt を結合 |
-  | `posNote.combineMdHere`  | 同上（.md） |
-  | `posNote.combineTxtAt`   | サイドバーで右クリックしたフォルダの .txt を結合 |
-  | `posNote.combineMdAt`    | 同上（.md） |
+  | `posNote.combineMdHere`  | 同上（.md）                                                |
+  | `posNote.combineTxtAt`   | サイドバーで右クリックしたフォルダの .txt を結合           |
+  | `posNote.combineMdAt`    | 同上（.md）                                                |
 
 ---
 
@@ -341,7 +342,7 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 ### 縦書きプレビュー（v2.4.1）
 
 - エディタ右上の 📖 アイコンで縦書きページプレビューを開きます。
-- ユーザー指定のページ設定の表示と、文庫本風（デフォルト：18行 × 40字）の表示を切り替えられます。
+- ステータスバーに表示されているユーザー指定のページ設定（デフォルト：20行 × 20字）での表示と、文庫本風（デフォルト：18行 × 40字）の表示を切り替えられます。
 - エディタのカーソル位置とプレビューの表示位置が同期します。
 - プレビュー内の文字をクリックすると、エディタの該当箇所へジャンプします。
 - 編集内容は入力中にリアルタイムで反映されます。
@@ -414,11 +415,18 @@ setting.jsonにて、変更可能。数値はデフォルト値。
   }
   ```
 
+#### Weblio検索（v2.4.1）
+
+- 選択中の文字列を、外部ブラウザによって**Weblio類語辞典**検索。（ショートカットキー：`ctrl + t`）
+
 #### リント機能
 
-現在テスト中
+- 保存時にテキストリントを実施。
+  - 機能をONにする場合、以下を設定してください。
 
----
+    ```json
+    "posNote.linter.enabled":true
+    ```
 
 ## **辞書マージの例（ユーザー辞書、一括置換辞書）**（v2.4.1）
 
@@ -511,39 +519,39 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 - 主な設定項：：
 
-| 設定キー | 説明 | 既定値 |
-|----------|------|--------|
-| **ハイライト** | | |
-| `posNote.semantic.enabled` | `.txt` / `Novel` の品詞ハイライト有効化 | `true` |
-| `posNote.semantic.enabledMd` | `.md` の品詞ハイライト有効化 | `true` |
-| `posNote.semantic.bracketsOverride.enabled` | 括弧内を専用色にする（ON:専用色＋品詞抑制 / OFF:品詞適用） | `true` |
-| **見出し** | | |
-| `posNote.headings.semantic.enabled` | `.txt` / `Novel` で `#` 見出し行をハイライト | `true` |
-| `posNote.headings.folding.enabled` | 見出しの折りたたみ機能を有効化 | `true` |
-| `posNote.headings.showBodyCounts` | 各見出しの末尾に直下の文字数を表示 | `true` |
-| `posNote.headings.foldMinLevel` | 全折りたたみコマンドで対象とする最小レベル（2=##以上） | `2` |
-| **作業量計測** | | |
-| `posNote.workload.enabled` | 純作業量（入力/削除/貼付）の計測・表示 | `true` |
-| `posNote.workload.dailyTarget` | 1日の目標作業文字数（グラフの赤線） | `2000` |
-| `posNote.workload.graphStyle` | グラフの表示スタイル（"bar" または "radial"） | `"radial"` |
-| `posNote.workload.timeZone` | 集計基準とするタイムゾーン（"system" または IANA ID） | `"system"` |
-| **ステータスバー・入力制御** | | |
-| `posNote.enabledNote` | ページカウンタ（行×列）表示の有効化 | `true` |
-| `posNote.Note.rowsPerNote` | 1ページの行数 | `20` |
-| `posNote.Note.colsPerRow` | 1行の文字数 | `20` |
-| `posNote.status.showSelectedChars` | 文字数（選択時/全体）を表示 | `true` |
-| `posNote.status.countSpaces` | 文字数カウントに空白を含める | `false` |
-| `posNote.aggregate.showDeltaFromHEAD` | Git HEAD（直近コミット）との差分を表示 | `true` |
-| `posNote.aggregate.showFolderSum` | 同フォルダ内の同種ファイル合算文字数を表示 | `true` |
-| `posNote.kinsoku.enabled` | ページ計算時の行頭禁則処理を有効化 | `true` |
-| `posNote.kinsoku.bannedStart` | 行頭禁則対象の文字リスト（手動設定用） | デフォルト |
-| `posNote.linter.enabled` | textlint による文章校正を有効化（要再起動） | `false` |
-| **プレビュー** | | |
-| `posNote.Preview.backgroundColor` | プレビュー背景色 | `#111111` |
-| `posNote.Preview.textColor` | プレビュー文字色 | `#4dd0e1` |
-| **プロットボード** | | |
-| `posNote.kanbn.columnColors` | 列の背景色リスト | 配列 |
-| `posNote.kanbn.tagsColors` | タグの色定義マップ | オブジェクト |
+| 設定キー                                    | 説明                                                       | 既定値       |
+| ------------------------------------------- | ---------------------------------------------------------- | ------------ |
+| **ハイライト**                              |                                                            |              |
+| `posNote.semantic.enabled`                  | `.txt` / `Novel` の品詞ハイライト有効化                    | `true`       |
+| `posNote.semantic.enabledMd`                | `.md` の品詞ハイライト有効化                               | `true`       |
+| `posNote.semantic.bracketsOverride.enabled` | 括弧内を専用色にする（ON:専用色＋品詞抑制 / OFF:品詞適用） | `true`       |
+| **見出し**                                  |                                                            |              |
+| `posNote.headings.semantic.enabled`         | `.txt` / `Novel` で `#` 見出し行をハイライト               | `true`       |
+| `posNote.headings.folding.enabled`          | 見出しの折りたたみ機能を有効化                             | `true`       |
+| `posNote.headings.showBodyCounts`           | 各見出しの末尾に直下の文字数を表示                         | `true`       |
+| `posNote.headings.foldMinLevel`             | 全折りたたみコマンドで対象とする最小レベル（2=##以上）     | `2`          |
+| **作業量計測**                              |                                                            |              |
+| `posNote.workload.enabled`                  | 純作業量（入力/削除/貼付）の計測・表示                     | `true`       |
+| `posNote.workload.dailyTarget`              | 1日の目標作業文字数（グラフの赤線）                        | `2000`       |
+| `posNote.workload.graphStyle`               | グラフの表示スタイル（"bar" または "radial"）              | `"radial"`   |
+| `posNote.workload.timeZone`                 | 集計基準とするタイムゾーン（"system" または IANA ID）      | `"system"`   |
+| **ステータスバー・入力制御**                |                                                            |              |
+| `posNote.enabledNote`                       | ページカウンタ（行×列）表示の有効化                        | `true`       |
+| `posNote.Note.rowsPerNote`                  | 1ページの行数                                              | `20`         |
+| `posNote.Note.colsPerRow`                   | 1行の文字数                                                | `20`         |
+| `posNote.status.showSelectedChars`          | 文字数（選択時/全体）を表示                                | `true`       |
+| `posNote.status.countSpaces`                | 文字数カウントに空白を含める                               | `false`      |
+| `posNote.aggregate.showDeltaFromHEAD`       | Git HEAD（直近コミット）との差分を表示                     | `true`       |
+| `posNote.aggregate.showFolderSum`           | 同フォルダ内の同種ファイル合算文字数を表示                 | `true`       |
+| `posNote.kinsoku.enabled`                   | ページ計算時の行頭禁則処理を有効化                         | `true`       |
+| `posNote.kinsoku.bannedStart`               | 行頭禁則対象の文字リスト（手動設定用）                     | デフォルト   |
+| `posNote.linter.enabled`                    | textlint による文章校正を有効化（要再起動）                | `false`      |
+| **プレビュー**                              |                                                            |              |
+| `posNote.Preview.backgroundColor`           | プレビュー背景色                                           | `#111111`    |
+| `posNote.Preview.textColor`                 | プレビュー文字色                                           | `#4dd0e1`    |
+| **プロットボード**                          |                                                            |              |
+| `posNote.kanbn.columnColors`                | 列の背景色リスト                                           | 配列         |
+| `posNote.kanbn.tagsColors`                  | タグの色定義マップ                                         | オブジェクト |
 
 ### 設定項目一覧
 
