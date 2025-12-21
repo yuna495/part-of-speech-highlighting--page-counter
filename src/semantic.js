@@ -1164,4 +1164,5 @@ module.exports = {
   JapaneseSemanticProvider,
   semanticLegend,
   tokenTypesArr,
+  getTokenizer: () => tokenizer,
 };

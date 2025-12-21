@@ -15,6 +15,7 @@ const { registerRubySupport } = require("./ruby");
 const { registerConversionCommands } = require("./conversion");
 const { registerConvenientFeatures } = require("./convenient");
 const { registerWeblioSearch } = require("./weblio");
+const { registerCursorCommands } = require("./cursor");
 
 // ===== 3) Module State =====
 let _sb = null; // status_bar の公開 API（activate で初期化）
@@ -275,6 +276,8 @@ function activate(context) {
   registerConvenientFeatures(context);
   // Weblio検索
   registerWeblioSearch(context);
+  // カーソル移動
+  registerCursorCommands(context);
 }
 
 /**

@@ -292,6 +292,14 @@
         "title": "POS/Note: Weblioで類語検索（選択単語orカーソル単語）"
       },
       {
+        "command": "posNote.cursorWordLeft",
+        "title": "POS/Note: 単語単位で左移動（Kuromoji）"
+      },
+      {
+        "command": "posNote.cursorWordRight",
+        "title": "POS/Note: 単語単位で右移動（Kuromoji）"
+      },
+      {
         "command": "posNote.createNewNovel",
         "title": "POS/Note: 新しい小説を作成",
         "icon": "$(add)"
@@ -859,6 +867,16 @@
       {
         "command": "posNote.searchWeblio",
         "key": "ctrl+t",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
+        "command": "posNote.cursorWordLeft",
+        "key": "ctrl+left",
+        "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
+        "command": "posNote.cursorWordRight",
+        "key": "ctrl+right",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
       }
     ]
