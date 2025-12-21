@@ -2,7 +2,7 @@
 
 All notable changes to this extension are documented here.
 
-## [2.4.1]
+## [2.4.1] - 2025/12/21
 
 ### 追加
 

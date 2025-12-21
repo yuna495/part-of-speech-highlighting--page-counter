@@ -31,6 +31,7 @@
   - [設定例](#設定例)
     - [設定項目一覧](#設定項目一覧)
   - [推奨ワーク](#推奨ワーク)
+  - [チェンジログ](#チェンジログ)
   - [既知の制約](#既知の制約)
   - [ライセンス](#ライセンス)
 
@@ -638,6 +639,10 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 - `.txt` `.md` での小説や論文執筆
 - 適度な長さで文書の分割を検討してください
 
+## チェンジログ
+
+[changelog](https://github.com/yuna495/part-of-speech-highlighting--page-counter/blob/master/CHANGELOG.md)
+
 ## 既知の制約
 
 - 大規模ファイルでは解析負荷が高くなる可能性あり
@@ -645,4 +650,4 @@ setting.jsonにて、変更可能。数値はデフォルト値。
 
 ## ライセンス
 
-MIT
+[MIT](https://github.com/yuna495/part-of-speech-highlighting--page-counter/blob/master/LICENSE.txt)
