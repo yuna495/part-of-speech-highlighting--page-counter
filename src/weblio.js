@@ -16,13 +16,8 @@ async function searchWeblio() {
   // 1. 選択範囲がある場合
   if (!editor.selection.isEmpty) {
     text = doc.getText(editor.selection).trim();
-  } else {
-    // 2. 選択範囲がない場合、カーソル位置の単語を取得
-    const range = doc.getWordRangeAtPosition(editor.selection.active);
-    if (range) {
-      text = doc.getText(range).trim();
-    }
   }
+  // 選択範囲がない場合は単語取得を行わず、後続のチェックでメッセージを表示する
 
   if (!text) {
     vscode.window.showInformationMessage("検索する単語が選択されていません。");
