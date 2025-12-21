@@ -68,42 +68,66 @@ function initTokenizer(dicPath) {
   return initPromise;
 }
 
+const activeJobs = new Set();
+const ABORT_CHECK_INTERVAL = 1000; // Check every N lines
+
 parentPort.on("message", async (msg) => {
   try {
     if (msg.command === "init") {
       await initTokenizer(msg.dictPath);
       parentPort.postMessage({ command: "init_complete" });
-    } else if (msg.command === "tokenize") {
+    }
+    else if (msg.command === "abort") {
+        const reqId = msg.reqId;
+        if (activeJobs.has(reqId)) {
+            // We can't synchronously stop the loop, but we can set a flag tracked globally?
+            // Actually, we need to track job abort status.
+            activeJobs.delete(reqId); // Removing it signals abort
+        }
+    }
+    else if (msg.command === "tokenize") {
       // msg: { reqId, lines: [{ lineIndex, text }, ...] }
       if (!tokenizer) await initTokenizer();
 
-      const results = [];
-      const lines = msg.lines || [];
+      const reqId = msg.reqId;
+      activeJobs.add(reqId);
 
-      // Estimate size: avg 20 tokens/line * 5 ints/token * numLines
-      // Dynamic resizing is better but let's just use array and buffer convesion for simplicity logic first,
-      // or push to flat array then Int32Array. JIT handles array push well.
+      const lines = msg.lines || [];
       const flatData = [];
 
+      let processedCount = 0;
+
       for (const item of lines) {
+        if (!activeJobs.has(reqId)) {
+             // Aborted
+             return;
+        }
+
         const lineIdx = item.lineIndex;
         const text = item.text;
-        if (!text) continue;
+        if (text) {
+            const tokens = tokenizer.tokenize(text);
+            for (const tk of tokens) {
+                if (!tk.word_position) continue;
+                const start = tk.word_position - 1;
+                const length = tk.surface_form.length;
+                const { typeIdx, mods } = mapKuromojiToSemantic(tk); // Ensure mapKuromojiToSemantic is accessible
+                flatData.push(lineIdx, start, length, typeIdx, mods);
+            }
+        }
 
-        const tokens = tokenizer.tokenize(text);
-        for (const tk of tokens) {
-            if (!tk.word_position) continue;
-            const start = tk.word_position - 1;
-            const length = tk.surface_form.length;
-            const { typeIdx, mods } = mapKuromojiToSemantic(tk);
-
-            // Format: [line, start, len, typeIdx, mods]
-            flatData.push(lineIdx, start, length, typeIdx, mods);
+        processedCount++;
+        // Yield to event loop occasionally to process 'abort' messages
+        if (processedCount % ABORT_CHECK_INTERVAL === 0) {
+            await new Promise(r => setTimeout(r, 0));
         }
       }
 
-      const buffer = new Uint32Array(flatData);
-      parentPort.postMessage({ command: "tokenize_result", reqId: msg.reqId, data: buffer }, [buffer.buffer]);
+      if (activeJobs.has(reqId)) {
+          const buffer = new Uint32Array(flatData);
+          parentPort.postMessage({ command: "tokenize_result", reqId: msg.reqId, data: buffer }, [buffer.buffer]);
+          activeJobs.delete(reqId);
+      }
     }
   } catch (err) {
     parentPort.postMessage({ command: "error", error: String(err) });

@@ -483,7 +483,7 @@ function ensureWorker(context) {
   semanticWorker.postMessage({ command: "init", dictPath });
 }
 
-function tokenizeWithWorker(lines) {
+function tokenizeWithWorker(lines, cancelToken) {
   if (!semanticWorker) {
       console.warn("[SemanticWorker Main] Worker not ready");
       return Promise.resolve(new Uint32Array());
@@ -491,6 +491,18 @@ function tokenizeWithWorker(lines) {
   return new Promise((resolve, reject) => {
     const reqId = nextReqId++;
     workerPending.set(reqId, { resolve, reject });
+
+    // Cleanup if cancelled
+    if (cancelToken) {
+        cancelToken.onCancellationRequested(() => {
+            if (workerPending.has(reqId)) {
+                workerPending.delete(reqId);
+                semanticWorker.postMessage({ command: "abort", reqId });
+                resolve(new Uint32Array()); // Resolve empty on cancel
+            }
+        });
+    }
+
     semanticWorker.postMessage({ command: "tokenize", reqId, lines });
   });
 }
@@ -540,12 +552,40 @@ class JapaneseSemanticProvider {
 
     // Cache: docUri -> { map: Map<line, Uint32Array>, version: number, pendingBg: boolean }
     this._docCache = new Map();
+    this._bgScanCts = new Map(); // uri -> CancellationTokenSource
 
     context.subscriptions.push(
       vscode.workspace.onDidCloseTextDocument((doc) => {
-        this._spaceRangesByDoc.delete(doc.uri.toString());
-        this._docCache.delete(doc.uri.toString());
-        this._brRangesByDoc.delete(doc.uri.toString());
+        const docKey = doc.uri.toString();
+        this._spaceRangesByDoc.delete(docKey);
+        this._docCache.delete(docKey);
+        this._brRangesByDoc.delete(docKey);
+
+        // Cancel background scan if running
+        if (this._bgScanCts.has(docKey)) {
+            this._bgScanCts.get(docKey).cancel();
+            this._bgScanCts.delete(docKey);
+        }
+      }),
+      vscode.workspace.onDidChangeTextDocument((e) => {
+          // Incremental Cache Invalidation
+          const docKey = e.document.uri.toString();
+          if (!this._docCache.has(docKey)) return;
+          const entry = this._docCache.get(docKey);
+
+          // If line count changed (insert/delete lines), full invalidation is safest for now
+          // (To support accurate shift, we'd need to shift Map keys which is expensive)
+          if (e.contentChanges.some(c => c.range.start.line !== c.range.end.line || c.text.includes('\n'))) {
+              entry.map.clear();
+          } else {
+              // Just single line edits
+              for (const c of e.contentChanges) {
+                  for (let ln = c.range.start.line; ln <= c.range.end.line; ln++) {
+                      entry.map.delete(ln);
+                  }
+              }
+          }
+          entry.version = e.document.version;
       })
     );
   }
@@ -679,56 +719,129 @@ class JapaneseSemanticProvider {
         return new vscode.SemanticTokens(new Uint32Array());
     }
 
+    // 0. Pre-calculate keys
+    const docKey = document.uri.toString();
     const lang = (document.languageId || "").toLowerCase();
+
+    // Debounce: Wait 300ms to allow typing to settle
+    // BUT skip debounce if this is the first load (no cache) to ensure instant open
+    if (this._docCache.has(docKey)) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        if (cancelToken?.isCancellationRequested) {
+            return new vscode.SemanticTokens(new Uint32Array());
+        }
+    }
+
     if (lang === "markdown" && !c.semanticEnabledMd) return new vscode.SemanticTokens(new Uint32Array());
     if (lang !== "markdown" && !c.semanticEnabled) return new vscode.SemanticTokens(new Uint32Array());
 
     // 1. Prepare Doc Cache
-    const docKey = document.uri.toString();
-    if (!this._docCache.has(docKey) || this._docCache.get(docKey).version !== document.version) {
+    if (!this._docCache.has(docKey)) {
         this._docCache.set(docKey, { map: new Map(), version: document.version, pendingBg: false });
+
+        // Cancel any stale background scan for this doc (new initial load overrides old bg)
+        if (this._bgScanCts.has(docKey)) {
+            this._bgScanCts.get(docKey).cancel();
+            this._bgScanCts.delete(docKey);
+        }
     }
     const cacheEntry = this._docCache.get(docKey);
+    // Explicitly update version, but DO NOT clear map here since invalidation is handled by onDidChangeTextDocument
+    cacheEntry.version = document.version;
     const tokenMap = cacheEntry.map;
 
-    // 2. Determine lines to process
-    // Priority: Cursor Area (+/- 50 lines) -> Wait -> Render
-    // Background: Everything else -> Async -> Fire Event
-
-    const editor = vscode.window.visibleTextEditors.find(e => e.document === document);
-    // const cursor = editor ? editor.selection.active.line : 0; // No longer needed for priority
-    const startLine = Math.max(0, range.start.line);
-    const endLine = Math.min(document.lineCount - 1, range.end.line);
-
-    // 2. Identify all lines that need tokenization (Simple Full Scan or Diff)
+    // 2. Identify all lines that need tokenization (Priority + Background)
     const linesToRequest = [];
+    const bgLinesToRequest = [];
+
+    // Priority Range: Cursor +/- 100 lines
+    const editor = vscode.window.visibleTextEditors.find(e => e.document === document);
+    const cursorLine = editor ? editor.selection.active.line : 0;
+    const priorityStart = Math.max(0, cursorLine - 100);
+    const priorityEnd = Math.min(document.lineCount - 1, cursorLine + 100);
 
     for (let ln = 0; ln < document.lineCount; ln++) {
-        const text = document.lineAt(ln).text;
         // Check cache validity (only checks existence in map, version diff handled by clearing map)
         if (!tokenMap.has(ln)) {
-             linesToRequest.push({ lineIndex: ln, text });
+             const text = document.lineAt(ln).text;
+             const item = { lineIndex: ln, text };
+
+             // If we are in the priority range, request immediately
+             if (ln >= priorityStart && ln <= priorityEnd) {
+                 linesToRequest.push(item);
+             } else {
+                 bgLinesToRequest.push(item);
+             }
         }
     }
 
-    // 3. Request Worker
+    // 3. Request Worker (Priority) - Await this immediately
     if (linesToRequest.length > 0) {
-        // console.log(`[Semantic] Requesting ${linesToRequest.length} lines`);
-        const buffer = await tokenizeWithWorker(linesToRequest);
+        // console.log(`[Semantic] Requesting Priority ${linesToRequest.length} lines`);
+        const buffer = await tokenizeWithWorker(linesToRequest, cancelToken);
+        if (cancelToken?.isCancellationRequested) return new vscode.SemanticTokens(new Uint32Array());
 
-        // decode buffer: [line, s, l, t, m, ...]
+        // decode buffer
         for (let i = 0; i < buffer.length; i += 5) {
             const ln = buffer[i];
-            const data = buffer.slice(i + 1, i + 5); // s, l, t, m
+            const data = buffer.slice(i + 1, i + 5);
             if (!tokenMap.has(ln)) tokenMap.set(ln, []);
             tokenMap.get(ln).push(data);
         }
-
-        // Mark checked lines even if they had no tokens
+        // Mark checked lines
         for (const item of linesToRequest) {
             if (!tokenMap.has(item.lineIndex)) tokenMap.set(item.lineIndex, []);
         }
     }
+
+    // 4. Request Worker (Background) - Do NOT await. Fire and forget.
+    if (bgLinesToRequest.length > 0) {
+         // If a BG scan is already running for this doc, cancel and start new one
+         if (this._bgScanCts.has(docKey)) {
+             this._bgScanCts.get(docKey).cancel();
+             this._bgScanCts.delete(docKey);
+         }
+
+         const bgCts = new vscode.CancellationTokenSource();
+         this._bgScanCts.set(docKey, bgCts);
+
+         // console.log(`[Semantic] Requesting Background ${bgLinesToRequest.length} lines`);
+
+         tokenizeWithWorker(bgLinesToRequest, bgCts.token).then(buffer => {
+             if (bgCts.token.isCancellationRequested) return;
+
+             // Apply tokens
+             for (let i = 0; i < buffer.length; i += 5) {
+                 const ln = buffer[i];
+                 const data = buffer.slice(i + 1, i + 5);
+                 if (!tokenMap.has(ln)) tokenMap.set(ln, []);
+
+                 // Safety: Check if doc entry still exists (might be closed)
+                 if (!this._docCache.has(docKey)) return;
+
+                 tokenMap.get(ln)?.push(data);
+             }
+
+             // Mark empty
+             for (const item of bgLinesToRequest) {
+                  if (this._docCache.has(docKey) && !tokenMap.has(item.lineIndex)) {
+                       tokenMap.set(item.lineIndex, []);
+                  }
+             }
+
+             // Cleanup CTS
+             if (this._bgScanCts.get(docKey) === bgCts) {
+                 this._bgScanCts.delete(docKey);
+             }
+
+             // Trigger refresh to render background tokens
+             this._onDidChangeSemanticTokens.fire();
+         });
+    }
+
+    // Now build tokens from Cache + Main Logic (Fences/Dicts)
+    const startLine = Math.max(0, range.start.line);
+    const endLine = Math.min(document.lineCount - 1, range.end.line);
 
     // Now build tokens from Cache + Main Logic (Fences/Dicts)
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
