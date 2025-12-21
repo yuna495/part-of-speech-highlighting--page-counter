@@ -696,92 +696,38 @@ class JapaneseSemanticProvider {
     // Background: Everything else -> Async -> Fire Event
 
     const editor = vscode.window.visibleTextEditors.find(e => e.document === document);
-    const cursor = editor ? editor.selection.active.line : 0;
+    // const cursor = editor ? editor.selection.active.line : 0; // No longer needed for priority
     const startLine = Math.max(0, range.start.line);
     const endLine = Math.min(document.lineCount - 1, range.end.line);
 
-    // Collect missing lines in requested range
-    const missingLines = [];
-    // Also include context of course (+/- 50 from cursor if not cached)
-    // Actually, `provideDocumentSemanticTokens` passes full range.
-    // If we want progressive, we should prioritize cursor.
-
-    // If full doc requested (typical), we prioritize cursor window.
-    // If range requested, we respect range.
-
-    const isFullDoc = (range.start.line === 0 && range.end.line >= document.lineCount - 1);
-
-    const priorityStart = Math.max(0, cursor - 50);
-    const priorityEnd = Math.min(document.lineCount - 1, cursor + 50);
-
-    // Lines we MUST wait for now:
-    // If full doc, wait for Priority Area.
-    // If partial range, wait for that range.
-    // Note: If we already have cache for priority area, we use it.
-
-    const linesToRequestNow = [];
-    const linesToRequestBg = [];
+    // 2. Identify all lines that need tokenization (Simple Full Scan or Diff)
+    const linesToRequest = [];
 
     for (let ln = 0; ln < document.lineCount; ln++) {
         const text = document.lineAt(ln).text;
-        // Check if cache valid (simple check: existence. text comparison ensures freshness on edit)
-        // Note: Map stores simply Uint32Array. We rely on version check above to clear/reset Map.
-        // Wait, version check clears Map. So Map is empty on edit.
-        // We can optimize edit by keeping Map and checking content.
-
-        let valid = false;
-        if (tokenMap.has(ln)) {
-             // For simplicity, we assume if version changed, we cleared map, so we re-fetch all.
-             // TO OPTIMIZE EDIT: We should carry over unchanged lines.
-             // But existing logic cleared cache on version change.
-             // Let's implement smart cache clearing later if needed. Use full clear for now.
-             valid = true;
-        }
-
-        if (valid) continue;
-
-        const isPriority = (ln >= priorityStart && ln <= priorityEnd);
-        if (isPriority || !isFullDoc) { // If not full doc (range request), treat all as priority
-            linesToRequestNow.push({ lineIndex: ln, text });
-        } else {
-            linesToRequestBg.push({ lineIndex: ln, text });
+        // Check cache validity (only checks existence in map, version diff handled by clearing map)
+        if (!tokenMap.has(ln)) {
+             linesToRequest.push({ lineIndex: ln, text });
         }
     }
 
-    // Await Priority
-    if (linesToRequestNow.length > 0) {
-        const buffer = await tokenizeWithWorker(linesToRequestNow);
+    // 3. Request Worker
+    if (linesToRequest.length > 0) {
+        // console.log(`[Semantic] Requesting ${linesToRequest.length} lines`);
+        const buffer = await tokenizeWithWorker(linesToRequest);
+
         // decode buffer: [line, s, l, t, m, ...]
         for (let i = 0; i < buffer.length; i += 5) {
             const ln = buffer[i];
             const data = buffer.slice(i + 1, i + 5); // s, l, t, m
-            // Store as array of quadruplets
             if (!tokenMap.has(ln)) tokenMap.set(ln, []);
             tokenMap.get(ln).push(data);
         }
-        // Mark these lines as "processed" (even if empty tokens)
-        for (const item of linesToRequestNow) {
+
+        // Mark checked lines even if they had no tokens
+        for (const item of linesToRequest) {
             if (!tokenMap.has(item.lineIndex)) tokenMap.set(item.lineIndex, []);
         }
-    }
-
-    // Trigger Background if needed
-    if (linesToRequestBg.length > 0 && !cacheEntry.pendingBg) {
-        cacheEntry.pendingBg = true;
-        tokenizeWithWorker(linesToRequestBg).then(buffer => {
-             for (let i = 0; i < buffer.length; i += 5) {
-                const ln = buffer[i];
-                const data = buffer.slice(i + 1, i + 5);
-                if (!tokenMap.has(ln)) tokenMap.set(ln, []);
-                tokenMap.get(ln).push(data);
-             }
-             // Mark empty ones
-             for (const item of linesToRequestBg) {
-                if (!tokenMap.has(item.lineIndex)) tokenMap.set(item.lineIndex, []);
-             }
-             cacheEntry.pendingBg = false;
-             this._onDidChangeSemanticTokens.fire();
-        });
     }
 
     // Now build tokens from Cache + Main Logic (Fences/Dicts)
