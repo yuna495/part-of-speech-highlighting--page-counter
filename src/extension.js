@@ -184,22 +184,29 @@ function activate(context) {
   );
 
   // --- 5-6) Events
+
+  // Cache for accurate character counts (per document URI)
+  const _accurateCountCache = new Map(); // uri -> number
+  const _accurateCalcTimers = new Map(); // uri -> timeout
+
   context.subscriptions.push(
-    // 入力：軽い更新＋アイドル時に重い再計算
-    // 入力：軽い更新＋アイドル時に重い再計算
+    // Input: Lightweight update with differential calculation
     vscode.workspace.onDidChangeTextDocument((e) => {
       try {
         const ed = vscode.window.activeTextEditor;
         if (!ed || e.document !== ed.document) return;
         const c = cfg();
+        const docUri = e.document.uri.toString();
 
-        // 1) テキストを一度だけ取得
-        const txt = e.document.getText().replace(/\r\n/g, "\n");
+        // === 1. Lightweight Differential Calculation (Immediate) ===
+        let addedChars = 0, deletedChars = 0;
+        for (const change of e.contentChanges) {
+          addedChars += change.text.length;
+          deletedChars += change.rangeLength;
+        }
+        const rawDelta = addedChars - deletedChars;
 
-        // 2) 作業量用の全文字数（改行は1字扱い）
-        const rawLen = Array.from(txt).length;
-
-        // IME らしい入力かの簡易判定
+        // IME-like input detection
         const imeLike =
           e.contentChanges.length > 0 &&
           e.contentChanges.every(
@@ -209,16 +216,45 @@ function activate(context) {
             (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
           );
 
-        // 3) ステータスバー用の表示文字数
-        const { countCharsForDisplay } = require("./utils");
-        const shownLen = countCharsForDisplay(txt, c);
-
-        // 4) 作業量へフィード
+        // Workload: Use raw delta (includes newlines as characters)
         const { applyExternalLen } = require("./workload");
-        applyExternalLen(e.document.uri.toString(), rawLen, { imeLike });
+        const previousRawLen = _accurateCountCache.get(docUri + ":raw") || Array.from(e.document.getText()).length;
+        const estimatedRawLen = previousRawLen + rawDelta;
+        applyExternalLen(docUri, estimatedRawLen, { imeLike });
 
-        // 5) ステータスバーへフィード
-        sb.scheduleUpdateWithPrecount(ed, shownLen);
+        // Status bar: Use display delta (estimate)
+        const previousDisplayLen = _accurateCountCache.get(docUri) || 0;
+        const estimatedDisplayLen = Math.max(0, previousDisplayLen + rawDelta);
+        sb.scheduleUpdateWithPrecount(ed, estimatedDisplayLen);
+
+        // === 2. Accurate Calculation (Debounced) ===
+        // Clear previous timer for this document
+        const existingTimer = _accurateCalcTimers.get(docUri);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        // Schedule accurate calculation
+        const timer = setTimeout(() => {
+          try {
+            const txt = e.document.getText().replace(/\r\n/g, "\n");
+
+            // Accurate raw length (for workload)
+            const accurateRawLen = Array.from(txt).length;
+            _accurateCountCache.set(docUri + ":raw", accurateRawLen);
+            applyExternalLen(docUri, accurateRawLen, { imeLike: false });
+
+            // Accurate display length (for status bar)
+            const { countCharsForDisplay } = require("./utils");
+            const accurateDisplayLen = countCharsForDisplay(txt, c);
+            _accurateCountCache.set(docUri, accurateDisplayLen);
+            sb.scheduleUpdateWithPrecount(ed, accurateDisplayLen);
+
+            _accurateCalcTimers.delete(docUri);
+          } catch (err) {
+            console.error("[POSNote] Accurate calculation error:", err);
+          }
+        }, c.debounceMs || 500);
+
+        _accurateCalcTimers.set(docUri, timer);
       } catch (err) {
         console.error("[POSNote] onDidChangeTextDocument error:", err);
       }
