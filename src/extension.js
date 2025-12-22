@@ -189,6 +189,10 @@ function activate(context) {
   const _accurateCountCache = new Map(); // uri -> number
   const _accurateCalcTimers = new Map(); // uri -> timeout
 
+  // IME conversion detection (track change positions)
+  const _lastChangePosition = new Map(); // uri -> {line, char, timestamp}
+  const IME_SUCCESSION_WINDOW_MS = 500; // Time window to detect IME conversion (ms)
+
   context.subscriptions.push(
     // Input: Lightweight update with differential calculation
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -205,22 +209,48 @@ function activate(context) {
           deletedChars += change.rangeLength;
         }
         const rawDelta = addedChars - deletedChars;
+        const timestamp = Date.now();
 
-        // IME-like input detection
-        const imeLike =
-          e.contentChanges.length > 0 &&
-          e.contentChanges.every(
-            (ch) => ch.rangeLength > 0 && ch.text.length > 0
-          ) &&
-          e.contentChanges.some(
-            (ch) => Math.abs(ch.text.length - ch.rangeLength) >= 2
-          );
+        // Enhanced IME detection: position-based tracking
+        let isLikelyIME = false;
+        if (e.contentChanges.length > 0) {
+          const change = e.contentChanges[0];
+          const hasReplacement = change.rangeLength > 0 && change.text.length > 0;
+
+          if (hasReplacement) {
+            const pos = change.range.start;
+            const lastChange = _lastChangePosition.get(docUri);
+
+            if (lastChange) {
+              const samePosition =
+                lastChange.line === pos.line &&
+                Math.abs(lastChange.char - pos.character) <= 1;
+              const quickSuccession = timestamp - lastChange.timestamp < IME_SUCCESSION_WINDOW_MS;
+
+              if (samePosition && quickSuccession) {
+                isLikelyIME = true;
+              }
+            }
+
+            _lastChangePosition.set(docUri, {
+              line: pos.line,
+              char: pos.character,
+              timestamp
+            });
+          }
+        }
 
         // Workload: Use raw delta (includes newlines as characters)
-        const { applyExternalLen } = require("./workload");
-        const previousRawLen = _accurateCountCache.get(docUri + ":raw") || Array.from(e.document.getText()).length;
-        const estimatedRawLen = previousRawLen + rawDelta;
-        applyExternalLen(docUri, estimatedRawLen, { imeLike });
+        // Skip counting for bulk operations (2500+ chars change)
+        const BULK_OPERATION_THRESHOLD = 2500;
+        const isBulkOperation = Math.abs(rawDelta) >= BULK_OPERATION_THRESHOLD;
+
+        if (!isBulkOperation) {
+          const { applyExternalLen } = require("./workload");
+          const previousRawLen = _accurateCountCache.get(docUri + ":raw") || Array.from(e.document.getText()).length;
+          const estimatedRawLen = previousRawLen + rawDelta;
+          applyExternalLen(docUri, estimatedRawLen, { imeLike: isLikelyIME });
+        }
 
         // Status bar: Use display delta (estimate)
         const previousDisplayLen = _accurateCountCache.get(docUri) || 0;

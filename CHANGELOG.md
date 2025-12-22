@@ -2,6 +2,17 @@
 
 All notable changes to this extension are documented here.
 
+## [2.4.2]
+
+### 変更
+
+- 文字の着色、リント機能をworker化。
+- 文字数関連の動作の軽量化。
+
+### 修正
+
+- weblio検索について、文字列が指定されていない場合はメッセージを出すように修正。
+
 ## [2.4.1] - 2025/12/21
 
 ### 追加
