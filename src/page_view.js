@@ -420,7 +420,12 @@ class PageViewPanel {
 
               const htmlContent = this._getHtmlForPdf(pages, rows, cols, printBg, printFg, pdfFont);
 
-              await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+              // 大規模文書対応: タイムアウトを延長し、DOMの構築完了を待つ
+              // (外部リソースがないため networkidle0 は不要)
+              await page.setContent(htmlContent, {
+                  waitUntil: 'domcontentloaded',
+                  timeout: 120000  // 120秒
+              });
 
               // 6. PDF出力
               await page.pdf({

@@ -12,6 +12,7 @@ All notable changes to this extension are documented here.
 ### 修正
 
 - weblio検索について、文字列が指定されていない場合はメッセージを出すように修正。
+- PDF出力の安定化
 
 ## [2.4.1] - 2025/12/21
 
