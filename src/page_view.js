@@ -509,6 +509,37 @@ class PageViewPanel {
   }
   p { margin: 0; padding: 0; text-align: justify; }
   .char { display: inline-block; width: 1em; height: 1em; text-align: center; }
+  .tcy {
+    display: inline-block;
+    height: 1em;
+    line-height: 1em;
+    text-align: center;
+    vertical-align: baseline;
+  }
+  .tcy-1, .tcy-2 {
+    width: 1em;
+    text-combine-upright: all;
+    -webkit-text-combine: horizontal;
+    -ms-text-combine-horizontal: all;
+    transform: translateX(0.24em);
+  }
+  .tcy-3 {
+    transform: rotate(-90deg) translateY(-0.5em);
+    transform-origin: center center;
+    white-space: nowrap;
+  }
+  .tcy-4 {
+    transform: rotate(-90deg) translateY(-1em);
+    transform-origin: center center;
+    white-space: nowrap;
+  }
+  .tcy-3 { width: 1em; font-size: 0.6em; }
+  .tcy-4 { width: 1.25em; font-size: 0.5em; }
+
+
+
+
+
 
   /* ルビ */
   ruby { ruby-position: over; ruby-align: center; }
@@ -541,26 +572,17 @@ class PageViewPanel {
   _tokenizeLine(line, lineNo) {
     const tokens = [];
     const RUBY_RE = /\|([^《》\|\n]+)《([^》\n]+)》/g;
+    const NUMBER_RE = /[0-9０-９]{1,4}/g; // 半角・全角数字 1～4文字
 
     let lastIndex = 0;
     let match;
 
     // ルビ処理
     while ((match = RUBY_RE.exec(line)) !== null) {
-        // マッチ前の通常文字
+        // マッチ前の通常文字（数字検出処理を含む）
         if (match.index > lastIndex) {
             const plain = line.substring(lastIndex, match.index);
-            for (let i = 0; i < plain.length; i++) {
-                const char = plain[i];
-                const charIdx = lastIndex + i; // 元の文字列でのインデックス (置換後)
-                tokens.push({
-                    type: 'char',
-                    char: char,
-                    firstChar: char,
-                    length: 1,
-                    html: `<span class="char" data-l="${lineNo}" data-c="${charIdx}">${this._escapeHtml(char)}</span>`
-                });
-            }
+            this._processPlainText(plain, lastIndex, lineNo, tokens);
         }
 
         // ルビ部分
@@ -581,12 +603,75 @@ class PageViewPanel {
         lastIndex = RUBY_RE.lastIndex;
     }
 
-    // 残りの文字
+    // 残りの文字（数字検出処理を含む）
     if (lastIndex < line.length) {
         const plain = line.substring(lastIndex);
-        for (let i = 0; i < plain.length; i++) {
-            const char = plain[i];
-            const charIdx = lastIndex + i;
+        this._processPlainText(plain, lastIndex, lineNo, tokens);
+    }
+
+    return tokens;
+  }
+
+  /**
+   * プレーンテキストを処理し、数字を縦中横化してトークンに追加
+   * @param {string} text - 処理対象のテキスト
+   * @param {number} baseOffset - 元の行における開始オフセット
+   * @param {number} lineNo - 行番号
+   * @param {Array} tokens - 出力先のトークン配列
+   */
+  _processPlainText(text, baseOffset, lineNo, tokens) {
+    // 全角数字を半角に正規化（text-combine-uprightは半角数字のみ対応）
+    const normalizedText = text.replace(/[０-９]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
+    );
+
+    const NUMBER_RE = /[0-9]{1,4}/g;
+    let lastIdx = 0;
+    let match;
+
+    // 数字パターンを検出（正規化後のテキストで検索）
+    while ((match = NUMBER_RE.exec(normalizedText)) !== null) {
+        // 数字の前の通常文字
+        if (match.index > lastIdx) {
+            const before = text.substring(lastIdx, match.index);
+            for (let i = 0; i < before.length; i++) {
+                const char = before[i];
+                const charIdx = baseOffset + lastIdx + i;
+                tokens.push({
+                    type: 'char',
+                    char: char,
+                    firstChar: char,
+                    length: 1,
+                    html: `<span class="char" data-l="${lineNo}" data-c="${charIdx}">${this._escapeHtml(char)}</span>`
+                });
+            }
+        }
+
+        // 数字部分を縦中横化（桁数に応じたクラスを追加）
+        // 正規化後の半角数字を使用
+        const numStr = match[0];
+        const numIdx = baseOffset + match.index;
+        const digitCount = numStr.length;
+        // 実際の表示幅に合わせてlengthを設定（ページ分割計算用）
+        // 1-3桁: 1em → length: 1
+        // 4桁: 1.25em → length: 2 (端数切り上げ)
+        const displayLength = digitCount <= 3 ? 1 : 2;
+        tokens.push({
+            type: 'tcy',
+            length: displayLength,
+            firstChar: numStr[0],
+            html: `<span class="tcy tcy-${digitCount}" data-l="${lineNo}" data-c="${numIdx}">${this._escapeHtml(numStr)}</span>`
+        });
+
+        lastIdx = NUMBER_RE.lastIndex;
+    }
+
+    // 残りの通常文字
+    if (lastIdx < text.length) {
+        const rest = text.substring(lastIdx);
+        for (let i = 0; i < rest.length; i++) {
+            const char = rest[i];
+            const charIdx = baseOffset + lastIdx + i;
             tokens.push({
                 type: 'char',
                 char: char,
@@ -596,8 +681,6 @@ class PageViewPanel {
             });
         }
     }
-
-    return tokens;
   }
 
   _escapeHtml(str) {
@@ -729,6 +812,48 @@ class PageViewPanel {
         vertical-align: middle;
     }
 
+    /* 縦中横（数字を横向きに表示） */
+    .tcy {
+        display: inline-block;
+        height: 1em;
+        line-height: 1em;
+        text-align: center;
+        vertical-align: baseline;
+    }
+    /* 1-2桁: text-combine-upright を使用 */
+    .tcy-1, .tcy-2 {
+        width: 1em;
+        text-combine-upright: all;
+        -webkit-text-combine: horizontal;
+        -ms-text-combine-horizontal: all;
+        transform: translateX(0.25em);
+    }
+    /* 3-4桁: 90度回転して横向きに */
+    .tcy-3 {
+        transform: rotate(-90deg) translateY(-0.5em);
+        transform-origin: center center;
+        white-space: nowrap;
+    }
+    .tcy-4 {
+        transform: rotate(-90deg) translateY(-1em);
+        transform-origin: center center;
+        white-space: nowrap;
+    }
+    .tcy-3 {
+        width: 1em;
+
+        font-size: 0.6em;
+    }
+    .tcy-4 {
+        width: 1.25em;
+        font-size: 0.5em;
+    }
+
+
+
+
+
+
     /* === ルビ（縦書き用）=== */
     ruby {
       ruby-position: over;
@@ -763,11 +888,11 @@ class PageViewPanel {
     }
 
     /* カーソル同期用スタイル */
-    .char.cursor-active, .ruby-container.cursor-active {
+    .char.cursor-active, .ruby-container.cursor-active, .tcy.cursor-active {
         background-color: rgba(255, 255, 0, 0.25);
         outline: 1px solid rgba(255, 255, 0, 0.8);
     }
-    .char:hover, .ruby-container:hover {
+    .char:hover, .ruby-container:hover, .tcy:hover {
         background-color: rgba(255, 255, 255, 0.1);
         cursor: pointer;
     }
