@@ -297,13 +297,7 @@ async function triggerLint(
     const newReqId = nextReqId; // Capture the reqId that will be used
     currentLintReq.set(docUri, newReqId);
 
-    const delay = mode === "save" ? 500 : 0;
-    if (delay > 0) {
-      channel.appendLine(`[lint] delay ${delay}ms for cold start...`);
-    }
-
-    await new Promise((r) => setTimeout(r, delay));
-
+    // Worker-based linting doesn't block main thread, so no delay needed
     if (vscode.window.activeTextEditor?.document !== doc) {
         channel.appendLine(`[lint] Cancelled: Active editor changed`);
         finishWithCachedCount(doc);
