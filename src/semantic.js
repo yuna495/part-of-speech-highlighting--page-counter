@@ -752,10 +752,11 @@ class JapaneseSemanticProvider {
     const docKey = document.uri.toString();
     const lang = (document.languageId || "").toLowerCase();
 
-    // Debounce: Wait 300ms to allow typing to settle
+    // Debounce: Wait for typing to settle (using posNote.debounceMs)
     // BUT skip debounce if this is the first load (no cache) to ensure instant open
     if (this._docCache.has(docKey)) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+        const debounceMs = c.debounceMs || 500;
+        await new Promise(resolve => setTimeout(resolve, debounceMs));
         if (cancelToken?.isCancellationRequested) {
             return new vscode.SemanticTokens(new Uint32Array());
         }

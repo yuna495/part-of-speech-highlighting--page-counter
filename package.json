@@ -730,7 +730,7 @@
           },
           "posNote.recomputeIdleMs": {
             "type": "number",
-            "default": 1000,
+            "default": 1500,
             "minimum": 100,
             "description": "入力後に重いページ計算を遅延実行する待ち時間(ms)。"
           }
