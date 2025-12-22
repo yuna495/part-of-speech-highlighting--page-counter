@@ -22,6 +22,7 @@ let lintRunning = 0;
 let linterWorker = null;
 let nextReqId = 1;
 const workerPending = new Map();
+const currentLintReq = new Map(); // docUri -> reqId (for abort)
 
 // ===== 独自診断（Main Thread） =====
 const RE_PUNCT_RUN = /(。。|、、|、。|。、)/g;
@@ -150,14 +151,13 @@ function lintTextWithWorker(text, options) {
             channel.appendLine(`[Linter] config error: ${e}`);
         }
 
-        linterWorker.postMessage({
-            command: "lint",
-            reqId,
-            text,
-            ext: options.ext,
-            filePath: options.filePath,
-            userRules // Pass config to worker
-        });
+        linterWorker.postMessage({ command: "lint", reqId, text, ext: options.ext, filePath: options.filePath, userRules });
+
+        // Track this request for abortion
+        const docUri = options.docUri;
+        if (docUri) {
+            currentLintReq.set(docUri, reqId);
+        }
     });
 }
 
@@ -279,7 +279,23 @@ async function triggerLint(
       }
     }
 
-    if (lintRunning === 0) startLintUI("Linting...");
+    // Debounce: Abort ALL existing lint requests (ensure only latest request runs)
+    for (const [oldDocUri, oldReqId] of currentLintReq.entries()) {
+      if (linterWorker) {
+        linterWorker.postMessage({ command: "abort", reqId: oldReqId });
+        workerPending.delete(oldReqId);
+        finishLintUI("Cancelled");
+      }
+    }
+    currentLintReq.clear();
+
+    // Start new lint (always increment counter)
+    startLintUI("Linting...");
+
+    // Track this request for potential abortion
+    const docUri = doc.uri.toString();
+    const newReqId = nextReqId; // Capture the reqId that will be used
+    currentLintReq.set(docUri, newReqId);
 
     const delay = mode === "save" ? 500 : 0;
     if (delay > 0) {
@@ -429,7 +445,7 @@ async function lintDocumentIncremental(doc, collection) {
       return;
     }
 
-    if (lintRunning === 0) startLintUI("Linting...");
+    // Note: UI update is handled by triggerLint, not here
     channel.appendLine(
       `[lint:start] ${doc.uri.fsPath} lang=${doc.languageId} isTxt=${isTxt}`
     );
@@ -529,7 +545,7 @@ async function lintDocumentIncremental(doc, collection) {
       const initialFence = fenceStateBefore(nextLines, r.start);
       const maskedSlice = maskCodeBlocks(sliceText, initialFence);
 
-      const res = await lintTextWithWorker(maskedSlice, { filePath: uri.fsPath, ext });
+      const res = await lintTextWithWorker(maskedSlice, { filePath: uri.fsPath, ext, docUri: uri.toString() });
 
       const adjusted = (res.messages || []).map((m) => {
         const msg = {
@@ -552,6 +568,7 @@ async function lintDocumentIncremental(doc, collection) {
 
     if (vscode.window.activeTextEditor?.document !== doc) {
          channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
+         finishWithCachedCount(doc);
          return;
     }
 
@@ -589,6 +606,19 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
+      // Abort any pending lint for non-active documents
+      const activeDocUri = editor?.document.uri.toString();
+      for (const [docUri, reqId] of currentLintReq.entries()) {
+        if (docUri !== activeDocUri && linterWorker) {
+          linterWorker.postMessage({ command: "abort", reqId });
+          currentLintReq.delete(docUri);
+          // Clean up workerPending to prevent stale results from being processed
+          workerPending.delete(reqId);
+          // Decrement lintRunning counter for aborted lint
+          finishLintUI("Aborted");
+        }
+      }
+
       updateIdleUIForDoc(editor?.document);
     })
   );
@@ -626,11 +656,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onWillSaveTextDocument((e) => {
       lastSaveReason.set(e.document.uri.toString(), e.reason);
-      try {
-        if (shouldLintOnSave(e.document.uri.toString(), e.reason)) {
-          startLintUI("Linting...");
-        }
-      } catch {}
+      // Note: UI update is handled by triggerLint, not here
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {

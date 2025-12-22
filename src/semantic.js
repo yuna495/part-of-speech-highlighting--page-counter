@@ -99,6 +99,7 @@ async function ensureTokenizer(context) {
  * ====================================== */
 
 // notesetting.json 専用ローダ（同一フォルダのみ）に置換
+const _noteSettingCache = new Map(); // key: dir -> { data, mtimeMs }
 const _localDictCache = new Map(); // key: dir -> { key, chars:Set, glos:Set }
 
 /** HTML エスケープ（最小限）。プレビュー/ツールチップの XSS 回避用。 */
@@ -346,7 +347,16 @@ async function loadLocalDictForDoc(docUri) {
     const dir = path.dirname(docUri.fsPath);
     const cache = _localDictCache.get(dir);
 
-    const { data, mtimeMs } = await loadNoteSettingForDoc({ uri: docUri });
+    // Check notesetting cache first
+    let data, mtimeMs;
+    if (_noteSettingCache.has(dir)) {
+      ({ data, mtimeMs } = _noteSettingCache.get(dir));
+    } else {
+      // Cache miss - load from disk
+      ({ data, mtimeMs } = await loadNoteSettingForDoc({ uri: docUri }));
+      _noteSettingCache.set(dir, { data, mtimeMs });
+    }
+
     const key = data ? `note:${mtimeMs}` : "none";
 
     if (cache && cache.key === key) {
@@ -520,11 +530,17 @@ class JapaneseSemanticProvider {
     const wNote = vscode.workspace.createFileSystemWatcher(
       "**/notesetting.json"
     );
-    const fire = () => this._onDidChangeSemanticTokens.fire();
+    const fireAndInvalidateDict = (uri) => {
+      const dir = path.dirname(uri.fsPath);
+      // Invalidate both notesetting cache and dictionary cache
+      _noteSettingCache.delete(dir);
+      _localDictCache.delete(dir);
+      this._onDidChangeSemanticTokens.fire();
+    };
     context.subscriptions.push(
-      wNote.onDidCreate(fire),
-      wNote.onDidChange(fire),
-      wNote.onDidDelete(fire)
+      wNote.onDidCreate(fireAndInvalidateDict),
+      wNote.onDidChange(fireAndInvalidateDict),
+      wNote.onDidDelete(fireAndInvalidateDict)
     );
 
     this._spaceDecoration = null;
@@ -577,15 +593,28 @@ class JapaneseSemanticProvider {
           // (To support accurate shift, we'd need to shift Map keys which is expensive)
           if (e.contentChanges.some(c => c.range.start.line !== c.range.end.line || c.text.includes('\n'))) {
               entry.map.clear();
+              entry.decorationCache.clear();
           } else {
               // Just single line edits
               for (const c of e.contentChanges) {
                   for (let ln = c.range.start.line; ln <= c.range.end.line; ln++) {
                       entry.map.delete(ln);
+                      entry.decorationCache.delete(ln);
                   }
               }
           }
           entry.version = e.document.version;
+      }),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+          // Cancel background scans for all documents except the newly active one
+          if (!editor) return;
+          const activeDocKey = editor.document.uri.toString();
+          for (const [docKey, cts] of this._bgScanCts.entries()) {
+              if (docKey !== activeDocKey) {
+                  cts.cancel();
+                  this._bgScanCts.delete(docKey);
+              }
+          }
       })
     );
   }
@@ -737,7 +766,12 @@ class JapaneseSemanticProvider {
 
     // 1. Prepare Doc Cache
     if (!this._docCache.has(docKey)) {
-        this._docCache.set(docKey, { map: new Map(), version: document.version, pendingBg: false });
+        this._docCache.set(docKey, {
+            map: new Map(),
+            decorationCache: new Map(),  // Per-line decoration cache
+            version: document.version,
+            pendingBg: false
+        });
 
         // Cancel any stale background scan for this doc (new initial load overrides old bg)
         if (this._bgScanCts.has(docKey)) {
@@ -749,6 +783,7 @@ class JapaneseSemanticProvider {
     // Explicitly update version, but DO NOT clear map here since invalidation is handled by onDidChangeTextDocument
     cacheEntry.version = document.version;
     const tokenMap = cacheEntry.map;
+    const decorationCache = cacheEntry.decorationCache;
 
     // 2. Identify all lines that need tokenization (Priority + Background)
     const linesToRequest = [];
@@ -890,8 +925,96 @@ class JapaneseSemanticProvider {
 
     for (let line = startLine; line <= endLine; line++) {
        if (cancelToken?.isCancellationRequested) break;
-       const text = document.lineAt(line).text;
 
+       // Check decoration cache first
+       let text, dictRanges, spaceRanges, brRanges, dashRanges;
+       const cached = decorationCache.get(line);
+
+       if (cached) {
+           // Use cached decorations
+           text = cached.text;
+           dictRanges = cached.dictRanges || [];
+           spaceRanges = cached.spaceRanges || [];
+           brRanges = cached.brRanges || [];
+           dashRanges = cached.dashRanges || [];
+       } else {
+           // Compute decorations (cache miss or invalidated)
+           text = document.lineAt(line).text;
+
+           // Dictionary matching
+           dictRanges = matchDictRanges(text, dictRegex, dictKindMap);
+
+           // Space detection
+           spaceRanges = [];
+           const fenceSegs = fenceSegsByLine.get(line) || [];
+           const restForLine = (segments) => subtractMaskedIntervals([[0, text.length]], segments.map(([s, e]) => ({ start: s, end: e })));
+           const nonFenceSpans = restForLine(fenceSegs);
+           const dictRangesOutsideFence = subtractMaskedIntervals(
+               dictRanges.map((r) => [r.start, r.end]),
+               fenceSegs.map(([s, e]) => ({ start: s, end: e }))
+           ).map(([s, e]) => ({ start: s, end: e }));
+           const mask = dictRangesOutsideFence;
+           const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
+
+           // Half-width spaces
+           const reHalf = / +/g;
+           let mHalf;
+           while ((mHalf = reHalf.exec(text)) !== null) {
+               if (mHalf[0].length % 2 === 1) {
+                   const s = mHalf.index + mHalf[0].length - 1;
+                   const e = s + 1;
+                   if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+                       spaceRanges.push([s, e]);
+                   }
+               }
+           }
+           // Full-width spaces
+           const reFull = /　/g;
+           let mFull;
+           while ((mFull = reFull.exec(text)) !== null) {
+               const s = mFull.index;
+               const e = s + 1;
+               if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+                   spaceRanges.push([s, e]);
+               }
+           }
+
+           // BR tags
+           brRanges = [];
+           if (this._brHighlightEnabled) {
+               const brRe = /<br>/gi;
+               let mBr;
+               while ((mBr = brRe.exec(text)) !== null) {
+                   brRanges.push([mBr.index, mBr.index + mBr[0].length]);
+               }
+           }
+
+           // Dash symbols
+           dashRanges = [];
+           const reDash = /[—―]/g;
+           let m;
+           while ((m = reDash.exec(text)) !== null) {
+               const s = m.index;
+               const e = s + m[0].length;
+               if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+                   const segs = bracketSegsByLine.get(line) || [];
+                   if (!isInsideAnySegment(s, e, segs)) {
+                       dashRanges.push([s, e]);
+                   }
+               }
+           }
+
+           // Store in cache
+           decorationCache.set(line, {
+               text,
+               dictRanges,
+               spaceRanges,
+               brRanges,
+               dashRanges
+           });
+       }
+
+       // Apply decorations using cached or computed values
        if (c.headingSemanticEnabled && (lang === "plaintext" || lang === "novel" || lang === "markdown")) {
            const lvl = getHeadingLevel(text);
            if (lvl > 0) {
@@ -900,12 +1023,9 @@ class JapaneseSemanticProvider {
            }
        }
 
-       if (this._brHighlightEnabled) {
-         const brRe = /<br>/gi;
-         let mBr;
-         while ((mBr = brRe.exec(text)) !== null) {
-            brDecoRanges.push(new vscode.Range(line, mBr.index, line, mBr.index + mBr[0].length));
-         }
+       // BR decorations
+       for (const [s, e] of brRanges) {
+           brDecoRanges.push(new vscode.Range(line, s, line, e));
        }
 
        const fenceSegs = fenceSegsByLine.get(line) || [];
@@ -915,69 +1035,33 @@ class JapaneseSemanticProvider {
            if (len > 0 && !isMd) builder.push(line, sCh, len, idxFence, 0);
        }
 
-       const restForLine = (segments) => subtractMaskedIntervals([[0, text.length]], segments.map(([s, e]) => ({ start: s, end: e })));
-       const nonFenceSpans = restForLine(fenceSegs);
-
-       const dictRanges = matchDictRanges(text, dictRegex, dictKindMap);
-       const dictRangesOutsideFence = subtractMaskedIntervals(
-         dictRanges.map((r) => [r.start, r.end]),
-         fenceSegs.map(([s, e]) => ({ start: s, end: e }))
-       ).map(([s, e]) => ({ start: s, end: e }));
-
+       // Dictionary ranges
        for (const r of dictRanges) {
-         if (isInsideAnySegment(r.start, r.end, fenceSegs)) continue;
-         const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
-         builder.push(line, r.start, r.end - r.start, typeIdx, 0);
+           if (isInsideAnySegment(r.start, r.end, fenceSegs)) continue;
+           const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
+           builder.push(line, r.start, r.end - r.start, typeIdx, 0);
        }
 
-        const mask = dictRangesOutsideFence;
-        const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
+       // Space decorations
+       for (const [s, e] of spaceRanges) {
+           spaceDecoRanges.push(new vscode.Range(new vscode.Position(line, s), new vscode.Position(line, e)));
+       }
 
-        const spaceRanges = [];
-        {
-             const reHalf = / +/g;
-             let mHalf;
-             while ((mHalf = reHalf.exec(text)) !== null) {
-                if (mHalf[0].length % 2 === 1) {
-                    const s = mHalf.index + mHalf[0].length - 1;
-                    const e = s + 1;
-                    if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-                        spaceRanges.push([s, e]);
-                        spaceDecoRanges.push(new vscode.Range(new vscode.Position(line, s), new vscode.Position(line, e)));
-                    }
-                }
-             }
-             const reFull = /　/g;
-             let mFull;
-             while ((mFull = reFull.exec(text)) !== null) {
-                 const s = mFull.index;
-                 const e = s + 1;
-                 if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-                     spaceRanges.push([s, e]);
-                     spaceDecoRanges.push(new vscode.Range(new vscode.Position(line, s), new vscode.Position(line, e)));
-                 }
-             }
-        }
-
-       // Dash
-       {
-        const reDash = /[—―]/g;
-        let m;
-        while ((m = reDash.exec(text)) !== null) {
-          const s = m.index; const e = s + m[0].length;
-          if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-             const segs = bracketSegsByLine.get(line) || [];
-             if (isInsideAnySegment(s, e, segs)) continue;
-             const tIdx = bracketOverrideOn ? idxBracket : tokenTypesArr.indexOf("symbol");
-             builder.push(line, s, e - s, tIdx, 0);
-          }
-        }
+       // Dash ranges
+       for (const [s, e] of dashRanges) {
+           const tIdx = bracketOverrideOn ? idxBracket : tokenTypesArr.indexOf("symbol");
+           builder.push(line, s, e - s, tIdx, 0);
        }
 
        if (bracketOverrideOn) {
            const segs = bracketSegsByLine.get(line);
            if (segs?.length) {
                 const segsOutsideFence = subtractMaskedIntervals(segs, fenceSegs.map(([s,e])=>({start:s,end:e})));
+                // Recompute dictRangesOutsideFence for bracket masking
+                const dictRangesOutsideFence = subtractMaskedIntervals(
+                    dictRanges.map((r) => [r.start, r.end]),
+                    fenceSegs.map(([s, e]) => ({ start: s, end: e }))
+                ).map(([s, e]) => ({ start: s, end: e }));
                 const maskForBracket = dictRangesOutsideFence.concat(spaceRanges.map(([s, e]) => ({ start: s, end: e })));
                 const rest = subtractMaskedIntervals(segsOutsideFence, maskForBracket);
                 for (const [sCh, eCh] of rest) {
