@@ -515,26 +515,41 @@ class PageViewPanel {
     line-height: 1em;
     text-align: center;
     vertical-align: baseline;
+    transform: translateX(0.5em);
   }
   .tcy-1, .tcy-2 {
-    width: 1em;
-    text-combine-upright: all;
-    -webkit-text-combine: horizontal;
-    -ms-text-combine-horizontal: all;
-    transform: translateX(0.24em);
-  }
+        width: 1em;
+        text-combine-upright: all;
+        -webkit-text-combine: horizontal;
+        -ms-text-combine-horizontal: all;
+        transform: translateX(0em);
+    }
+  /* 3-4桁: 90度回転して横向きに */
+  /* 3-4桁: 横書きモード(正立)にして、長体(scaleX)で1emに収める */
   .tcy-3 {
-    transform: rotate(-90deg) translateY(-0.5em);
-    transform-origin: center center;
-    white-space: nowrap;
+      writing-mode: horizontal-tb;
+      width: 1em;
+      height: 1em;
+      font-size: 1em;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      transform: scaleX(0.8) translateX(-0.4em);
+      transform-origin: center center;
+      vertical-align: middle;
   }
   .tcy-4 {
-    transform: rotate(-90deg) translateY(-1em);
-    transform-origin: center center;
-    white-space: nowrap;
+      writing-mode: horizontal-tb;
+      width: 1em;
+      height: 1em;
+      font-size: 1em;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      transform: scaleX(0.6) translateX(-0.4em);
+      transform-origin: center center;
+      vertical-align: middle;
   }
-  .tcy-3 { width: 1em; font-size: 0.6em; }
-  .tcy-4 { width: 1.25em; font-size: 0.5em; }
 
 
 
@@ -543,7 +558,10 @@ class PageViewPanel {
 
   /* ルビ */
   ruby { ruby-position: over; ruby-align: center; }
-  rt { font-size: 0.5em; }
+  rt {
+    font-size: 0.5em;
+    right: 0.5em;
+  }
 
   /* ノンブル */
   .footer {
@@ -810,6 +828,7 @@ class PageViewPanel {
         align-items: center;
         /* 行方向のズレを防ぐ */
         vertical-align: middle;
+        transform: translateX(-1em); /* 文字をわずかに左へ移動 */
     }
 
     /* 縦中横（数字を横向きに表示） */
@@ -821,32 +840,45 @@ class PageViewPanel {
         vertical-align: baseline;
     }
     /* 1-2桁: text-combine-upright を使用 */
-    .tcy-1, .tcy-2 {
+    .tcy-1 {
         width: 1em;
         text-combine-upright: all;
         -webkit-text-combine: horizontal;
         -ms-text-combine-horizontal: all;
-        transform: translateX(0.25em);
+        transform: translateX(-0.8em);
+    }
+    .tcy-2 {
+        width: 1em;
+        text-combine-upright: all;
+        -webkit-text-combine: horizontal;
+        -ms-text-combine-horizontal: all;
+        transform: translateX(-0.75em);
     }
     /* 3-4桁: 90度回転して横向きに */
+    /* 3-4桁: 横書きモード(正立)にして、長体(scaleX)で1emに収める */
     .tcy-3 {
-        transform: rotate(-90deg) translateY(-0.5em);
-        transform-origin: center center;
-        white-space: nowrap;
-    }
-    .tcy-4 {
-        transform: rotate(-90deg) translateY(-1em);
-        transform-origin: center center;
-        white-space: nowrap;
-    }
-    .tcy-3 {
+        writing-mode: horizontal-tb;
         width: 1em;
-
-        font-size: 0.6em;
+        height: 1em;
+        font-size: 1em;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        transform: scaleX(0.5) translateX(-2em);
+        transform-origin: center center;
+        vertical-align: middle;
     }
     .tcy-4 {
-        width: 1.25em;
-        font-size: 0.5em;
+        writing-mode: horizontal-tb;
+        width: 1em;
+        height: 1em;
+        font-size: 1em;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        transform: scaleX(0.3) translateX(-3.3em);
+        transform-origin: center center;
+        vertical-align: middle;
     }
 
 
@@ -870,7 +902,7 @@ class PageViewPanel {
     rt {
       /* ルビをフローから外して絶対配置 */
       position: absolute;
-      right: -1em;
+      right: 1.1em;
       top: 0;          /* 親の最上部ら開始 */
       height: 100%;    /* 親(親文字ブロック)の高さ一杯に広げる */
       width: 1em;
@@ -1192,7 +1224,7 @@ class PageViewPanel {
       // 初期位置（1ページ目＝右端）へ
       setTimeout(() => {
         if (container.firstElementChild) {
-           container.firstElementChild.scrollIntoView({ inline: 'start' });
+          container.firstElementChild.scrollIntoView({ inline: 'start' });
         }
       }, 50);
 
