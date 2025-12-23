@@ -105,7 +105,7 @@ async function toggleLineSuffix(editor) {
   if (editor.selections.length === 0 || (editor.selections.length === 1 && editor.selections[0].isEmpty)) {
     // 選択なし → 全行
     for (let i = 0; i < doc.lineCount; i++) {
-        lines.add(i);
+      lines.add(i);
     }
   } else {
     // 選択あり → 含まれる全行

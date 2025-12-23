@@ -65,16 +65,16 @@ async function moveCursorByWord(direction) {
 
     // トークンが現在行と重なっている部分があれば境界として採用
     if (globalEnd > lineStartLimit && globalStart < lineEndLimit) {
-        // 行内相対座標へ変換
-        const localStart = Math.max(0, globalStart - lineStartLimit);
-        const localEnd = Math.min(lineText.length, globalEnd - lineStartLimit);
+      // 行内相対座標へ変換
+      const localStart = Math.max(0, globalStart - lineStartLimit);
+      const localEnd = Math.min(lineText.length, globalEnd - lineStartLimit);
 
-        boundaries.add(localStart);
-        boundaries.add(localEnd);
+      boundaries.add(localStart);
+      boundaries.add(localEnd);
 
-        if (t.pos === "助詞") {
-            particleStarts.add(localStart);
-        }
+      if (t.pos === "助詞") {
+          particleStarts.add(localStart);
+      }
     }
   }
 

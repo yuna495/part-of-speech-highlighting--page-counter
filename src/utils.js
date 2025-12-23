@@ -214,19 +214,12 @@ async function loadNoteSettingForDoc(doc) {
     localPath = pathModule.join(dir, "notesetting.json");
 
     // ワークスペース設定と同じファイルを指しているなら二重読み込みしない
-    // (ルート直下のファイルを編集している場合など)
-    // ただしパス文字列比較で簡易判定
-    if (!wsFolder || !localPath.includes(".vscode")) { // 簡易ガード(厳密ではないが通常運用で十分)
-        // Check if localPath is same as wsNotePath?
-        // 厳密には `pathModule.relative` などが必要だが、
-        // 「.vscode/notesetting.json」自体を編集中でなければ被らない。
-        // もし被っても _mergeSettings で同じ内容がマージされるだけなので無害 (UnionSetなので)。
-        // 唯一 conversion の単純マージだけ無駄だが、結果は変わらない。
-        const res = await _loadUniqueJson(localPath);
-        if (res.data) {
-            localData = res.data;
-            localMtime = res.mtimeMs || 0;
-        }
+    if (!wsFolder || !localPath.includes(".vscode")) {
+      const res = await _loadUniqueJson(localPath);
+      if (res.data) {
+          localData = res.data;
+          localMtime = res.mtimeMs || 0;
+      }
     }
 
     if (!wsData && !localData) {
@@ -312,12 +305,6 @@ function getHeadingMetricsCached(doc, c, vscodeModule) {
   const items = [];
   const max = doc.lineCount;
 
-  // New Logic:
-  // 1. Calculate 'own' for each segment (Self to Next Heading of ANY level)
-  // 2. Accumulate 'sub' from bottom to top (Reverse iteration)
-
-  // A) Calculate Own Counts per Segment
-  // items[i] needs initialized with basic info + own count
   for (let i = 0; i < headings.length; i++) {
     const h = headings[i];
 
@@ -333,12 +320,6 @@ function getHeadingMetricsCached(doc, c, vscodeModule) {
 
     // Initialize item
     // Note: range property in OLD logic was "Self+Descendants".
-    // We can preserve that approximation or just give the segment range.
-    // Given 'range' is barely used, we'll assign the segment range (or calculate full range if strictly needed).
-    // Let's keep it simple: Segment range is safer for potential future "Select Section" features if they used this (but they don't, they find it themselves).
-    // However, to be perfectly compatible with existing "sub" concept, let's try to mimic the "next sibling" logic for range ONLY if cheap.
-    // Finding next sibling is relatively cheap structure scan. Let's do it to keep 'range' property robust.
-
     let siblingLine = max;
     for (let j = i + 1; j < headings.length; j++) {
       if (headings[j].level <= h.level) {

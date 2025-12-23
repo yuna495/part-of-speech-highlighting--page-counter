@@ -503,10 +503,10 @@ class FsTreeItem extends vscode.TreeItem {
     else this.iconPath = vscode.ThemeIcon.File;
     this.command = !isFolder
       ? {
-          command: "posNote.openResource",
-          title: "開く",
-          arguments: [resourceUri],
-        }
+        command: "posNote.openResource",
+        title: "開く",
+        arguments: [resourceUri],
+      }
       : undefined;
     this.contextValue = isFolder ? "noveltools.folder" : "noveltools.file";
     if (resourceUri) this.tooltip = resourceUri.fsPath;

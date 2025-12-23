@@ -34,22 +34,22 @@ function findRepeatedPunctDiagnostics(uri, text, baseLine = 0) {
     RE_PUNCT_RUN.lastIndex = 0;
     let m;
     while ((m = RE_PUNCT_RUN.exec(lineStr)) !== null) {
-        const startCol = m.index;
-        const endCol = m.index + m[0].length;
-        const range = new vscode.Range(
-            baseLine + i,
-            startCol,
-            baseLine + i,
-            endCol
-        );
-        const diag = new vscode.Diagnostic(
-            range,
-            "句読点が連続しています。",
-            vscode.DiagnosticSeverity.Error
-        );
-        diag.source = "textlint-kernel-linter";
-        diag.code = "punctuation-run";
-        diags.push(diag);
+      const startCol = m.index;
+      const endCol = m.index + m[0].length;
+      const range = new vscode.Range(
+        baseLine + i,
+        startCol,
+        baseLine + i,
+        endCol
+      );
+      const diag = new vscode.Diagnostic(
+        range,
+        "句読点が連続しています。",
+        vscode.DiagnosticSeverity.Error
+      );
+      diag.source = "textlint-kernel-linter";
+      diag.code = "punctuation-run";
+      diags.push(diag);
     }
   }
   return diags;
@@ -64,22 +64,22 @@ function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
     RE_NEED_FW_SPACE.lastIndex = 0;
     let m;
     while ((m = RE_NEED_FW_SPACE.exec(lineStr)) !== null) {
-        const startCol = m.index;
-        const endCol = m.index + 1;
-        const range = new vscode.Range(
-            baseLine + i,
-            startCol,
-            baseLine + i,
-            endCol
-        );
-        const diag = new vscode.Diagnostic(
-            range,
-            "「！」と「？」の後にはスペースが必要です。",
-            vscode.DiagnosticSeverity.Error
-        );
-        diag.source = "textlint-kernel-linter";
-        diag.code = "exclam-question-needs-fullwidth-space";
-        diags.push(diag);
+      const startCol = m.index;
+      const endCol = m.index + 1;
+      const range = new vscode.Range(
+        baseLine + i,
+        startCol,
+        baseLine + i,
+        endCol
+      );
+      const diag = new vscode.Diagnostic(
+        range,
+        "「！」と「？」の後にはスペースが必要です。",
+        vscode.DiagnosticSeverity.Error
+      );
+      diag.source = "textlint-kernel-linter";
+      diag.code = "exclam-question-needs-fullwidth-space";
+      diags.push(diag);
     }
   }
   return diags;
@@ -90,75 +90,75 @@ function ensureWorker(context) {
 
   let scriptPath = path.join(context.extensionPath, "dist", "worker", "linterWorker.js");
   if (!fs.existsSync(scriptPath)) {
-      scriptPath = path.join(context.extensionPath, "src", "worker", "linterWorker.js");
+    scriptPath = path.join(context.extensionPath, "src", "worker", "linterWorker.js");
   }
 
   try {
-      linterWorker = new Worker(scriptPath);
-      channel.appendLine(`[LinterWorker] Created at ${scriptPath}`);
+    linterWorker = new Worker(scriptPath);
+    channel.appendLine(`[LinterWorker] Created at ${scriptPath}`);
 
-      linterWorker.on("message", (msg) => {
-        if (msg.command === "lint_result") {
-          const p = workerPending.get(msg.reqId);
-          if (p) {
-            workerPending.delete(msg.reqId);
-            p.resolve(msg.result);
-          }
-        } else if (msg.command === "log") {
-             channel.appendLine(msg.message);
-        } else if (msg.command === "error") {
-           const p = workerPending.get(msg.reqId);
-           if (p) {
-             workerPending.delete(msg.reqId);
-             p.reject(new Error(msg.error));
-           } else {
-             channel.appendLine(`[LinterWorker] Error: ${msg.error}`);
-           }
+    linterWorker.on("message", (msg) => {
+      if (msg.command === "lint_result") {
+        const p = workerPending.get(msg.reqId);
+        if (p) {
+          workerPending.delete(msg.reqId);
+          p.resolve(msg.result);
         }
-      });
+      } else if (msg.command === "log") {
+          channel.appendLine(msg.message);
+      } else if (msg.command === "error") {
+        const p = workerPending.get(msg.reqId);
+        if (p) {
+          workerPending.delete(msg.reqId);
+          p.reject(new Error(msg.error));
+        } else {
+          channel.appendLine(`[LinterWorker] Error: ${msg.error}`);
+        }
+      }
+    });
 
-      linterWorker.on("error", (err) => {
-          channel.appendLine(`[LinterWorker] FATAL: ${err}`);
-          console.error(`[LinterWorker] FATAL:`, err);
-      });
+    linterWorker.on("error", (err) => {
+      channel.appendLine(`[LinterWorker] FATAL: ${err}`);
+      console.error(`[LinterWorker] FATAL:`, err);
+    });
 
-      linterWorker.on("exit", (code) => {
-          channel.appendLine(`[LinterWorker] Worker exited with code ${code}`);
-          console.log(`[LinterWorker] Worker exited with code ${code}`);
-          linterWorker = null; // Prepare for restart?
-      });
+    linterWorker.on("exit", (code) => {
+      channel.appendLine(`[LinterWorker] Worker exited with code ${code}`);
+      console.log(`[LinterWorker] Worker exited with code ${code}`);
+      linterWorker = null; // Prepare for restart?
+    });
   } catch(e) {
-      channel.appendLine(`[LinterWorker] Failed to create: ${e}`);
-      console.error(e);
+    channel.appendLine(`[LinterWorker] Failed to create: ${e}`);
+    console.error(e);
   }
 }
 
 function lintTextWithWorker(text, options) {
-    if (!linterWorker) {
-        console.warn("[Linter] Worker not initialized");
-        return Promise.reject(new Error("Linter Worker not initialized"));
+  if (!linterWorker) {
+    console.warn("[Linter] Worker not initialized");
+    return Promise.reject(new Error("Linter Worker not initialized"));
+  }
+  return new Promise((resolve, reject) => {
+    const reqId = nextReqId++;
+    workerPending.set(reqId, { resolve, reject });
+
+    // Retrieve user rules form config (Active Window Context)
+    let userRules = {};
+    try {
+      const cfg = vscode.workspace.getConfiguration("posNote.linter");
+      userRules = cfg.get("rules") || {};
+    } catch(e) {
+      channel.appendLine(`[Linter] config error: ${e}`);
     }
-    return new Promise((resolve, reject) => {
-        const reqId = nextReqId++;
-        workerPending.set(reqId, { resolve, reject });
 
-        // Retrieve user rules form config (Active Window Context)
-        let userRules = {};
-        try {
-            const cfg = vscode.workspace.getConfiguration("posNote.linter");
-            userRules = cfg.get("rules") || {};
-        } catch(e) {
-            channel.appendLine(`[Linter] config error: ${e}`);
-        }
+    linterWorker.postMessage({ command: "lint", reqId, text, ext: options.ext, filePath: options.filePath, userRules });
 
-        linterWorker.postMessage({ command: "lint", reqId, text, ext: options.ext, filePath: options.filePath, userRules });
-
-        // Track this request for abortion
-        const docUri = options.docUri;
-        if (docUri) {
-            currentLintReq.set(docUri, reqId);
-        }
-    });
+    // Track this request for abortion
+    const docUri = options.docUri;
+    if (docUri) {
+      currentLintReq.set(docUri, reqId);
+    }
+  });
 }
 
 function invalidateKernelCache() {
@@ -258,9 +258,9 @@ async function triggerLint(
 ) {
   const enabled = vscode.workspace.getConfiguration("posNote.linter").get("enabled", false);
   if (!enabled) {
-      collection.clear();
-      updateIdleUIForDoc(doc);
-      return;
+    collection.clear();
+    updateIdleUIForDoc(doc);
+    return;
   }
 
   try {
@@ -277,6 +277,12 @@ async function triggerLint(
         updateIdleUIForDoc(doc);
         return;
       }
+    }
+
+
+    // Command trigger -> Force full lint (clear cache)
+    if (mode === "command") {
+      docCache.delete(doc.uri.toString());
     }
 
     // Debounce: Abort ALL existing lint requests (ensure only latest request runs)
@@ -299,9 +305,9 @@ async function triggerLint(
 
     // Worker-based linting doesn't block main thread, so no delay needed
     if (vscode.window.activeTextEditor?.document !== doc) {
-        channel.appendLine(`[lint] Cancelled: Active editor changed`);
-        finishWithCachedCount(doc);
-        return;
+      channel.appendLine(`[lint] Cancelled: Active editor changed`);
+      finishWithCachedCount(doc);
+      return;
     }
 
     await lintActiveOnly(collection, doc);
@@ -467,8 +473,8 @@ async function lintDocumentIncremental(doc, collection) {
       const result = await lintTextWithWorker(maskedText, { filePath: uri.fsPath, ext });
 
       if (vscode.window.activeTextEditor?.document !== doc) {
-          channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
-          return;
+        channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
+        return;
       }
 
       const diagnostics = toDiagnostics(uri, result.messages || []);
@@ -532,7 +538,7 @@ async function lintDocumentIncremental(doc, collection) {
     const newPartialDiagnostics = [];
     for (const r of merged) {
       if (vscode.window.activeTextEditor?.document !== doc) {
-           break;
+        break;
       }
 
       const sliceText = nextLines.slice(r.start, r.end + 1).join("\n");
@@ -561,9 +567,9 @@ async function lintDocumentIncremental(doc, collection) {
     }
 
     if (vscode.window.activeTextEditor?.document !== doc) {
-         channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
-         finishWithCachedCount(doc);
-         return;
+      channel.appendLine(`[lint:skip] Result discarded (active editor changed)`);
+      finishWithCachedCount(doc);
+      return;
     }
 
     const mergedDiagnostics = mergeDiagnostics(

@@ -199,467 +199,468 @@ class KanbnPanel {
     const paletteLiteral = JSON.stringify(getColumnColors());
     const tagPaletteLiteral = JSON.stringify(getTagColorsPayload());
     return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    :root { color-scheme: light dark; }
-    body { margin:0; padding:12px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#111; color:#eee; }
-    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
-    .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; color:#fff; }
-    .tag-chip { padding:2px 8px; border-radius:999px; background:#333; color:#000; font-size:12px; cursor:grab; user-select:none; }
-    .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; }
-    .tag-chip { padding:2px 8px; border-radius:999px; background:#333; font-size:12px; cursor:grab; user-select:none; }
-    button { background:#2d7dff; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
-    button.sub { background:#444; }
-    .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
-    .loading { animation: spin 0.8s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
-    .board { display:flex; gap:12px; align-items:stretch; overflow-x:auto; --col-base:300px; --col-min:120px; --col-max:500px; }
-    .column { flex:1 1 var(--col-base); min-width:var(--col-min); max-width:var(--col-max); display:flex; flex-direction:column; min-height:calc(100vh - 80px); background:transparent; }
-    /* TBDは常に他列のおおよそ1/2幅になるよう grow を0.5、basisを1/2に設定し、縮小も許可 */
-    .column.tbd { flex:0.5 1 calc(var(--col-base) / 2); min-width:calc(var(--col-min) / 2); max-width:calc(var(--col-max) / 2); }
-    .column-body { background:var(--col-bg, #222); border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; display:flex; flex-direction:column; }
-    .column-filler { flex:1; background:transparent; }
-    .column.tbd .column-body { flex:1; }
-    .column.tbd .column-filler { flex:0; }
-    .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-    .column-title { font-weight:700; }
-    .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; flex:1; padding-bottom:12px; }
-    .card { position:relative; padding:10px 10px 10px 14px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
-    .card::before { content:""; position:absolute; inset:0 auto 0 0; width:6px; border-radius:8px 0 0 8px; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
-    .card::after  { content:""; position:absolute; inset:0 0 0 auto; width:6px; border-radius:0 8px 8px 0; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
-    .card.dragging { opacity:0.6; }
-    .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
-    .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
-    .tag[draggable="true"] { cursor:grab; }
-    .characters .tag { background:#ff14e080; color:#fff; }
-    .time { margin-top:6px; font-size:11px; color:#ddd; }
-    .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff14e0; color:#fd9bcc; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
-    .trash.active { background:#552222; color:#ffdddd; border-color:#ffdddd; }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <button id="add-column">列を追加</button>
-    <button id="refresh" class="sub icon-btn" title="再読み込み">⟳</button>
-    <button id="export" class="sub" title="plot.md に書き出し">plot.md に出力</button>
-    <div id="tag-palette" class="tag-palette"><span class="label">登録タグ：</span></div>
-    <div id="trash" class="trash" title="ここにドロップで削除">🗑 カード・列をドロップで削除</div>
-  </div>
-  <div id="board" class="board"></div>
-  <script>
-    const vscode = acquireVsCodeApi();
-  let state = { columns: [], cards: {} };
-  const paletteEl = document.getElementById("tag-palette");
-    let loading = false;
 
-    const boardEl = document.getElementById("board");
-    document.getElementById("add-column").onclick = () => vscode.postMessage({ type: "addColumn" });
-    document.getElementById("refresh").onclick = () => {
-      setLoading(true);
-      vscode.postMessage({ type: "ready" });
-    };
-    const exportBtn = document.getElementById("export");
-    if (exportBtn) {
-      exportBtn.onclick = () => {
-        setLoading(true);
-        vscode.postMessage({ type: "exportPlot" });
-      };
-    }
-    const trashEl = document.getElementById("trash");
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <style>
+        :root { color-scheme: light dark; }
+        body { margin:0; padding:12px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#111; color:#eee; }
+        .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+        .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; color:#fff; }
+        .tag-chip { padding:2px 8px; border-radius:999px; background:#333; color:#000; font-size:12px; cursor:grab; user-select:none; }
+        .tag-palette { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 8px; background:#1b1b1b; border:1px solid #333; border-radius:8px; }
+        .tag-chip { padding:2px 8px; border-radius:999px; background:#333; font-size:12px; cursor:grab; user-select:none; }
+        button { background:#2d7dff; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
+        button.sub { background:#444; }
+        .icon-btn { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
+        .loading { animation: spin 0.8s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+        .board { display:flex; gap:12px; align-items:stretch; overflow-x:auto; --col-base:300px; --col-min:120px; --col-max:500px; }
+        .column { flex:1 1 var(--col-base); min-width:var(--col-min); max-width:var(--col-max); display:flex; flex-direction:column; min-height:calc(100vh - 80px); background:transparent; }
+        /* TBDは常に他列のおおよそ1/2幅になるよう grow を0.5、basisを1/2に設定し、縮小も許可 */
+        .column.tbd { flex:0.5 1 calc(var(--col-base) / 2); min-width:calc(var(--col-min) / 2); max-width:calc(var(--col-max) / 2); }
+        .column-body { background:var(--col-bg, #222); border-radius:10px; padding:10px; box-shadow:0 2px 6px #0006; display:flex; flex-direction:column; }
+        .column-filler { flex:1; background:transparent; }
+        .column.tbd .column-body { flex:1; }
+        .column.tbd .column-filler { flex:0; }
+        .column header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+        .column-title { font-weight:700; }
+        .cards { display:flex; flex-direction:column; gap:8px; min-height:24px; flex:1; padding-bottom:12px; }
+        .card { position:relative; padding:10px 10px 10px 14px; background:#111; border:1px solid #444; border-radius:8px; cursor:grab; }
+        .card::before { content:""; position:absolute; inset:0 auto 0 0; width:6px; border-radius:8px 0 0 8px; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
+        .card::after  { content:""; position:absolute; inset:0 0 0 auto; width:6px; border-radius:0 8px 8px 0; background:var(--tag-stripe, #444); opacity:var(--tag-stripe-opacity, 0); }
+        .card.dragging { opacity:0.6; }
+        .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+        .tag { background:#333; padding:2px 6px; border-radius:999px; font-size:11px; }
+        .tag[draggable="true"] { cursor:grab; }
+        .characters .tag { background:#ff14e080; color:#fff; }
+        .time { margin-top:6px; font-size:11px; color:#ddd; }
+        .trash { margin-left:auto; padding:6px 10px; border:1px dashed #ff14e0; color:#fd9bcc; border-radius:8px; min-width:110px; text-align:center; cursor:default; }
+        .trash.active { background:#552222; color:#ffdddd; border-color:#ffdddd; }
+      </style>
+    </head>
+    <body>
+      <div class="toolbar">
+        <button id="add-column">列を追加</button>
+        <button id="refresh" class="sub icon-btn" title="再読み込み">⟳</button>
+        <button id="export" class="sub" title="plot.md に書き出し">plot.md に出力</button>
+        <div id="tag-palette" class="tag-palette"><span class="label">登録タグ：</span></div>
+        <div id="trash" class="trash" title="ここにドロップで削除">🗑 カード・列をドロップで削除</div>
+      </div>
+      <div id="board" class="board"></div>
+      <script>
+        const vscode = acquireVsCodeApi();
+      let state = { columns: [], cards: {} };
+      const paletteEl = document.getElementById("tag-palette");
+        let loading = false;
 
-    boardEl.addEventListener("dragover", (e) => {
-      if (e.dataTransfer.types.includes("application/kanbn-tag-remove")) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        return;
-      }
-      // タグ追加のドラッグはスルー（カードで受ける）
-      if (e.dataTransfer.types.includes("application/kanbn-tag")) return;
-      if (!e.dataTransfer.types.includes("text/column")) return;
-      e.preventDefault();
-    });
-    boardEl.addEventListener("drop", (e) => {
-      const removePayload = e.dataTransfer.getData("application/kanbn-tag-remove");
-      if (removePayload) {
-        e.preventDefault();
-        const { cardId, tag } = JSON.parse(removePayload);
-        // カード外でドロップされたら削除
-        if (!e.target.closest || !e.target.closest(".card")) {
-          vscode.postMessage({ type: "removeTag", cardId, tag });
+        const boardEl = document.getElementById("board");
+        document.getElementById("add-column").onclick = () => vscode.postMessage({ type: "addColumn" });
+        document.getElementById("refresh").onclick = () => {
+          setLoading(true);
+          vscode.postMessage({ type: "ready" });
+        };
+        const exportBtn = document.getElementById("export");
+        if (exportBtn) {
+          exportBtn.onclick = () => {
+            setLoading(true);
+            vscode.postMessage({ type: "exportPlot" });
+          };
         }
-        return;
-      }
-      if (!e.dataTransfer.types.includes("text/column")) return;
-      e.preventDefault();
-      const columnId = e.dataTransfer.getData("text/column");
-      if (!columnId) return;
-      const idx = dropColumnIndex(boardEl, e.clientX);
-      vscode.postMessage({ type: "moveColumn", columnId, toIndex: idx });
-    });
+        const trashEl = document.getElementById("trash");
 
-    // ゴミ箱ドロップ
-    ["dragover", "dragenter"].forEach((evName) => {
-      trashEl.addEventListener(evName, (e) => {
-        if (acceptsTrash(e.dataTransfer)) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          trashEl.classList.add("active");
-        }
-      });
-    });
-    ["dragleave", "dragend"].forEach((evName) => {
-      trashEl.addEventListener(evName, () => trashEl.classList.remove("active"));
-    });
-    trashEl.addEventListener("drop", (e) => {
-      e.preventDefault();
-      trashEl.classList.remove("active");
-      const colId = e.dataTransfer.getData("text/column") || e.dataTransfer.getData("application/kanbn-column");
-      const cardId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/kanbn-card");
-      if (colId) {
-        if (colId === "tbd") return;
-        vscode.postMessage({ type: "deleteColumnHard", columnId: colId });
-      } else if (cardId) {
-        vscode.postMessage({ type: "deleteCard", cardId });
-      }
-    });
-
-    window.addEventListener("message", (ev) => {
-      const msg = ev.data;
-      if (msg.type === "data") {
-        state = { columns: msg.columns, cards: msg.cards };
-        // 設定更新
-        if (msg.columnColors) palette = msg.columnColors;
-        if (msg.tagColorsPayload) {
-          tagColorsPayload = msg.tagColorsPayload;
-          tagColors = tagColorsPayload.map;
-          hasUserTagColors = tagColorsPayload.userProvided;
-          // tagOrder再構築
-          for (const key in tagOrder) delete tagOrder[key];
-          if (tagColors) {
-            Object.keys(tagColors).forEach((k, i) => {
-              if (k === "other") return;
-              tagOrder[k] = i;
-            });
+        boardEl.addEventListener("dragover", (e) => {
+          if (e.dataTransfer.types.includes("application/kanbn-tag-remove")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            return;
           }
+          // タグ追加のドラッグはスルー（カードで受ける）
+          if (e.dataTransfer.types.includes("application/kanbn-tag")) return;
+          if (!e.dataTransfer.types.includes("text/column")) return;
+          e.preventDefault();
+        });
+        boardEl.addEventListener("drop", (e) => {
+          const removePayload = e.dataTransfer.getData("application/kanbn-tag-remove");
+          if (removePayload) {
+            e.preventDefault();
+            const { cardId, tag } = JSON.parse(removePayload);
+            // カード外でドロップされたら削除
+            if (!e.target.closest || !e.target.closest(".card")) {
+              vscode.postMessage({ type: "removeTag", cardId, tag });
+            }
+            return;
+          }
+          if (!e.dataTransfer.types.includes("text/column")) return;
+          e.preventDefault();
+          const columnId = e.dataTransfer.getData("text/column");
+          if (!columnId) return;
+          const idx = dropColumnIndex(boardEl, e.clientX);
+          vscode.postMessage({ type: "moveColumn", columnId, toIndex: idx });
+        });
+
+        // ゴミ箱ドロップ
+        ["dragover", "dragenter"].forEach((evName) => {
+          trashEl.addEventListener(evName, (e) => {
+            if (acceptsTrash(e.dataTransfer)) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              trashEl.classList.add("active");
+            }
+          });
+        });
+        ["dragleave", "dragend"].forEach((evName) => {
+          trashEl.addEventListener(evName, () => trashEl.classList.remove("active"));
+        });
+        trashEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          trashEl.classList.remove("active");
+          const colId = e.dataTransfer.getData("text/column") || e.dataTransfer.getData("application/kanbn-column");
+          const cardId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/kanbn-card");
+          if (colId) {
+            if (colId === "tbd") return;
+            vscode.postMessage({ type: "deleteColumnHard", columnId: colId });
+          } else if (cardId) {
+            vscode.postMessage({ type: "deleteCard", cardId });
+          }
+        });
+
+        window.addEventListener("message", (ev) => {
+          const msg = ev.data;
+          if (msg.type === "data") {
+            state = { columns: msg.columns, cards: msg.cards };
+            // 設定更新
+            if (msg.columnColors) palette = msg.columnColors;
+            if (msg.tagColorsPayload) {
+              tagColorsPayload = msg.tagColorsPayload;
+              tagColors = tagColorsPayload.map;
+              hasUserTagColors = tagColorsPayload.userProvided;
+              // tagOrder再構築
+              for (const key in tagOrder) delete tagOrder[key];
+              if (tagColors) {
+                Object.keys(tagColors).forEach((k, i) => {
+                  if (k === "other") return;
+                  tagOrder[k] = i;
+                });
+              }
+            }
+            setLoading(false);
+            render();
+            renderPalette();
+          } else if (msg.type === "exportResult") {
+            setLoading(false);
+            if (msg.ok) {
+              alert("plot.md へ書き出しました。");
+            } else {
+              alert("書き出しに失敗しました: " + (msg.error || ""));
+            }
+          }
+        });
+
+        let palette = ${paletteLiteral};
+        let tagColorsPayload = ${tagPaletteLiteral};
+        let tagColors = tagColorsPayload.map;
+        let hasUserTagColors = tagColorsPayload.userProvided;
+        const tagOrder = {};
+        if (tagColors) {
+          Object.keys(tagColors).forEach((k, i) => {
+            if (k === "other") return;
+            tagOrder[k] = i;
+          });
         }
-        setLoading(false);
-        render();
-        renderPalette();
-      } else if (msg.type === "exportResult") {
-        setLoading(false);
-        if (msg.ok) {
-          alert("plot.md へ書き出しました。");
-        } else {
-          alert("書き出しに失敗しました: " + (msg.error || ""));
-        }
-      }
-    });
+        const DEFAULT_TAG_PALETTE = ${JSON.stringify(DEFAULT_TAG_PALETTE)};
 
-    let palette = ${paletteLiteral};
-    let tagColorsPayload = ${tagPaletteLiteral};
-    let tagColors = tagColorsPayload.map;
-    let hasUserTagColors = tagColorsPayload.userProvided;
-    const tagOrder = {};
-    if (tagColors) {
-      Object.keys(tagColors).forEach((k, i) => {
-        if (k === "other") return;
-        tagOrder[k] = i;
-      });
-    }
-    const DEFAULT_TAG_PALETTE = ${JSON.stringify(DEFAULT_TAG_PALETTE)};
+        function render() {
+          boardEl.innerHTML = "";
+          let colorIdx = 0;
+          state.columns.forEach((col, idx) => {
+            const colEl = document.createElement("div");
+            colEl.className = "column";
+            if (col.id === "tbd") colEl.classList.add("tbd");
+            colEl.dataset.id = col.id;
 
-    function render() {
-      boardEl.innerHTML = "";
-      let colorIdx = 0;
-      state.columns.forEach((col, idx) => {
-        const colEl = document.createElement("div");
-        colEl.className = "column";
-        if (col.id === "tbd") colEl.classList.add("tbd");
-        colEl.dataset.id = col.id;
+            const body = document.createElement("div");
+            body.className = "column-body";
+            if (col.id === "tbd") {
+              body.style.setProperty("--col-bg", "#303030");
+            } else {
+              body.style.setProperty("--col-bg", palette[colorIdx % palette.length]);
+              colorIdx++;
+            }
 
-        const body = document.createElement("div");
-        body.className = "column-body";
-        if (col.id === "tbd") {
-          body.style.setProperty("--col-bg", "#303030");
-        } else {
-          body.style.setProperty("--col-bg", palette[colorIdx % palette.length]);
-          colorIdx++;
-        }
+            const header = document.createElement("header");
+            const title = document.createElement("div");
+            title.className = "column-title";
+            title.textContent = col.name;
+            header.appendChild(title);
 
-        const header = document.createElement("header");
-        const title = document.createElement("div");
-        title.className = "column-title";
-        title.textContent = col.name;
-        header.appendChild(title);
+            const btns = document.createElement("div");
+            btns.innerHTML = '<button class="sub" data-act="add-card">＋</button>';
+            header.appendChild(btns);
+            body.appendChild(header);
 
-        const btns = document.createElement("div");
-        btns.innerHTML = '<button class="sub" data-act="add-card">＋</button>';
-        header.appendChild(btns);
-        body.appendChild(header);
+            // 列ドラッグはヘッダーのみをハンドルにする
+            header.draggable = col.id !== "tbd";
+            if (col.id !== "tbd") {
+              header.addEventListener("dragstart", (e) => {
+                colEl.classList.add("dragging");
+                e.dataTransfer.setData("text/column", col.id);
+                e.dataTransfer.setData("application/kanbn-column", col.id);
+                e.dataTransfer.effectAllowed = "move";
+              });
+              header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
+            }
+            // ダブルクリックで列名変更
+            header.addEventListener("dblclick", () => {
+              vscode.postMessage({ type: "renameColumn", columnId: col.id });
+            });
 
-        // 列ドラッグはヘッダーのみをハンドルにする
-        header.draggable = col.id !== "tbd";
-        if (col.id !== "tbd") {
-          header.addEventListener("dragstart", (e) => {
-            colEl.classList.add("dragging");
-            e.dataTransfer.setData("text/column", col.id);
-            e.dataTransfer.setData("application/kanbn-column", col.id);
+            const cardsEl = document.createElement("div");
+            cardsEl.className = "cards";
+            cardsEl.dataset.columnId = col.id;
+            cardsEl.addEventListener("dragover", (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            });
+            cardsEl.addEventListener("drop", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const cardId = e.dataTransfer.getData("text/plain");
+              if (!cardId) return;
+              const idxCard = dropIndex(cardsEl, e.clientY);
+              vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
+            });
+            // カード以外の領域（列の余白）でもドロップできるように列要素にもリスナーを追加
+            colEl.addEventListener("dragover", (e) => {
+              if (!acceptsCard(e.dataTransfer)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            });
+            colEl.addEventListener("drop", (e) => {
+              if (!acceptsCard(e.dataTransfer)) return;
+              e.preventDefault();
+              const cardId = e.dataTransfer.getData("text/plain");
+              if (!cardId) return;
+              const idxCard = dropIndex(cardsEl, e.clientY);
+              vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
+            });
+
+        col.cards.forEach((id) => {
+            const card = state.cards[id] || { id, title: id, tags: [] };
+          const el = document.createElement("div");
+          el.className = "card";
+          el.draggable = true;
+          el.dataset.id = id;
+
+            const sortedTags = (Array.isArray(card.tags) ? card.tags : []).map((t, idx) => ({
+              tag: t,
+              idx,
+              ord: tagOrder[t] ?? 9999 + idx,
+            })).sort((a, b) => (a.ord === b.ord ? a.idx - b.idx : a.ord - b.ord));
+
+            el.innerHTML =
+              '<div class="card-title">' + (card.title || id) + "</div>" +
+              (card.characters && card.characters.length
+                ? '<div class="tags characters">' + card.characters.map((c) => '<span class="tag">' + c + "</span>").join("") + "</div>"
+                : "") +
+              (card.time
+                ? '<div class="time">🕒 ' + card.time + "</div>"
+                : "") +
+              (sortedTags.length
+                ? '<div class="tags">' + sortedTags
+                    .map((o) => {
+                      const color = tagColors && tagColors[o.tag];
+                      const style = color ? ' style="background:' + color + ';color:#000;"' : "";
+                      return '<span class="tag" draggable="true" data-tag="' + o.tag + '"' + style + ">" + o.tag + "</span>";
+                    })
+                    .join("") + "</div>"
+                : "");
+          el.addEventListener("dragstart", (e) => {
+            el.classList.add("dragging");
+            e.dataTransfer.setData("text/plain", id);
+            e.dataTransfer.setData("text/kanbn-card", id);
             e.dataTransfer.effectAllowed = "move";
           });
-          header.addEventListener("dragend", () => colEl.classList.remove("dragging"));
-        }
-        // ダブルクリックで列名変更
-        header.addEventListener("dblclick", () => {
-          vscode.postMessage({ type: "renameColumn", columnId: col.id });
-        });
-
-        const cardsEl = document.createElement("div");
-        cardsEl.className = "cards";
-        cardsEl.dataset.columnId = col.id;
-        cardsEl.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        });
-        cardsEl.addEventListener("drop", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const cardId = e.dataTransfer.getData("text/plain");
-          if (!cardId) return;
-          const idxCard = dropIndex(cardsEl, e.clientY);
-          vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
-        });
-        // カード以外の領域（列の余白）でもドロップできるように列要素にもリスナーを追加
-        colEl.addEventListener("dragover", (e) => {
-          if (!acceptsCard(e.dataTransfer)) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        });
-        colEl.addEventListener("drop", (e) => {
-          if (!acceptsCard(e.dataTransfer)) return;
-          e.preventDefault();
-          const cardId = e.dataTransfer.getData("text/plain");
-          if (!cardId) return;
-          const idxCard = dropIndex(cardsEl, e.clientY);
-          vscode.postMessage({ type: "moveCard", cardId, toColumnId: col.id, toIndex: idxCard });
-        });
-
-    col.cards.forEach((id) => {
-        const card = state.cards[id] || { id, title: id, tags: [] };
-      const el = document.createElement("div");
-      el.className = "card";
-      el.draggable = true;
-      el.dataset.id = id;
-
-        const sortedTags = (Array.isArray(card.tags) ? card.tags : []).map((t, idx) => ({
-          tag: t,
-          idx,
-          ord: tagOrder[t] ?? 9999 + idx,
-        })).sort((a, b) => (a.ord === b.ord ? a.idx - b.idx : a.ord - b.ord));
-
-        el.innerHTML =
-          '<div class="card-title">' + (card.title || id) + "</div>" +
-          (card.characters && card.characters.length
-            ? '<div class="tags characters">' + card.characters.map((c) => '<span class="tag">' + c + "</span>").join("") + "</div>"
-            : "") +
-          (card.time
-            ? '<div class="time">🕒 ' + card.time + "</div>"
-            : "") +
-          (sortedTags.length
-            ? '<div class="tags">' + sortedTags
-                .map((o) => {
-                  const color = tagColors && tagColors[o.tag];
-                  const style = color ? ' style="background:' + color + ';color:#000;"' : "";
-                  return '<span class="tag" draggable="true" data-tag="' + o.tag + '"' + style + ">" + o.tag + "</span>";
-                })
-                .join("") + "</div>"
-            : "");
-      el.addEventListener("dragstart", (e) => {
-        el.classList.add("dragging");
-        e.dataTransfer.setData("text/plain", id);
-        e.dataTransfer.setData("text/kanbn-card", id);
-        e.dataTransfer.effectAllowed = "move";
-      });
-      el.addEventListener("dragend", () => el.classList.remove("dragging"));
-      el.addEventListener("dragover", (e) => {
-        if (e.dataTransfer.types.includes("application/kanbn-tag")) {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      });
-      el.addEventListener("drop", (e) => {
-        const tag = e.dataTransfer.getData("application/kanbn-tag");
-        if (tag) {
-          e.preventDefault();
-          e.stopPropagation();
-          vscode.postMessage({ type: "addTag", cardId: id, tag });
-          return;
-        }
-      });
-          el.addEventListener("dblclick", () => vscode.postMessage({ type: "openCard", cardId: id }));
-          el.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            quickCardMenu(id);
-          });
-          applyTagStripe(el, card, tagColors);
-          el.querySelectorAll(".tag").forEach((tagEl) => {
-            const tag = tagEl.getAttribute("data-tag") || tagEl.textContent;
-            tagEl.addEventListener("dragstart", (e) => {
+          el.addEventListener("dragend", () => el.classList.remove("dragging"));
+          el.addEventListener("dragover", (e) => {
+            if (e.dataTransfer.types.includes("application/kanbn-tag")) {
+              e.preventDefault();
               e.stopPropagation();
-              e.dataTransfer.setData("application/kanbn-tag-remove", JSON.stringify({ cardId: id, tag }));
-              e.dataTransfer.effectAllowed = "move";
-            });
+              e.dataTransfer.dropEffect = "copy";
+            }
           });
-          cardsEl.appendChild(el);
-        });
+          el.addEventListener("drop", (e) => {
+            const tag = e.dataTransfer.getData("application/kanbn-tag");
+            if (tag) {
+              e.preventDefault();
+              e.stopPropagation();
+              vscode.postMessage({ type: "addTag", cardId: id, tag });
+              return;
+            }
+          });
+              el.addEventListener("dblclick", () => vscode.postMessage({ type: "openCard", cardId: id }));
+              el.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                quickCardMenu(id);
+              });
+              applyTagStripe(el, card, tagColors);
+              el.querySelectorAll(".tag").forEach((tagEl) => {
+                const tag = tagEl.getAttribute("data-tag") || tagEl.textContent;
+                tagEl.addEventListener("dragstart", (e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.setData("application/kanbn-tag-remove", JSON.stringify({ cardId: id, tag }));
+                  e.dataTransfer.effectAllowed = "move";
+                });
+              });
+              cardsEl.appendChild(el);
+            });
 
-        body.appendChild(cardsEl);
-        colEl.appendChild(body);
-        const filler = document.createElement("div");
-        filler.className = "column-filler";
-        if (col.id === "tbd") filler.style.setProperty("--col-bg", "#303030");
-        colEl.appendChild(filler);
-        boardEl.appendChild(colEl);
+            body.appendChild(cardsEl);
+            colEl.appendChild(body);
+            const filler = document.createElement("div");
+            filler.className = "column-filler";
+            if (col.id === "tbd") filler.style.setProperty("--col-bg", "#303030");
+            colEl.appendChild(filler);
+            boardEl.appendChild(colEl);
 
-        btns.querySelector('[data-act="add-card"]').onclick = () =>
-          vscode.postMessage({ type: "addCard", columnId: col.id });
-      });
-    }
-
-    function renderPalette() {
-      if (!paletteEl) return;
-      // ラベル以外（チップ）を削除
-      const chips = paletteEl.querySelectorAll(".tag-chip");
-      chips.forEach(c => c.remove());
-
-      // ラベルがない場合は再生成（念のため）
-      if (!paletteEl.querySelector(".label")) {
-        const lbl = document.createElement("span");
-        lbl.className = "label";
-        lbl.textContent = "登録タグ：";
-        paletteEl.prepend(lbl);
-      }
-      const entries = Object.entries(tagColors || {})
-        .filter(([k, v]) => k !== "other" && String(v).toLowerCase() !== "none");
-      entries.forEach(([tag, color]) => {
-        const chip = document.createElement("span");
-        chip.className = "tag-chip";
-        chip.textContent = tag;
-        chip.style.background = color || "#555";
-        chip.style.color = color ? "#000" : "#fff";
-        chip.draggable = true;
-        chip.addEventListener("dragstart", (e) => {
-          e.dataTransfer.setData("application/kanbn-tag", tag);
-          e.dataTransfer.effectAllowed = "copy";
-        });
-        paletteEl.appendChild(chip);
-      });
-    }
-
-    function dropIndex(container, y) {
-      const cards = Array.from(container.querySelectorAll(".card"));
-      if (!cards.length) return 0;
-      const firstRect = cards[0].getBoundingClientRect();
-      const lastRect = cards[cards.length - 1].getBoundingClientRect();
-      if (y < firstRect.top) return 0;
-      if (y > lastRect.bottom) return cards.length; // 列の下側余白でも末尾に
-      for (let i = 0; i < cards.length; i++) {
-        const r = cards[i].getBoundingClientRect();
-        const upper = r.top + r.height * 0.5;
-        const lower = r.bottom - r.height * 0.5;
-        if (y < upper) return i;           // 上50%で前に
-        if (y >= lower && y <= r.bottom) return i + 1; // 下50%で後ろに
-      }
-      return cards.length;
-    }
-
-    function acceptsCard(dt) {
-      return dt && (dt.types.includes("text/plain") || dt.types.includes("text/kanbn-card"));
-    }
-
-    function dropColumnIndex(container, x) {
-      const cols = Array.from(container.querySelectorAll(".column"));
-      if (!cols.length) return 0;
-      // 判定幅を広げるため、幅の70%ゾーンで前後を決定
-      for (let i = 0; i < cols.length; i++) {
-        const r = cols[i].getBoundingClientRect();
-        const mid = r.left + r.width * 0.5;
-        if (x < mid) return i;
-      }
-      return cols.length;
-    }
-
-    function acceptsTrash(dt) {
-      return dt && (
-        dt.types.includes("text/column") ||
-        dt.types.includes("application/kanbn-column") ||
-        dt.types.includes("text/kanbn-card") ||
-        dt.types.includes("text/plain")
-      );
-    }
-
-    function quickCardMenu(cardId) {
-      const pick = confirm("削除しますか？ (OKで削除 / キャンセルでカードを開く)") ? "delete" : "open";
-      if (pick === "delete") vscode.postMessage({ type: "deleteCard", cardId });
-      else vscode.postMessage({ type: "openCard", cardId });
-    }
-
-    function applyTagStripe(el, card, tagColorsMap) {
-      const tags = Array.isArray(card.tags) ? card.tags : [];
-      if (!tags.length) {
-        el.style.setProperty("--tag-stripe-opacity", 0);
-        return;
-      }
-      const colors = [];
-      const getColor = (tag) => {
-        if (tagColorsMap && typeof tagColorsMap === "object") {
-          if (tagColorsMap[tag]) {
-            if (String(tagColorsMap[tag]).toLowerCase() === "none") return null;
-            return tagColorsMap[tag];
-          }
-          if (tagColorsMap.other) {
-            if (String(tagColorsMap.other).toLowerCase() === "none") return null;
-            return tagColorsMap.other;
-          }
+            btns.querySelector('[data-act="add-card"]').onclick = () =>
+              vscode.postMessage({ type: "addCard", columnId: col.id });
+          });
         }
-        return null; // 未登録タグは着色しない
-      };
-      for (const tag of tags) {
-        const color = getColor(tag);
-        if (color) colors.push(color);
-        if (colors.length >= 3) break;
-      }
-      if (!colors.length) {
-        el.style.setProperty("--tag-stripe-opacity", 0);
-        return;
-      }
-      const step = 100 / colors.length;
-      const stops = colors
-        .map((c, i) => {
-          const start = i * step;
-          const end = (i + 1) * step;
-          return c + " " + start + "% " + end + "%";
-        })
-        .join(", ");
-      el.style.setProperty("--tag-stripe", "linear-gradient(to bottom, " + stops + ")");
-      el.style.setProperty("--tag-stripe-opacity", 1);
-    }
 
-    function setLoading(flag) {
-      loading = flag;
-      const btn = document.getElementById("refresh");
-      if (!btn) return;
-      if (loading) btn.classList.add("loading");
-      else btn.classList.remove("loading");
-    }
+        function renderPalette() {
+          if (!paletteEl) return;
+          // ラベル以外（チップ）を削除
+          const chips = paletteEl.querySelectorAll(".tag-chip");
+          chips.forEach(c => c.remove());
 
-    vscode.postMessage({ type: "ready" });
-  </script>
-</body>
-</html>`;
+          // ラベルがない場合は再生成（念のため）
+          if (!paletteEl.querySelector(".label")) {
+            const lbl = document.createElement("span");
+            lbl.className = "label";
+            lbl.textContent = "登録タグ：";
+            paletteEl.prepend(lbl);
+          }
+          const entries = Object.entries(tagColors || {})
+            .filter(([k, v]) => k !== "other" && String(v).toLowerCase() !== "none");
+          entries.forEach(([tag, color]) => {
+            const chip = document.createElement("span");
+            chip.className = "tag-chip";
+            chip.textContent = tag;
+            chip.style.background = color || "#555";
+            chip.style.color = color ? "#000" : "#fff";
+            chip.draggable = true;
+            chip.addEventListener("dragstart", (e) => {
+              e.dataTransfer.setData("application/kanbn-tag", tag);
+              e.dataTransfer.effectAllowed = "copy";
+            });
+            paletteEl.appendChild(chip);
+          });
+        }
+
+        function dropIndex(container, y) {
+          const cards = Array.from(container.querySelectorAll(".card"));
+          if (!cards.length) return 0;
+          const firstRect = cards[0].getBoundingClientRect();
+          const lastRect = cards[cards.length - 1].getBoundingClientRect();
+          if (y < firstRect.top) return 0;
+          if (y > lastRect.bottom) return cards.length; // 列の下側余白でも末尾に
+          for (let i = 0; i < cards.length; i++) {
+            const r = cards[i].getBoundingClientRect();
+            const upper = r.top + r.height * 0.5;
+            const lower = r.bottom - r.height * 0.5;
+            if (y < upper) return i;           // 上50%で前に
+            if (y >= lower && y <= r.bottom) return i + 1; // 下50%で後ろに
+          }
+          return cards.length;
+        }
+
+        function acceptsCard(dt) {
+          return dt && (dt.types.includes("text/plain") || dt.types.includes("text/kanbn-card"));
+        }
+
+        function dropColumnIndex(container, x) {
+          const cols = Array.from(container.querySelectorAll(".column"));
+          if (!cols.length) return 0;
+          // 判定幅を広げるため、幅の70%ゾーンで前後を決定
+          for (let i = 0; i < cols.length; i++) {
+            const r = cols[i].getBoundingClientRect();
+            const mid = r.left + r.width * 0.5;
+            if (x < mid) return i;
+          }
+          return cols.length;
+        }
+
+        function acceptsTrash(dt) {
+          return dt && (
+            dt.types.includes("text/column") ||
+            dt.types.includes("application/kanbn-column") ||
+            dt.types.includes("text/kanbn-card") ||
+            dt.types.includes("text/plain")
+          );
+        }
+
+        function quickCardMenu(cardId) {
+          const pick = confirm("削除しますか？ (OKで削除 / キャンセルでカードを開く)") ? "delete" : "open";
+          if (pick === "delete") vscode.postMessage({ type: "deleteCard", cardId });
+          else vscode.postMessage({ type: "openCard", cardId });
+        }
+
+        function applyTagStripe(el, card, tagColorsMap) {
+          const tags = Array.isArray(card.tags) ? card.tags : [];
+          if (!tags.length) {
+            el.style.setProperty("--tag-stripe-opacity", 0);
+            return;
+          }
+          const colors = [];
+          const getColor = (tag) => {
+            if (tagColorsMap && typeof tagColorsMap === "object") {
+              if (tagColorsMap[tag]) {
+                if (String(tagColorsMap[tag]).toLowerCase() === "none") return null;
+                return tagColorsMap[tag];
+              }
+              if (tagColorsMap.other) {
+                if (String(tagColorsMap.other).toLowerCase() === "none") return null;
+                return tagColorsMap.other;
+              }
+            }
+            return null; // 未登録タグは着色しない
+          };
+          for (const tag of tags) {
+            const color = getColor(tag);
+            if (color) colors.push(color);
+            if (colors.length >= 3) break;
+          }
+          if (!colors.length) {
+            el.style.setProperty("--tag-stripe-opacity", 0);
+            return;
+          }
+          const step = 100 / colors.length;
+          const stops = colors
+            .map((c, i) => {
+              const start = i * step;
+              const end = (i + 1) * step;
+              return c + " " + start + "% " + end + "%";
+            })
+            .join(", ");
+          el.style.setProperty("--tag-stripe", "linear-gradient(to bottom, " + stops + ")");
+          el.style.setProperty("--tag-stripe-opacity", 1);
+        }
+
+        function setLoading(flag) {
+          loading = flag;
+          const btn = document.getElementById("refresh");
+          if (!btn) return;
+          if (loading) btn.classList.add("loading");
+          else btn.classList.remove("loading");
+        }
+
+        vscode.postMessage({ type: "ready" });
+      </script>
+    </body>
+    </html>`;
   }
 }
 

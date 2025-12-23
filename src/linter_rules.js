@@ -151,8 +151,8 @@ const normalizeRuleModule = (mod, log) => {
   }
   const single = normalizeRuleExport(m);
   if (single) {
-     /** @type {{ type: 'rule', rule: any }} */
-     return { type: 'rule', rule: single };
+    /** @type {{ type: 'rule', rule: any }} */
+    return { type: 'rule', rule: single };
   }
   /** @type {{ type: 'invalid' }} */
   return { type: 'invalid' };

@@ -2,8 +2,8 @@
 const vscode = require("vscode");
 
 /* =========================
-   ヘルパー群
-   ========================= */
+  ヘルパー群
+  ========================= */
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -110,8 +110,8 @@ function caretAdjustLeft(doc, abs, ruby) {
 }
 
 /* =========================
-   コマンド群
-   ========================= */
+  コマンド群
+  ========================= */
 /**
  * ルビ挿入。
  * 選択あり: 文書全体の同一文字列を `|{text}《{ruby}》` へ一括置換（直前が '|' の一致はスキップ）。キャレットは 》 直後に補正。
@@ -291,8 +291,8 @@ async function wrapWithSmartQuotes(editor) {
 }
 
 /* =========================
-   登録とエクスポート
-   ========================= */
+  登録とエクスポート
+  ========================= */
 
 function registerRubySupport(context) {
   context.subscriptions.push(

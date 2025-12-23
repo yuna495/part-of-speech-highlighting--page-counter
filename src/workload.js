@@ -439,214 +439,215 @@ function getGraphHtml(webview, days, targetValue = 10000) {
   `;
 
   return `<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>純作業量（過去30日）</title>
-  <style>
-    :root {
-      --fg: var(--vscode-editor-foreground, #ddd);
-      --bg: var(--vscode-editor-background, #1e1e1e);
-      --axis: var(--vscode-editorLineNumber-foreground, #888);
-      --bar:       var(--vscode-charts-blue,   #4da3ff66);
-      --bar-max:   var(--vscode-charts-yellow, #bbd16666);
-      --target:    var(--vscode-charts-red,    #ff5555);
-      --grid: #4448;
-    }
-    body { margin: 0; font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans JP', sans-serif; color: var(--fg); background: var(--bg); }
-    header { padding: 12px 16px; border-bottom: 1px solid #ffffff12; }
-    header h1 { font-size: 14px; margin: 0 0 4px 0; }
-    header .meta { color: var(--axis); }
-    .wrap { padding: 10px 16px 16px; }
-    .legend { display:flex; gap:16px; align-items:center; margin: 6px 0 12px; color: var(--axis); }
-    .swatch { width:10px; height:10px; border-radius: 2px; display:inline-block; margin-right:6px; vertical-align: -1px; }
-    .swatch.bar     { background: #4da3ff66; }
-    .swatch.max     { background: #bbd16666; }
-    .swatch.target  { background: #ff0000; }
-    .swatch.lineAdd { background: #00ff55; }
-    .swatch.lineDel { background: #ff00ff; }
-    .chart { width: 100%; height: 600px; border-left:1px solid var(--axis); border-bottom:1px solid var(--axis); position: relative; }
-    svg { width: 100%; height: 100%; display:block; }
-    .xlabels { display:flex; justify-content:space-between; margin-top:6px; color: var(--axis); font-size: 11px; }
-    .hint { margin-top: 8px; color: var(--axis); }
-    /* 1/5 ガイド円 */
-    .guide5 { stroke: var(--grid); fill: none; opacity: .6 }
-    .guide5:nth-child(odd) { opacity: .35 }
-    /* ラベル体裁 */
-    .tick-label { fill: var(--axis); font-size: 11px; dominant-baseline: middle; }
+
+  <html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="${csp}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>純作業量（過去30日）</title>
+    <style>
+      :root {
+        --fg: var(--vscode-editor-foreground, #ddd);
+        --bg: var(--vscode-editor-background, #1e1e1e);
+        --axis: var(--vscode-editorLineNumber-foreground, #888);
+        --bar:       var(--vscode-charts-blue,   #4da3ff66);
+        --bar-max:   var(--vscode-charts-yellow, #bbd16666);
+        --target:    var(--vscode-charts-red,    #ff5555);
+        --grid: #4448;
+      }
+      body { margin: 0; font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans JP', sans-serif; color: var(--fg); background: var(--bg); }
+      header { padding: 12px 16px; border-bottom: 1px solid #ffffff12; }
+      header h1 { font-size: 14px; margin: 0 0 4px 0; }
+      header .meta { color: var(--axis); }
+      .wrap { padding: 10px 16px 16px; }
+      .legend { display:flex; gap:16px; align-items:center; margin: 6px 0 12px; color: var(--axis); }
+      .swatch { width:10px; height:10px; border-radius: 2px; display:inline-block; margin-right:6px; vertical-align: -1px; }
+      .swatch.bar     { background: #4da3ff66; }
+      .swatch.max     { background: #bbd16666; }
+      .swatch.target  { background: #ff0000; }
+      .swatch.lineAdd { background: #00ff55; }
+      .swatch.lineDel { background: #ff00ff; }
+      .chart { width: 100%; height: 600px; border-left:1px solid var(--axis); border-bottom:1px solid var(--axis); position: relative; }
+      svg { width: 100%; height: 100%; display:block; }
+      .xlabels { display:flex; justify-content:space-between; margin-top:6px; color: var(--axis); font-size: 11px; }
+      .hint { margin-top: 8px; color: var(--axis); }
+      /* 1/5 ガイド円 */
+      .guide5 { stroke: var(--grid); fill: none; opacity: .6 }
+      .guide5:nth-child(odd) { opacity: .35 }
+      /* ラベル体裁 */
+      .tick-label { fill: var(--axis); font-size: 11px; dominant-baseline: middle; }
 
 
-  </style>
-</head>
-<body>
-  <header>
-    <h1>純作業量（過去30日）</h1>
-    <div class="meta">合計: <b>${total.toLocaleString(
-      "ja-JP"
-    )}</b> ／ 最大日: <b>${maxTotal.toLocaleString("ja-JP")}</b></div>
-  </header>
-  <div class="wrap">
-    <div class="legend">
-      <span><span class="swatch bar"></span>日別作業量</span>
-      <span><span class="swatch max"></span>最大日のバー</span>
-      <span><span class="swatch target"></span>目標ライン（${targetValue.toLocaleString(
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>純作業量（過去30日）</h1>
+      <div class="meta">合計: <b>${total.toLocaleString(
         "ja-JP"
-      )}字/日）</span>
-      <span><span class="swatch lineAdd"></span>入力（折れ線）</span>
-      <span><span class="swatch lineDel"></span>削除（折れ線）</span>
+      )}</b> ／ 最大日: <b>${maxTotal.toLocaleString("ja-JP")}</b></div>
+    </header>
+    <div class="wrap">
+      <div class="legend">
+        <span><span class="swatch bar"></span>日別作業量</span>
+        <span><span class="swatch max"></span>最大日のバー</span>
+        <span><span class="swatch target"></span>目標ライン（${targetValue.toLocaleString(
+          "ja-JP"
+        )}字/日）</span>
+        <span><span class="swatch lineAdd"></span>入力（折れ線）</span>
+        <span><span class="swatch lineDel"></span>削除（折れ線）</span>
+      </div>
+      <div class="chart">
+        <svg viewBox="0 0 1000 600" preserveAspectRatio="none" id="chartSvg" aria-label="純作業量棒グラフ"></svg>
+      </div>
+      <div class="xlabels" id="xlabels"></div>
+      <div class="hint">右端が本日。バーにマウスを置くと数値を表示します。setting.jsonで "posNote.workload.graphStyle": "radial" に変更できます。</div>
     </div>
-    <div class="chart">
-      <svg viewBox="0 0 1000 600" preserveAspectRatio="none" id="chartSvg" aria-label="純作業量棒グラフ"></svg>
-    </div>
-    <div class="xlabels" id="xlabels"></div>
-    <div class="hint">右端が本日。バーにマウスを置くと数値を表示します。setting.jsonで "posNote.workload.graphStyle": "radial" に変更できます。</div>
-  </div>
 
-  <script>
-    const DAYS = ${JSON.stringify(days)};
-    const chartMax = ${chartMax};
-    const targetValue = ${targetValue};
-    const MAX_TOTAL = ${maxTotal};
-    const TICK_STEP = ${TICK_STEP};
+    <script>
+      const DAYS = ${JSON.stringify(days)};
+      const chartMax = ${chartMax};
+      const targetValue = ${targetValue};
+      const MAX_TOTAL = ${maxTotal};
+      const TICK_STEP = ${TICK_STEP};
 
-    const svg = document.getElementById('chartSvg');
-    const W = 1000, H = 600, PAD = 28;
-    const innerW = W - PAD*2, innerH = H - PAD*2;
+      const svg = document.getElementById('chartSvg');
+      const W = 1000, H = 600, PAD = 28;
+      const innerW = W - PAD*2, innerH = H - PAD*2;
 
-    // グリッド
-    for (let v = 0; v <= chartMax; v += TICK_STEP) {
-      const y = PAD + (innerH - (v / chartMax) * (innerH - 1));
-      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-      line.setAttribute('x1', PAD);
-      line.setAttribute('x2', W - PAD);
-      line.setAttribute('y1', y);
-      line.setAttribute('y2', y);
-      line.setAttribute('stroke', '#4448');
-      svg.appendChild(line);
-    }
-
-    const n = DAYS.length;
-    const gap = 3;
-    const barW = innerW / n;
-
-    // 目標ライン
-    const ty = PAD + (innerH - (targetValue / chartMax) * (innerH - 1));
-    const tline = document.createElementNS('http://www.w3.org/2000/svg','line');
-    tline.setAttribute('x1', PAD);
-    tline.setAttribute('x2', W - PAD);
-    tline.setAttribute('y1', ty);
-    tline.setAttribute('y2', ty);
-    tline.setAttribute('stroke','#ff0000');
-    tline.setAttribute('stroke-width', 1.5);
-    tline.setAttribute('stroke-dasharray', '6,4');
-    svg.appendChild(tline);
-
-    // ツールチップ
-    const tooltip = (() => {
-      const el = document.createElement('div');
-      el.style.position = 'fixed';
-      el.style.padding = '4px 8px';
-      el.style.fontSize = '11px';
-      el.style.background = 'rgba(0,0,0,.8)';
-      el.style.color = '#fff';
-      el.style.borderRadius = '4px';
-      el.style.pointerEvents = 'none';
-      el.style.transform = 'translate(12px, 12px)';
-      el.style.zIndex = 10000;
-      el.style.display = 'none';
-      document.body.appendChild(el);
-      return {
-        show(x,y,text){ el.textContent = text; el.style.left = x+'px'; el.style.top = y+'px'; el.style.display='block'; },
-        hide(){ el.style.display='none'; }
-      };
-    })();
-
-    // SVG要素のHTML文字列を生成
-    const barW = innerW / n;
-    const gap = 3;
-    const barElements = DAYS.map((d, i) => {
-      const h = chartMax ? ((d.total||0) / chartMax) * (innerH - 1) : 0;
-      const x = PAD + barW * i + gap * 0.5;
-      const y = PAD + (innerH - h);
-      const w = Math.max(1, barW - gap * 3);
-      const height = Math.max(0, h);
-
-      const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
-      const isBelowTarget = (d.total||0) < targetValue;
-      let fill;
-      if (isMax) {
-        fill = '#bbd16666'; // 最大日のバー
-      } else if (isBelowTarget) {
-        fill = '#ff993366'; // 目標未達→オレンジ系
-      } else {
-        fill = '#4da3ff66'; // 通常バー
-      }
-      // イベントリスナーは後でまとめて追加するため、data属性にインデックスを保持
-      return \`<rect class="bar-item" data-index="\${i}" x="\${x}" y="\${y}" width="\${w}" height="\${height}" fill="\${fill}" style="cursor: default;"></rect>\`;
-    }).join('');
-
-    // 折れ線 add
-    const polyAdd = \`<polyline points="\${polyPoints('add')}" fill="none" stroke="#00ff55" stroke-width="6"></polyline>\`;
-
-    // 折れ線 del
-    const polyDel = \`<polyline points="\${polyPoints('del')}" fill="none" stroke="#ff00ff" stroke-width="6"></polyline>\`;
-
-    // 頂点マーカー
-    const markers = DAYS.map((d, i) => {
-      const d = DAYS[i];
-      const xCenter = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
-      let markerHtml = '';
-      if ((d.add||0) > 0) {
-        const yAdd = PAD + (innerH - (d.add / chartMax) * (innerH - 1));
-        markerHtml += \`<circle cx="\${xCenter}" cy="\${yAdd}" r="8" fill="#00ff55" stroke="#00000088" stroke-width="1"></circle>\`;
-      }
-      if ((d.del||0) > 0) {
-        const yDel = PAD + (innerH - (d.del / chartMax) * (innerH - 1));
-        const s = 16;
-        markerHtml += \`<rect x="\${xCenter - s/2}" y="\${yDel - s/2}" width="\${s}" height="\${s}" fill="#ff00ff" stroke="#00000088" stroke-width="1"></rect>\`;
-      }
-      return markerHtml;
-    }).join('');
-
-    // 生成したHTML文字列を一度に挿入
-    svg.insertAdjacentHTML('beforeend', barElements + polyAdd + polyDel + markers);
-
-    // イベントリスナーをまとめて追加
-    svg.querySelectorAll('.bar-item').forEach(bar => {
-      bar.addEventListener('mousemove', (ev) => {
-        const i = parseInt(bar.dataset.index, 10);
-        const d = DAYS[i];
-        const t = (d.total||0).toLocaleString('ja-JP');
-        const a = (d.add||0).toLocaleString('ja-JP');
-        const rm = (d.del||0).toLocaleString('ja-JP');
-        tooltip.show(ev.clientX, ev.clientY, \`\${d.date}\n合計: \${t}／入力: \${a}／削除: \${rm}\`);
-      });
-      bar.addEventListener('mouseleave', () => tooltip.hide());
-    });
-
-    // X 軸ラベル（左 中央 右のみ）
-    const xl = document.getElementById('xlabels');
-    const left = DAYS[0]?.date ?? '';
-    const mid = DAYS[Math.floor(n/2)]?.date ?? '';
-    const right = DAYS[n-1]?.date ?? '';
-    xl.innerHTML = \`<span>\${left}</span><span>\${mid}</span><span>\${right}</span>\`;
-
-    function polyPoints(kind) {
-      const pts = [];
-      for (let i=0;i<n;i++){
-        const d = DAYS[i];
-        const v = kind === 'add' ? (d.add||0) : (d.del||0);
-        const x = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
+      // グリッド
+      for (let v = 0; v <= chartMax; v += TICK_STEP) {
         const y = PAD + (innerH - (v / chartMax) * (innerH - 1));
-        pts.push(x + ',' + y);
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1', PAD);
+        line.setAttribute('x2', W - PAD);
+        line.setAttribute('y1', y);
+        line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#4448');
+        svg.appendChild(line);
       }
-      return pts.join(' ');
-    }
-  </script>
-</body>
-</html>`;
+
+      const n = DAYS.length;
+      const gap = 3;
+      const barW = innerW / n;
+
+      // 目標ライン
+      const ty = PAD + (innerH - (targetValue / chartMax) * (innerH - 1));
+      const tline = document.createElementNS('http://www.w3.org/2000/svg','line');
+      tline.setAttribute('x1', PAD);
+      tline.setAttribute('x2', W - PAD);
+      tline.setAttribute('y1', ty);
+      tline.setAttribute('y2', ty);
+      tline.setAttribute('stroke','#ff0000');
+      tline.setAttribute('stroke-width', 1.5);
+      tline.setAttribute('stroke-dasharray', '6,4');
+      svg.appendChild(tline);
+
+      // ツールチップ
+      const tooltip = (() => {
+        const el = document.createElement('div');
+        el.style.position = 'fixed';
+        el.style.padding = '4px 8px';
+        el.style.fontSize = '11px';
+        el.style.background = 'rgba(0,0,0,.8)';
+        el.style.color = '#fff';
+        el.style.borderRadius = '4px';
+        el.style.pointerEvents = 'none';
+        el.style.transform = 'translate(12px, 12px)';
+        el.style.zIndex = 10000;
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        return {
+          show(x,y,text){ el.textContent = text; el.style.left = x+'px'; el.style.top = y+'px'; el.style.display='block'; },
+          hide(){ el.style.display='none'; }
+        };
+      })();
+
+      // SVG要素のHTML文字列を生成
+      const barW = innerW / n;
+      const gap = 3;
+      const barElements = DAYS.map((d, i) => {
+        const h = chartMax ? ((d.total||0) / chartMax) * (innerH - 1) : 0;
+        const x = PAD + barW * i + gap * 0.5;
+        const y = PAD + (innerH - h);
+        const w = Math.max(1, barW - gap * 3);
+        const height = Math.max(0, h);
+
+        const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
+        const isBelowTarget = (d.total||0) < targetValue;
+        let fill;
+        if (isMax) {
+          fill = '#bbd16666'; // 最大日のバー
+        } else if (isBelowTarget) {
+          fill = '#ff993366'; // 目標未達→オレンジ系
+        } else {
+          fill = '#4da3ff66'; // 通常バー
+        }
+        // イベントリスナーは後でまとめて追加するため、data属性にインデックスを保持
+        return \`<rect class="bar-item" data-index="\${i}" x="\${x}" y="\${y}" width="\${w}" height="\${height}" fill="\${fill}" style="cursor: default;"></rect>\`;
+      }).join('');
+
+      // 折れ線 add
+      const polyAdd = \`<polyline points="\${polyPoints('add')}" fill="none" stroke="#00ff55" stroke-width="6"></polyline>\`;
+
+      // 折れ線 del
+      const polyDel = \`<polyline points="\${polyPoints('del')}" fill="none" stroke="#ff00ff" stroke-width="6"></polyline>\`;
+
+      // 頂点マーカー
+      const markers = DAYS.map((d, i) => {
+        const d = DAYS[i];
+        const xCenter = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
+        let markerHtml = '';
+        if ((d.add||0) > 0) {
+          const yAdd = PAD + (innerH - (d.add / chartMax) * (innerH - 1));
+          markerHtml += \`<circle cx="\${xCenter}" cy="\${yAdd}" r="8" fill="#00ff55" stroke="#00000088" stroke-width="1"></circle>\`;
+        }
+        if ((d.del||0) > 0) {
+          const yDel = PAD + (innerH - (d.del / chartMax) * (innerH - 1));
+          const s = 16;
+          markerHtml += \`<rect x="\${xCenter - s/2}" y="\${yDel - s/2}" width="\${s}" height="\${s}" fill="#ff00ff" stroke="#00000088" stroke-width="1"></rect>\`;
+        }
+        return markerHtml;
+      }).join('');
+
+      // 生成したHTML文字列を一度に挿入
+      svg.insertAdjacentHTML('beforeend', barElements + polyAdd + polyDel + markers);
+
+      // イベントリスナーをまとめて追加
+      svg.querySelectorAll('.bar-item').forEach(bar => {
+        bar.addEventListener('mousemove', (ev) => {
+          const i = parseInt(bar.dataset.index, 10);
+          const d = DAYS[i];
+          const t = (d.total||0).toLocaleString('ja-JP');
+          const a = (d.add||0).toLocaleString('ja-JP');
+          const rm = (d.del||0).toLocaleString('ja-JP');
+          tooltip.show(ev.clientX, ev.clientY, \`\${d.date}\n合計: \${t}／入力: \${a}／削除: \${rm}\`);
+        });
+        bar.addEventListener('mouseleave', () => tooltip.hide());
+      });
+
+      // X 軸ラベル（左 中央 右のみ）
+      const xl = document.getElementById('xlabels');
+      const left = DAYS[0]?.date ?? '';
+      const mid = DAYS[Math.floor(n/2)]?.date ?? '';
+      const right = DAYS[n-1]?.date ?? '';
+      xl.innerHTML = \`<span>\${left}</span><span>\${mid}</span><span>\${right}</span>\`;
+
+      function polyPoints(kind) {
+        const pts = [];
+        for (let i=0;i<n;i++){
+          const d = DAYS[i];
+          const v = kind === 'add' ? (d.add||0) : (d.del||0);
+          const x = PAD + (barW * i + (barW - gap)/2 + gap*0.5);
+          const y = PAD + (innerH - (v / chartMax) * (innerH - 1));
+          pts.push(x + ',' + y);
+        }
+        return pts.join(' ');
+      }
+    </script>
+  </body>
+  </html>`;
 }
 
 /**
@@ -761,220 +762,220 @@ function getRadialGraphHtml(webview, days, targetValue = 10000) {
 
   // SVG 本体
   const html = `<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>純作業量（過去30日）</title>
-  <style>
-    :root{
-      --fg: #ddd;
-      --bg: var(--vscode-editor-background, #1e1e1e);
-      --axis: #888;
-      /* 棒グラフの固定色に完全一致させる */
-      --bar:       #4da3ff;  /* 通常バー */
-      --bar-max:   #bbd166;  /* 最大バー */
-      --add:       #00ff55;    /* add 線・マーカー */
-      --del:       #ff00ff;    /* del 線・マーカー */
-      --target:    #ff0000;    /* 目標ライン ※棒側に合わせて #ff0000 */
-      --grid: #444;
-    }
-    body{margin:0; color:var(--fg); background:var(--bg); font:12px/1.4 system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans JP',sans-serif;}
-    header{padding:12px 16px; border-bottom:1px solid #ffffff12;}
-    header h1{font-size:14px; margin:0 0 4px;}
-    .meta{color:var(--axis);}
-    .wrap{padding:10px 8px 16px;}
-    .legend{display:flex; gap:16px; align-items:center; margin:8px 0 12px; color:var(--axis);}
-    .sw{width:10px; height:10px; border-radius:2px; display:inline-block; margin-right:6px; vertical-align:-1px;}
-    .sw.add{ background: var(--add); }
-    .sw.del{ background: var(--del); }
-    .sw.total{ background: var(--bar); opacity:.55;}
-    .sw.max{ background: var(--bar-max); }
-    .sw.target{ background: transparent; border:1px dashed var(--target); width:12px; height:12px; border-radius:50%;}
-    .chart{display:flex; justify-content:center;}
-    svg{width:${W}px; height:${H}px; display:block;}
-    .ticks text{ fill: var(--axis); font-size:11px; text-anchor:middle; }
-    .hint{margin-top:6px; color:var(--axis);}
-    .tooltip{
-      position:fixed; padding:4px 8px; font-size:11px;
-      background:rgba(0,0,0,.85); color:#fff; border-radius:4px;
-      pointer-events:none; transform:translate(12px,12px);
-      z-index:10000; display:none; white-space:pre;
-    }
-    .day-total{ fill: var(--bar); opacity:.4; }
-    .day-total-max{ fill: var(--bar-max); opacity:.6; }
-    .day-add{   fill: var(--add); opacity:.85; }
-    .day-del{   fill: var(--del); opacity:.85; }
-    .ring-target{ stroke: var(--target); stroke-dasharray:6 4; fill:none; }
-    .guide{ stroke: var(--grid); fill:none; }
-    .hand{ stroke: var(--axis); stroke-width:1; }
-    .today-dot{ fill: var(--bar-max); }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>純作業量（過去30日）</h1>
-    <div class="meta">右回りで過去へ。12時＝最新。内から外へ半径が増える。</div>
-  </header>
-  <div class="wrap">
-    <div class="legend">
-      <span><span class="sw total"></span>合計（基底扇）</span>
-      <span><span class="sw max"></span>最大日の扇</span>
-      <span><span class="sw add"></span>入力</span>
-      <span><span class="sw del"></span>削除</span>
-      <span><span class="sw target"></span>目標ライン（${targetValue.toLocaleString(
-        "ja-JP"
-      )}）</span>
+
+  <html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="${csp}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>純作業量（過去30日）</title>
+    <style>
+      :root{
+        --fg: #ddd;
+        --bg: var(--vscode-editor-background, #1e1e1e);
+        --axis: #888;
+        /* 棒グラフの固定色に完全一致させる */
+        --bar:       #4da3ff;  /* 通常バー */
+        --bar-max:   #bbd166;  /* 最大バー */
+        --add:       #00ff55;    /* add 線・マーカー */
+        --del:       #ff00ff;    /* del 線・マーカー */
+        --target:    #ff0000;    /* 目標ライン ※棒側に合わせて #ff0000 */
+        --grid: #444;
+      }
+      body{margin:0; color:var(--fg); background:var(--bg); font:12px/1.4 system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans JP',sans-serif;}
+      header{padding:12px 16px; border-bottom:1px solid #ffffff12;}
+      header h1{font-size:14px; margin:0 0 4px;}
+      .meta{color:var(--axis);}
+      .wrap{padding:10px 8px 16px;}
+      .legend{display:flex; gap:16px; align-items:center; margin:8px 0 12px; color:var(--axis);}
+      .sw{width:10px; height:10px; border-radius:2px; display:inline-block; margin-right:6px; vertical-align:-1px;}
+      .sw.add{ background: var(--add); }
+      .sw.del{ background: var(--del); }
+      .sw.total{ background: var(--bar); opacity:.55;}
+      .sw.max{ background: var(--bar-max); }
+      .sw.target{ background: transparent; border:1px dashed var(--target); width:12px; height:12px; border-radius:50%;}
+      .chart{display:flex; justify-content:center;}
+      svg{width:${W}px; height:${H}px; display:block;}
+      .ticks text{ fill: var(--axis); font-size:11px; text-anchor:middle; }
+      .hint{margin-top:6px; color:var(--axis);}
+      .tooltip{
+        position:fixed; padding:4px 8px; font-size:11px;
+        background:rgba(0,0,0,.85); color:#fff; border-radius:4px;
+        pointer-events:none; transform:translate(12px,12px);
+        z-index:10000; display:none; white-space:pre;
+      }
+      .day-total{ fill: var(--bar); opacity:.4; }
+      .day-total-max{ fill: var(--bar-max); opacity:.6; }
+      .day-add{   fill: var(--add); opacity:.85; }
+      .day-del{   fill: var(--del); opacity:.85; }
+      .ring-target{ stroke: var(--target); stroke-dasharray:6 4; fill:none; }
+      .guide{ stroke: var(--grid); fill:none; }
+      .hand{ stroke: var(--axis); stroke-width:1; }
+      .today-dot{ fill: var(--bar-max); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>純作業量（過去30日）</h1>
+      <div class="meta">右回りで過去へ。12時＝最新。内から外へ半径が増える。</div>
+    </header>
+    <div class="wrap">
+      <div class="legend">
+        <span><span class="sw total"></span>合計（基底扇）</span>
+        <span><span class="sw max"></span>最大日の扇</span>
+        <span><span class="sw add"></span>入力</span>
+        <span><span class="sw del"></span>削除</span>
+        <span><span class="sw target"></span>目標ライン（${targetValue.toLocaleString(
+          "ja-JP"
+        )}）</span>
+      </div>
+
+      <div class="chart">
+        <svg viewBox="0 0 ${W} ${H}" aria-label="純作業量 円環グラフ" role="img" id="radialSvg">
+          <!-- ガイド円（目標値1/5刻み 自動間引き 目標超えは最大記録まで拡張） -->
+          ${ringGrid}
+          <!-- 目盛ラベルは非表示 -->
+          <g class="ticks">
+            ${labelsHtml}
+          </g>
+          <!-- 目標リング -->
+          <circle class="ring-target" cx="${CX}" cy="${CY}" r="${targetR}"/>
+
+          <!-- 12時の基準線（今日の位置） -->
+          <line class="hand" x1="${CX}" y1="${CY}" x2="${CX}" y2="${
+      CY - R_MAX - 4
+    }" />
+
+          <!-- データ本体は後段のscriptで追加 -->
+        </svg>
+      </div>
+      <div class="hint">扇にマウスを置くと数値を表示。setting.jsonで "posNote.workload.graphStyle": "bar" に変更できます。</div>
+      <div class="tooltip" id="tip"></div>
     </div>
 
-    <div class="chart">
-      <svg viewBox="0 0 ${W} ${H}" aria-label="純作業量 円環グラフ" role="img" id="radialSvg">
-        <!-- ガイド円（目標値1/5刻み 自動間引き 目標超えは最大記録まで拡張） -->
-        ${ringGrid}
-        <!-- 目盛ラベルは非表示 -->
-        <g class="ticks">
-          ${labelsHtml}
-        </g>
-        <!-- 目標リング -->
-        <circle class="ring-target" cx="${CX}" cy="${CY}" r="${targetR}"/>
+    <script>
+    const DAYS = ${JSON.stringify(days)}; // buildLastNDays()の出力
+    const chartMax = ${chartMax};
+    const targetValue = ${targetValue};
+    const MAX_TOTAL = ${maxTotal};
 
-        <!-- 12時の基準線（今日の位置） -->
-        <line class="hand" x1="${CX}" y1="${CY}" x2="${CX}" y2="${
-    CY - R_MAX - 4
-  }" />
+    const W=${W}, H=${H}, CX=${CX}, CY=${CY}, R_INNER=${R_INNER}, R_MAX=${R_MAX};
+    const SLICE_DEG=${SLICE_DEG}, HALF_DEG=${HALF_DEG}, START_DEG=${START_DEG}, GAP_DEG=${GAP_DEG};
 
-        <!-- データ本体は後段のscriptで追加 -->
-      </svg>
-    </div>
-    <div class="hint">扇にマウスを置くと数値を表示。setting.jsonで "posNote.workload.graphStyle": "bar" に変更できます。</div>
-    <div class="tooltip" id="tip"></div>
-  </div>
+    const scaleR = (v) => R_INNER + (Math.max(0, v) / chartMax) * (R_MAX - R_INNER);
+    const toXY = (r, deg) => {
+      const rad = (Math.PI/180)*deg;
+      return [CX + r*Math.cos(rad), CY + r*Math.sin(rad)];
+    };
+    const ringWedge = (ri, ro, a0, a1) => {
+      const a0c = a0 + GAP_DEG * .5;
+      const a1c = a1 - GAP_DEG * .5;
+      const [x0,y0] = toXY(ro, a0c);
+      const [x1,y1] = toXY(ro, a1c);
+      const [x2,y2] = toXY(ri, a1c);
+      const [x3,y3] = toXY(ri, a0c);
+      const large = (a1c - a0c) > 180 ? 1 : 0;
+      return [
+        'M',x0,y0,
+        'A',ro,ro,0,large,1,x1,y1,
+        'L',x2,y2,
+        'A',ri,ri,0,large,0,x3,y3,
+        'Z'
+      ].join(' ');
+    };
 
-  <script>
-  const DAYS = ${JSON.stringify(days)}; // buildLastNDays()の出力
-  const chartMax = ${chartMax};
-  const targetValue = ${targetValue};
-  const MAX_TOTAL = ${maxTotal};
+    const svg = document.getElementById('radialSvg');
+    const tip = document.getElementById('tip');
 
-  const W=${W}, H=${H}, CX=${CX}, CY=${CY}, R_INNER=${R_INNER}, R_MAX=${R_MAX};
-  const SLICE_DEG=${SLICE_DEG}, HALF_DEG=${HALF_DEG}, START_DEG=${START_DEG}, GAP_DEG=${GAP_DEG};
+    // ツールチップ制御
+    const showTip = (ev, text) => { tip.textContent = text; tip.style.left=ev.clientX+'px'; tip.style.top=ev.clientY+'px'; tip.style.display='block'; };
+    const hideTip = () => tip.style.display='none';
 
-  const scaleR = (v) => R_INNER + (Math.max(0, v) / chartMax) * (R_MAX - R_INNER);
-  const toXY = (r, deg) => {
-    const rad = (Math.PI/180)*deg;
-    return [CX + r*Math.cos(rad), CY + r*Math.sin(rad)];
-  };
-  const ringWedge = (ri, ro, a0, a1) => {
-    const a0c = a0 + GAP_DEG * .5;
-    const a1c = a1 - GAP_DEG * .5;
-    const [x0,y0] = toXY(ro, a0c);
-    const [x1,y1] = toXY(ro, a1c);
-    const [x2,y2] = toXY(ri, a1c);
-    const [x3,y3] = toXY(ri, a0c);
-    const large = (a1c - a0c) > 180 ? 1 : 0;
-    return [
-      'M',x0,y0,
-      'A',ro,ro,0,large,1,x1,y1,
-      'L',x2,y2,
-      'A',ri,ri,0,large,0,x3,y3,
-      'Z'
-    ].join(' ');
-  };
+      // index 0 を「最新」にするため配列を逆参照
+    const n = DAYS.length;
 
-  const svg = document.getElementById('radialSvg');
-  const tip = document.getElementById('tip');
+    for (let i = 0; i < n; i++) {
+      // 配列末尾が最新 → i=0 が最新になるように取り出す
+      const d = DAYS[n - 1 - i];
 
-  // ツールチップ制御
-  const showTip = (ev, text) => { tip.textContent = text; tip.style.left=ev.clientX+'px'; tip.style.top=ev.clientY+'px'; tip.style.display='block'; };
-  const hideTip = () => tip.style.display='none';
+      // 12時を開始角。そこから時計回りに i*12° 進める
+      const aStart = START_DEG + i * SLICE_DEG;      // 開始角（最新の扇の始点）
+      const aMid   = aStart + HALF_DEG;              // 6°
+      const aEnd   = aStart + SLICE_DEG;             // 12°
 
-    // index 0 を「最新」にするため配列を逆参照
-  const n = DAYS.length;
+      const rTotal = scaleR(d.total || 0);
+      const rAdd   = scaleR(d.add   || 0);
+      const rDel   = scaleR(d.del   || 0);
 
-  for (let i = 0; i < n; i++) {
-    // 配列末尾が最新 → i=0 が最新になるように取り出す
-    const d = DAYS[n - 1 - i];
+      // total：12° 全体を半透明で
+      const pTotal = document.createElementNS('http://www.w3.org/2000/svg','path');
+      pTotal.setAttribute('d', ringWedge(R_INNER, rTotal, aStart, aEnd));
+      const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
+      const isBelowTarget = (d.total||0) < targetValue;
 
-    // 12時を開始角。そこから時計回りに i*12° 進める
-    const aStart = START_DEG + i * SLICE_DEG;      // 開始角（最新の扇の始点）
-    const aMid   = aStart + HALF_DEG;              // 6°
-    const aEnd   = aStart + SLICE_DEG;             // 12°
+      if (isMax) {
+        pTotal.setAttribute('fill', '#bbd166'); // 最大日の扇
+        pTotal.setAttribute('opacity', '.6');
+      } else if (isBelowTarget) {
+        pTotal.setAttribute('fill', '#ff9933'); // 目標未達→オレンジ
+        pTotal.setAttribute('opacity', '.5');
+      } else {
+        pTotal.setAttribute('fill', '#4da3ff'); // 通常
+        pTotal.setAttribute('opacity', '.4');
+      }
 
-    const rTotal = scaleR(d.total || 0);
-    const rAdd   = scaleR(d.add   || 0);
-    const rDel   = scaleR(d.del   || 0);
+      pTotal.addEventListener('mousemove', (ev) => {
+        showTip(
+          ev,
+          d.date + "\\n" +
+          "total: " + (d.total||0).toLocaleString('ja-JP')
+        );
+      });
+      pTotal.addEventListener('mouseleave', hideTip);
+      svg.appendChild(pTotal);
 
-    // total：12° 全体を半透明で
-    const pTotal = document.createElementNS('http://www.w3.org/2000/svg','path');
-    pTotal.setAttribute('d', ringWedge(R_INNER, rTotal, aStart, aEnd));
-    const isMax = (d.total||0) === MAX_TOTAL && MAX_TOTAL > 0;
-    const isBelowTarget = (d.total||0) < targetValue;
+      // add：前半 6°
+      const pAdd = document.createElementNS('http://www.w3.org/2000/svg','path');
+      pAdd.setAttribute('d', ringWedge(R_INNER, rAdd, aStart, aMid));
+      pAdd.setAttribute('class','day-add');
+      pAdd.addEventListener('mousemove', (ev) => {
+        showTip(
+          ev,
+          d.date + "\\n" +
+          "add: " + (d.add||0).toLocaleString('ja-JP')
+        );
+      });
+      pAdd.addEventListener('mouseleave', hideTip);
+      svg.appendChild(pAdd);
 
-    if (isMax) {
-      pTotal.setAttribute('fill', '#bbd166'); // 最大日の扇
-      pTotal.setAttribute('opacity', '.6');
-    } else if (isBelowTarget) {
-      pTotal.setAttribute('fill', '#ff9933'); // 目標未達→オレンジ
-      pTotal.setAttribute('opacity', '.5');
-    } else {
-      pTotal.setAttribute('fill', '#4da3ff'); // 通常
-      pTotal.setAttribute('opacity', '.4');
+      // del：後半 6°
+      const pDel = document.createElementNS('http://www.w3.org/2000/svg','path');
+      pDel.setAttribute('d', ringWedge(R_INNER, rDel, aMid, aEnd));
+      pDel.setAttribute('class','day-del');
+      pDel.addEventListener('mousemove', (ev) => {
+        showTip(
+          ev,
+          d.date + "\\n" +
+          "del: " + (d.del||0).toLocaleString('ja-JP')
+        );
+      });
+      pDel.addEventListener('mouseleave', hideTip);
+      svg.appendChild(pDel);
+
+      // 最新日の目印ドット（i=0 のみ。12時開始位置の外側）
+      if (i === 0) {
+        const [dx, dy] = toXY(R_MAX + 6, START_DEG);
+        const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        dot.setAttribute('cx', dx);
+        dot.setAttribute('cy', dy);
+        dot.setAttribute('r', 4);
+        dot.setAttribute('class','today-dot');
+        svg.appendChild(dot);
+      }
     }
-
-    pTotal.addEventListener('mousemove', (ev) => {
-      showTip(
-        ev,
-        d.date + "\\n" +
-        "total: " + (d.total||0).toLocaleString('ja-JP')
-      );
-    });
-    pTotal.addEventListener('mouseleave', hideTip);
-    svg.appendChild(pTotal);
-
-    // add：前半 6°
-    const pAdd = document.createElementNS('http://www.w3.org/2000/svg','path');
-    pAdd.setAttribute('d', ringWedge(R_INNER, rAdd, aStart, aMid));
-    pAdd.setAttribute('class','day-add');
-    pAdd.addEventListener('mousemove', (ev) => {
-      showTip(
-        ev,
-        d.date + "\\n" +
-        "add: " + (d.add||0).toLocaleString('ja-JP')
-      );
-    });
-    pAdd.addEventListener('mouseleave', hideTip);
-    svg.appendChild(pAdd);
-
-    // del：後半 6°
-    const pDel = document.createElementNS('http://www.w3.org/2000/svg','path');
-    pDel.setAttribute('d', ringWedge(R_INNER, rDel, aMid, aEnd));
-    pDel.setAttribute('class','day-del');
-    pDel.addEventListener('mousemove', (ev) => {
-      showTip(
-        ev,
-        d.date + "\\n" +
-        "del: " + (d.del||0).toLocaleString('ja-JP')
-      );
-    });
-    pDel.addEventListener('mouseleave', hideTip);
-    svg.appendChild(pDel);
-
-    // 最新日の目印ドット（i=0 のみ。12時開始位置の外側）
-    if (i === 0) {
-      const [dx, dy] = toXY(R_MAX + 6, START_DEG);
-      const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
-      dot.setAttribute('cx', dx);
-      dot.setAttribute('cy', dy);
-      dot.setAttribute('r', 4);
-      dot.setAttribute('class','today-dot');
-      svg.appendChild(dot);
-    }
-  }
-  </script>
-</body>
-</html>`;
-
+    </script>
+  </body>
+  </html>`;
   return html;
 }
 

@@ -460,7 +460,7 @@ function ensureWorker(context) {
   if (semanticWorker) return;
   let scriptPath = path.join(context.extensionPath, "dist", "worker", "semanticWorker.js");
   if (!fs.existsSync(scriptPath)) {
-      scriptPath = path.join(context.extensionPath, "src", "worker", "semanticWorker.js");
+    scriptPath = path.join(context.extensionPath, "src", "worker", "semanticWorker.js");
   }
   semanticWorker = new Worker(scriptPath);
 
@@ -479,13 +479,13 @@ function ensureWorker(context) {
   });
 
   semanticWorker.on("error", (err) => {
-      console.error("[SemanticWorker Main] FATAL:", err);
+    console.error("[SemanticWorker Main] FATAL:", err);
   });
 
   // Calculate reliable dict path
   let dictPath = path.join(context.extensionPath, "dist", "dict");
   if (!fs.existsSync(dictPath)) {
-      dictPath = path.join(context.extensionPath, "node_modules", "kuromoji", "dict");
+    dictPath = path.join(context.extensionPath, "node_modules", "kuromoji", "dict");
   }
 
   console.log("[SemanticWorker Main] Spawning worker at:", scriptPath);
@@ -495,8 +495,8 @@ function ensureWorker(context) {
 
 function tokenizeWithWorker(lines, cancelToken) {
   if (!semanticWorker) {
-      console.warn("[SemanticWorker Main] Worker not ready");
-      return Promise.resolve(new Uint32Array());
+    console.warn("[SemanticWorker Main] Worker not ready");
+    return Promise.resolve(new Uint32Array());
   }
   return new Promise((resolve, reject) => {
     const reqId = nextReqId++;
@@ -504,13 +504,13 @@ function tokenizeWithWorker(lines, cancelToken) {
 
     // Cleanup if cancelled
     if (cancelToken) {
-        cancelToken.onCancellationRequested(() => {
-            if (workerPending.has(reqId)) {
-                workerPending.delete(reqId);
-                semanticWorker.postMessage({ command: "abort", reqId });
-                resolve(new Uint32Array()); // Resolve empty on cancel
-            }
-        });
+      cancelToken.onCancellationRequested(() => {
+        if (workerPending.has(reqId)) {
+          workerPending.delete(reqId);
+          semanticWorker.postMessage({ command: "abort", reqId });
+          resolve(new Uint32Array()); // Resolve empty on cancel
+        }
+      });
     }
 
     semanticWorker.postMessage({ command: "tokenize", reqId, lines });
@@ -557,11 +557,11 @@ class JapaneseSemanticProvider {
         this._onDidChangeSemanticTokens.fire();
 
         if (!this._brHighlightEnabled) {
-             for (const ed of vscode.window.visibleTextEditors) {
-               const key = ed.document.uri.toString();
-               this._brRangesByDoc.set(key, []);
-               if (this._brDecoration) ed.setDecorations(this._brDecoration, []);
-             }
+          for (const ed of vscode.window.visibleTextEditors) {
+          const key = ed.document.uri.toString();
+          this._brRangesByDoc.set(key, []);
+          if (this._brDecoration) ed.setDecorations(this._brDecoration, []);
+          }
         }
       })
     );
@@ -579,42 +579,42 @@ class JapaneseSemanticProvider {
 
         // Cancel background scan if running
         if (this._bgScanCts.has(docKey)) {
-            this._bgScanCts.get(docKey).cancel();
-            this._bgScanCts.delete(docKey);
+          this._bgScanCts.get(docKey).cancel();
+          this._bgScanCts.delete(docKey);
         }
       }),
       vscode.workspace.onDidChangeTextDocument((e) => {
-          // Incremental Cache Invalidation
-          const docKey = e.document.uri.toString();
-          if (!this._docCache.has(docKey)) return;
-          const entry = this._docCache.get(docKey);
+        // Incremental Cache Invalidation
+        const docKey = e.document.uri.toString();
+        if (!this._docCache.has(docKey)) return;
+        const entry = this._docCache.get(docKey);
 
-          // If line count changed (insert/delete lines), full invalidation is safest for now
-          // (To support accurate shift, we'd need to shift Map keys which is expensive)
-          if (e.contentChanges.some(c => c.range.start.line !== c.range.end.line || c.text.includes('\n'))) {
-              entry.map.clear();
-              entry.decorationCache.clear();
-          } else {
-              // Just single line edits
-              for (const c of e.contentChanges) {
-                  for (let ln = c.range.start.line; ln <= c.range.end.line; ln++) {
-                      entry.map.delete(ln);
-                      entry.decorationCache.delete(ln);
-                  }
-              }
+        // If line count changed (insert/delete lines), full invalidation is safest for now
+        // (To support accurate shift, we'd need to shift Map keys which is expensive)
+        if (e.contentChanges.some(c => c.range.start.line !== c.range.end.line || c.text.includes('\n'))) {
+          entry.map.clear();
+          entry.decorationCache.clear();
+        } else {
+          // Just single line edits
+          for (const c of e.contentChanges) {
+            for (let ln = c.range.start.line; ln <= c.range.end.line; ln++) {
+              entry.map.delete(ln);
+              entry.decorationCache.delete(ln);
+            }
           }
-          entry.version = e.document.version;
+        }
+        entry.version = e.document.version;
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
-          // Cancel background scans for all documents except the newly active one
-          if (!editor) return;
-          const activeDocKey = editor.document.uri.toString();
-          for (const [docKey, cts] of this._bgScanCts.entries()) {
-              if (docKey !== activeDocKey) {
-                  cts.cancel();
-                  this._bgScanCts.delete(docKey);
-              }
+        // Cancel background scans for all documents except the newly active one
+        if (!editor) return;
+        const activeDocKey = editor.document.uri.toString();
+        for (const [docKey, cts] of this._bgScanCts.entries()) {
+          if (docKey !== activeDocKey) {
+            cts.cancel();
+            this._bgScanCts.delete(docKey);
           }
+        }
       })
     );
   }
@@ -745,7 +745,7 @@ class JapaneseSemanticProvider {
   async _buildTokens(document, range, cancelToken) {
     const c = this._cfg();
     if (cancelToken?.isCancellationRequested) {
-        return new vscode.SemanticTokens(new Uint32Array());
+      return new vscode.SemanticTokens(new Uint32Array());
     }
 
     // 0. Pre-calculate keys
@@ -755,11 +755,11 @@ class JapaneseSemanticProvider {
     // Debounce: Wait for typing to settle (using posNote.debounceMs)
     // BUT skip debounce if this is the first load (no cache) to ensure instant open
     if (this._docCache.has(docKey)) {
-        const debounceMs = c.debounceMs || 500;
-        await new Promise(resolve => setTimeout(resolve, debounceMs));
-        if (cancelToken?.isCancellationRequested) {
-            return new vscode.SemanticTokens(new Uint32Array());
-        }
+      const debounceMs = c.debounceMs || 500;
+      await new Promise(resolve => setTimeout(resolve, debounceMs));
+      if (cancelToken?.isCancellationRequested) {
+        return new vscode.SemanticTokens(new Uint32Array());
+      }
     }
 
     if (lang === "markdown" && !c.semanticEnabledMd) return new vscode.SemanticTokens(new Uint32Array());
@@ -767,18 +767,18 @@ class JapaneseSemanticProvider {
 
     // 1. Prepare Doc Cache
     if (!this._docCache.has(docKey)) {
-        this._docCache.set(docKey, {
-            map: new Map(),
-            decorationCache: new Map(),  // Per-line decoration cache
-            version: document.version,
-            pendingBg: false
-        });
+      this._docCache.set(docKey, {
+          map: new Map(),
+          decorationCache: new Map(),  // Per-line decoration cache
+          version: document.version,
+          pendingBg: false
+      });
 
-        // Cancel any stale background scan for this doc (new initial load overrides old bg)
-        if (this._bgScanCts.has(docKey)) {
-            this._bgScanCts.get(docKey).cancel();
-            this._bgScanCts.delete(docKey);
-        }
+      // Cancel any stale background scan for this doc (new initial load overrides old bg)
+      if (this._bgScanCts.has(docKey)) {
+        this._bgScanCts.get(docKey).cancel();
+        this._bgScanCts.delete(docKey);
+      }
     }
     const cacheEntry = this._docCache.get(docKey);
     // Explicitly update version, but DO NOT clear map here since invalidation is handled by onDidChangeTextDocument
@@ -797,82 +797,82 @@ class JapaneseSemanticProvider {
     const priorityEnd = Math.min(document.lineCount - 1, cursorLine + 100);
 
     for (let ln = 0; ln < document.lineCount; ln++) {
-        // Check cache validity (only checks existence in map, version diff handled by clearing map)
-        if (!tokenMap.has(ln)) {
-             const text = document.lineAt(ln).text;
-             const item = { lineIndex: ln, text };
+      // Check cache validity (only checks existence in map, version diff handled by clearing map)
+      if (!tokenMap.has(ln)) {
+        const text = document.lineAt(ln).text;
+        const item = { lineIndex: ln, text };
 
-             // If we are in the priority range, request immediately
-             if (ln >= priorityStart && ln <= priorityEnd) {
-                 linesToRequest.push(item);
-             } else {
-                 bgLinesToRequest.push(item);
-             }
+        // If we are in the priority range, request immediately
+        if (ln >= priorityStart && ln <= priorityEnd) {
+        linesToRequest.push(item);
+        } else {
+        bgLinesToRequest.push(item);
         }
+      }
     }
 
     // 3. Request Worker (Priority) - Await this immediately
     if (linesToRequest.length > 0) {
-        // console.log(`[Semantic] Requesting Priority ${linesToRequest.length} lines`);
-        const buffer = await tokenizeWithWorker(linesToRequest, cancelToken);
-        if (cancelToken?.isCancellationRequested) return new vscode.SemanticTokens(new Uint32Array());
+      // console.log(`[Semantic] Requesting Priority ${linesToRequest.length} lines`);
+      const buffer = await tokenizeWithWorker(linesToRequest, cancelToken);
+      if (cancelToken?.isCancellationRequested) return new vscode.SemanticTokens(new Uint32Array());
 
-        // decode buffer
-        for (let i = 0; i < buffer.length; i += 5) {
-            const ln = buffer[i];
-            const data = buffer.slice(i + 1, i + 5);
-            if (!tokenMap.has(ln)) tokenMap.set(ln, []);
-            tokenMap.get(ln).push(data);
-        }
-        // Mark checked lines
-        for (const item of linesToRequest) {
-            if (!tokenMap.has(item.lineIndex)) tokenMap.set(item.lineIndex, []);
-        }
+      // decode buffer
+      for (let i = 0; i < buffer.length; i += 5) {
+        const ln = buffer[i];
+        const data = buffer.slice(i + 1, i + 5);
+        if (!tokenMap.has(ln)) tokenMap.set(ln, []);
+        tokenMap.get(ln).push(data);
+      }
+      // Mark checked lines
+      for (const item of linesToRequest) {
+        if (!tokenMap.has(item.lineIndex)) tokenMap.set(item.lineIndex, []);
+      }
     }
 
     // 4. Request Worker (Background) - Do NOT await. Fire and forget.
     if (bgLinesToRequest.length > 0) {
-         // If a BG scan is already running for this doc, cancel and start new one
-         if (this._bgScanCts.has(docKey)) {
-             this._bgScanCts.get(docKey).cancel();
-             this._bgScanCts.delete(docKey);
-         }
+      // If a BG scan is already running for this doc, cancel and start new one
+      if (this._bgScanCts.has(docKey)) {
+        this._bgScanCts.get(docKey).cancel();
+        this._bgScanCts.delete(docKey);
+      }
 
-         const bgCts = new vscode.CancellationTokenSource();
-         this._bgScanCts.set(docKey, bgCts);
+      const bgCts = new vscode.CancellationTokenSource();
+      this._bgScanCts.set(docKey, bgCts);
 
-         // console.log(`[Semantic] Requesting Background ${bgLinesToRequest.length} lines`);
+      // console.log(`[Semantic] Requesting Background ${bgLinesToRequest.length} lines`);
 
-         tokenizeWithWorker(bgLinesToRequest, bgCts.token).then(buffer => {
-             if (bgCts.token.isCancellationRequested) return;
+      tokenizeWithWorker(bgLinesToRequest, bgCts.token).then(buffer => {
+        if (bgCts.token.isCancellationRequested) return;
 
-             // Apply tokens
-             for (let i = 0; i < buffer.length; i += 5) {
-                 const ln = buffer[i];
-                 const data = buffer.slice(i + 1, i + 5);
-                 if (!tokenMap.has(ln)) tokenMap.set(ln, []);
+        // Apply tokens
+        for (let i = 0; i < buffer.length; i += 5) {
+          const ln = buffer[i];
+          const data = buffer.slice(i + 1, i + 5);
+          if (!tokenMap.has(ln)) tokenMap.set(ln, []);
 
-                 // Safety: Check if doc entry still exists (might be closed)
-                 if (!this._docCache.has(docKey)) return;
+          // Safety: Check if doc entry still exists (might be closed)
+          if (!this._docCache.has(docKey)) return;
 
-                 tokenMap.get(ln)?.push(data);
-             }
+          tokenMap.get(ln)?.push(data);
+        }
 
-             // Mark empty
-             for (const item of bgLinesToRequest) {
-                  if (this._docCache.has(docKey) && !tokenMap.has(item.lineIndex)) {
-                       tokenMap.set(item.lineIndex, []);
-                  }
-             }
+        // Mark empty
+        for (const item of bgLinesToRequest) {
+          if (this._docCache.has(docKey) && !tokenMap.has(item.lineIndex)) {
+              tokenMap.set(item.lineIndex, []);
+          }
+        }
 
-             // Cleanup CTS
-             if (this._bgScanCts.get(docKey) === bgCts) {
-                 this._bgScanCts.delete(docKey);
-             }
+        // Cleanup CTS
+        if (this._bgScanCts.get(docKey) === bgCts) {
+          this._bgScanCts.delete(docKey);
+        }
 
-             // Trigger refresh to render background tokens
-             this._onDidChangeSemanticTokens.fire();
-         });
+        // Trigger refresh to render background tokens
+        this._onDidChangeSemanticTokens.fire();
+      });
     }
 
     // Now build tokens from Cache + Main Logic (Fences/Dicts)
@@ -895,7 +895,7 @@ class JapaneseSemanticProvider {
     try {
       const foldedRanges = await _getCollapsedHeadingRanges(document);
       for (const r of foldedRanges) {
-         for (let ln = r.from; ln <= r.to; ln++) foldedLineFlags[ln] = 1;
+        for (let ln = r.from; ln <= r.to; ln++) foldedLineFlags[ln] = 1;
       }
     } catch {}
 
@@ -907,17 +907,17 @@ class JapaneseSemanticProvider {
     const { fenceRanges, bracketSegsByLine } = this._getOrComputeRanges(document);
     const fenceSegsByLine = new Map();
     for (const r of fenceRanges) {
-         for (let ln = r.start.line; ln <= r.end.line; ln++) {
-            if (ln < startLine || ln > endLine) continue;
-            const lineText = document.lineAt(ln).text;
-            const sCh = ln === r.start.line ? r.start.character : 0;
-            const eCh = ln === r.end.line ? r.end.character : lineText.length;
-            if (eCh > sCh) {
-                 const arr = fenceSegsByLine.get(ln) || [];
-                 arr.push([sCh, eCh]);
-                 fenceSegsByLine.set(ln, arr);
-            }
-         }
+        for (let ln = r.start.line; ln <= r.end.line; ln++) {
+        if (ln < startLine || ln > endLine) continue;
+        const lineText = document.lineAt(ln).text;
+        const sCh = ln === r.start.line ? r.start.character : 0;
+        const eCh = ln === r.end.line ? r.end.character : lineText.length;
+        if (eCh > sCh) {
+            const arr = fenceSegsByLine.get(ln) || [];
+            arr.push([sCh, eCh]);
+            fenceSegsByLine.set(ln, arr);
+        }
+        }
     }
 
     const spaceDecoRanges = [];
@@ -925,184 +925,184 @@ class JapaneseSemanticProvider {
     const bracketOverrideOn = !!c.bracketsOverrideEnabled;
 
     for (let line = startLine; line <= endLine; line++) {
-       if (cancelToken?.isCancellationRequested) break;
+      if (cancelToken?.isCancellationRequested) break;
 
-       // Check decoration cache first
-       let text, dictRanges, spaceRanges, brRanges, dashRanges;
-       const cached = decorationCache.get(line);
+      // Check decoration cache first
+      let text, dictRanges, spaceRanges, brRanges, dashRanges;
+      const cached = decorationCache.get(line);
 
-       if (cached) {
-           // Use cached decorations
-           text = cached.text;
-           dictRanges = cached.dictRanges || [];
-           spaceRanges = cached.spaceRanges || [];
-           brRanges = cached.brRanges || [];
-           dashRanges = cached.dashRanges || [];
-       } else {
-           // Compute decorations (cache miss or invalidated)
-           text = document.lineAt(line).text;
+      if (cached) {
+        // Use cached decorations
+        text = cached.text;
+        dictRanges = cached.dictRanges || [];
+        spaceRanges = cached.spaceRanges || [];
+        brRanges = cached.brRanges || [];
+        dashRanges = cached.dashRanges || [];
+      } else {
+        // Compute decorations (cache miss or invalidated)
+        text = document.lineAt(line).text;
 
-           // Dictionary matching
-           dictRanges = matchDictRanges(text, dictRegex, dictKindMap);
+        // Dictionary matching
+        dictRanges = matchDictRanges(text, dictRegex, dictKindMap);
 
-           // Space detection
-           spaceRanges = [];
-           const fenceSegs = fenceSegsByLine.get(line) || [];
-           const restForLine = (segments) => subtractMaskedIntervals([[0, text.length]], segments.map(([s, e]) => ({ start: s, end: e })));
-           const nonFenceSpans = restForLine(fenceSegs);
-           const dictRangesOutsideFence = subtractMaskedIntervals(
-               dictRanges.map((r) => [r.start, r.end]),
-               fenceSegs.map(([s, e]) => ({ start: s, end: e }))
-           ).map(([s, e]) => ({ start: s, end: e }));
-           const mask = dictRangesOutsideFence;
-           const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
+        // Space detection
+        spaceRanges = [];
+        const fenceSegs = fenceSegsByLine.get(line) || [];
+        const restForLine = (segments) => subtractMaskedIntervals([[0, text.length]], segments.map(([s, e]) => ({ start: s, end: e })));
+        const nonFenceSpans = restForLine(fenceSegs);
+        const dictRangesOutsideFence = subtractMaskedIntervals(
+          dictRanges.map((r) => [r.start, r.end]),
+          fenceSegs.map(([s, e]) => ({ start: s, end: e }))
+        ).map(([s, e]) => ({ start: s, end: e }));
+        const mask = dictRangesOutsideFence;
+        const spansAfterDict = subtractMaskedIntervals(nonFenceSpans, mask);
 
-           // Half-width spaces
-           const reHalf = / +/g;
-           let mHalf;
-           while ((mHalf = reHalf.exec(text)) !== null) {
-               if (mHalf[0].length % 2 === 1) {
-                   const s = mHalf.index + mHalf[0].length - 1;
-                   const e = s + 1;
-                   if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-                       spaceRanges.push([s, e]);
-                   }
-               }
-           }
-           // Full-width spaces
-           const reFull = /　/g;
-           let mFull;
-           while ((mFull = reFull.exec(text)) !== null) {
-               const s = mFull.index;
-               const e = s + 1;
-               if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-                   spaceRanges.push([s, e]);
-               }
-           }
-
-           // BR tags
-           brRanges = [];
-           if (this._brHighlightEnabled) {
-               const brRe = /<br>/gi;
-               let mBr;
-               while ((mBr = brRe.exec(text)) !== null) {
-                   brRanges.push([mBr.index, mBr.index + mBr[0].length]);
-               }
-           }
-
-           // Dash symbols
-           dashRanges = [];
-           const reDash = /[—―]/g;
-           let m;
-           while ((m = reDash.exec(text)) !== null) {
-               const s = m.index;
-               const e = s + m[0].length;
-               if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
-                   const segs = bracketSegsByLine.get(line) || [];
-                   if (!isInsideAnySegment(s, e, segs)) {
-                       dashRanges.push([s, e]);
-                   }
-               }
-           }
-
-           // Store in cache
-           decorationCache.set(line, {
-               text,
-               dictRanges,
-               spaceRanges,
-               brRanges,
-               dashRanges
-           });
-       }
-
-       // Apply decorations using cached or computed values
-       if (c.headingSemanticEnabled && (lang === "plaintext" || lang === "novel" || lang === "markdown")) {
-           const lvl = getHeadingLevel(text);
-           if (lvl > 0) {
-               builder.push(line, 0, text.length, tokenTypesArr.indexOf("heading"), 0);
-               continue;
-           }
-       }
-
-       // BR decorations
-       for (const [s, e] of brRanges) {
-           brDecoRanges.push(new vscode.Range(line, s, line, e));
-       }
-
-       const fenceSegs = fenceSegsByLine.get(line) || [];
-       const isMd = lang === "markdown";
-       for (const [sCh, eCh] of fenceSegs) {
-           const len = eCh - sCh;
-           if (len > 0 && !isMd) builder.push(line, sCh, len, idxFence, 0);
-       }
-
-       // Dictionary ranges
-       for (const r of dictRanges) {
-           if (isInsideAnySegment(r.start, r.end, fenceSegs)) continue;
-           const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
-           builder.push(line, r.start, r.end - r.start, typeIdx, 0);
-       }
-
-       // Space decorations
-       for (const [s, e] of spaceRanges) {
-           spaceDecoRanges.push(new vscode.Range(new vscode.Position(line, s), new vscode.Position(line, e)));
-       }
-
-       // Dash ranges
-       for (const [s, e] of dashRanges) {
-           const tIdx = bracketOverrideOn ? idxBracket : tokenTypesArr.indexOf("symbol");
-           builder.push(line, s, e - s, tIdx, 0);
-       }
-
-       if (bracketOverrideOn) {
-           const segs = bracketSegsByLine.get(line);
-           if (segs?.length) {
-                const segsOutsideFence = subtractMaskedIntervals(segs, fenceSegs.map(([s,e])=>({start:s,end:e})));
-                // Recompute dictRangesOutsideFence for bracket masking
-                const dictRangesOutsideFence = subtractMaskedIntervals(
-                    dictRanges.map((r) => [r.start, r.end]),
-                    fenceSegs.map(([s, e]) => ({ start: s, end: e }))
-                ).map(([s, e]) => ({ start: s, end: e }));
-                const maskForBracket = dictRangesOutsideFence.concat(spaceRanges.map(([s, e]) => ({ start: s, end: e })));
-                const rest = subtractMaskedIntervals(segsOutsideFence, maskForBracket);
-                for (const [sCh, eCh] of rest) {
-                    builder.push(line, sCh, eCh - sCh, idxBracket, 0);
-                }
-           }
-       }
-
-       // POS from Worker
-       const workerTokens = tokenMap.get(line);
-       if (workerTokens && text.trim()) {
-          // Flattened tokens: [Uint32Array(4), ...]
-          for (const tData of workerTokens) {
-             const start = tData[0];
-             const length = tData[1];
-             const typeIdx = tData[2];
-             const mods = tData[3];
-             const end = start + length;
-
-             // Fence Check
-             if (fenceSegs && fenceSegs.length > 0) {
-                 let inFence = false;
-                 for (const [fs, fe] of fenceSegs) {
-                     if (start >= fs && end <= fe) { inFence = true; break; }
-                 }
-                 if (inFence) continue;
-             }
-
-             // Dict Mask Check
-             if (dictRanges.some(R => !(end <= R.start || R.end <= start))) continue;
-
-             // Bracket Override Check
-             if (bracketOverrideOn) {
-                 const segs = bracketSegsByLine.get(line);
-                 if (isInsideAnySegment(start, end, segs)) continue;
-             }
-
-             builder.push(line, start, length, typeIdx, mods);
+        // Half-width spaces
+        const reHalf = / +/g;
+        let mHalf;
+        while ((mHalf = reHalf.exec(text)) !== null) {
+          if (mHalf[0].length % 2 === 1) {
+            const s = mHalf.index + mHalf[0].length - 1;
+            const e = s + 1;
+            if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+              spaceRanges.push([s, e]);
+            }
           }
-       }
+        }
+        // Full-width spaces
+        const reFull = /　/g;
+        let mFull;
+        while ((mFull = reFull.exec(text)) !== null) {
+          const s = mFull.index;
+          const e = s + 1;
+          if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+            spaceRanges.push([s, e]);
+          }
+        }
+
+        // BR tags
+        brRanges = [];
+        if (this._brHighlightEnabled) {
+          const brRe = /<br>/gi;
+          let mBr;
+          while ((mBr = brRe.exec(text)) !== null) {
+            brRanges.push([mBr.index, mBr.index + mBr[0].length]);
+          }
+        }
+
+        // Dash symbols
+        dashRanges = [];
+        const reDash = /[—―]/g;
+        let m;
+        while ((m = reDash.exec(text)) !== null) {
+          const s = m.index;
+          const e = s + m[0].length;
+          if (spansAfterDict.some(([S, E]) => s >= S && e <= E)) {
+            const segs = bracketSegsByLine.get(line) || [];
+            if (!isInsideAnySegment(s, e, segs)) {
+              dashRanges.push([s, e]);
+            }
+          }
+        }
+
+        // Store in cache
+        decorationCache.set(line, {
+          text,
+          dictRanges,
+          spaceRanges,
+          brRanges,
+          dashRanges
+        });
+      }
+
+      // Apply decorations using cached or computed values
+      if (c.headingSemanticEnabled && (lang === "plaintext" || lang === "novel" || lang === "markdown")) {
+        const lvl = getHeadingLevel(text);
+        if (lvl > 0) {
+          builder.push(line, 0, text.length, tokenTypesArr.indexOf("heading"), 0);
+          continue;
+        }
+      }
+
+      // BR decorations
+      for (const [s, e] of brRanges) {
+        brDecoRanges.push(new vscode.Range(line, s, line, e));
+      }
+
+      const fenceSegs = fenceSegsByLine.get(line) || [];
+      const isMd = lang === "markdown";
+      for (const [sCh, eCh] of fenceSegs) {
+        const len = eCh - sCh;
+        if (len > 0 && !isMd) builder.push(line, sCh, len, idxFence, 0);
+      }
+
+      // Dictionary ranges
+      for (const r of dictRanges) {
+        if (isInsideAnySegment(r.start, r.end, fenceSegs)) continue;
+        const typeIdx = r.kind === "character" ? idxChar : idxGlossary;
+        builder.push(line, r.start, r.end - r.start, typeIdx, 0);
+      }
+
+      // Space decorations
+      for (const [s, e] of spaceRanges) {
+        spaceDecoRanges.push(new vscode.Range(new vscode.Position(line, s), new vscode.Position(line, e)));
+      }
+
+      // Dash ranges
+      for (const [s, e] of dashRanges) {
+        const tIdx = bracketOverrideOn ? idxBracket : tokenTypesArr.indexOf("symbol");
+        builder.push(line, s, e - s, tIdx, 0);
+      }
+
+      if (bracketOverrideOn) {
+        const segs = bracketSegsByLine.get(line);
+        if (segs?.length) {
+            const segsOutsideFence = subtractMaskedIntervals(segs, fenceSegs.map(([s,e])=>({start:s,end:e})));
+            // Recompute dictRangesOutsideFence for bracket masking
+            const dictRangesOutsideFence = subtractMaskedIntervals(
+              dictRanges.map((r) => [r.start, r.end]),
+              fenceSegs.map(([s, e]) => ({ start: s, end: e }))
+            ).map(([s, e]) => ({ start: s, end: e }));
+            const maskForBracket = dictRangesOutsideFence.concat(spaceRanges.map(([s, e]) => ({ start: s, end: e })));
+            const rest = subtractMaskedIntervals(segsOutsideFence, maskForBracket);
+            for (const [sCh, eCh] of rest) {
+              builder.push(line, sCh, eCh - sCh, idxBracket, 0);
+            }
+        }
+      }
+
+      // POS from Worker
+      const workerTokens = tokenMap.get(line);
+      if (workerTokens && text.trim()) {
+        // Flattened tokens: [Uint32Array(4), ...]
+        for (const tData of workerTokens) {
+          const start = tData[0];
+          const length = tData[1];
+          const typeIdx = tData[2];
+          const mods = tData[3];
+          const end = start + length;
+
+          // Fence Check
+          if (fenceSegs && fenceSegs.length > 0) {
+              let inFence = false;
+              for (const [fs, fe] of fenceSegs) {
+                  if (start >= fs && end <= fe) { inFence = true; break; }
+              }
+              if (inFence) continue;
+          }
+
+          // Dict Mask Check
+          if (dictRanges.some(R => !(end <= R.start || R.end <= start))) continue;
+
+          // Bracket Override Check
+          if (bracketOverrideOn) {
+              const segs = bracketSegsByLine.get(line);
+              if (isInsideAnySegment(start, end, segs)) continue;
+          }
+
+          builder.push(line, start, length, typeIdx, mods);
+        }
+      }
     }
 
     this._applySpaceDecorations(document, startLine, endLine, spaceDecoRanges);
@@ -1112,47 +1112,15 @@ class JapaneseSemanticProvider {
   }
 
   async provideDocumentSemanticTokens(document, token) {
-     return this._buildTokens(document, new vscode.Range(0, 0, document.lineCount, 0), token);
+    return this._buildTokens(document, new vscode.Range(0, 0, document.lineCount, 0), token);
   }
 
   async provideDocumentRangeSemanticTokens(document, range, token) {
-      // Context Expansion (+/- 5 lines) logic can be applied here,
-      // but _buildTokens does the heavy lifting of cache checking.
-      // If we ask for range + context, _buildTokens will fetch missing context lines.
-      // So checking context is just widening the range passed to _buildTokens?
-      // No, `provideDocumentRangeSemanticTokens` expects result for `range` ONLY.
-      // But we can trigger fetching for context in background?
-      // Or just ensuring context is loaded in cache?
-      // Since `_buildTokens` logic already checks all lines in range against cache,
-      // we can simply pre-fetch context lines if we wanted.
-      // But the User wants "Edit -> Re-scan surrounding +/- 5 lines".
-      // When edit happens, VSCode invalidates tokens and asks again.
-      // It might ask for the whole doc or range.
-      // If it asks for range, we should make sure we re-tokenize the context.
+    // Context Expansion (+/- 5 lines) logic can be applied here,
+    const start = Math.max(0, range.start.line - 5);
+    const end = Math.min(document.lineCount - 1, range.end.line + 5);
 
-      // WAIT: `onDidChangeSemanticTokens` fires -> VSCode asks for tokens.
-      // If we want to FORCE update of neighbors, we should have invalidated them in cache or fired event.
-      // Since we clear cache on version change, we naturally re-scan everything requested.
-      // The issue is: Does VS Code request *only* the edited line?
-      // Usually yes.
-      // If we want to guarantee neighbors are re-scanned (for Context-aware POS),
-      // we need to make sure `semanticWorker` gets the neighbor lines text to enable "Context" logic (later).
-      // BUT current `semanticWorker` treats line-by-line independently (tokenize(text)).
-      // So expanding range doesn't help POS accuracy *unless* `semanticWorker` joins lines.
-      // User said: "変更時周辺再スキャン" (Re-scan surroundings on change).
-      // If `semanticWorker` is line-independent, this is just for making sure neighbors are valid?
-      // Ah, User might assume future context-aware logic or just wants to be safe from broken tokens at boundary.
-      // Let's expand the range passed to _buildTokens to include context,
-      // BUT we must filter the builder output to only return what VS Code asked?
-      // Actually VS Code accepts tokens outside range usually, or we can clamp.
-
-      const start = Math.max(0, range.start.line - 5);
-      const end = Math.min(document.lineCount - 1, range.end.line + 5);
-      // We process the expanded range to ensure cache is hot for neighbors.
-      // But we strictly return builder for the requested range?
-      // Let's just return the expanded range. VS Code usually handles it fine.
-
-      return this._buildTokens(document, new vscode.Range(start, 0, end, 0), token);
+    return this._buildTokens(document, new vscode.Range(start, 0, end, 0), token);
   }
 }
 

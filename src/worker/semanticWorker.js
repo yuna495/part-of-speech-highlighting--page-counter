@@ -43,9 +43,8 @@ function mapKuromojiToSemantic(tk) {
 }
 
 function getDicPath() {
-    // In bundled environment, this worker is in dist/worker/semanticWorker.js
-    // Dictionary is in dist/dict (shared)
-    return path.join(__dirname, "..", "dict");
+  // Dictionary is in dist/dict (shared)
+  return path.join(__dirname, "..", "dict");
 }
 
 function initTokenizer(dicPath) {
@@ -80,9 +79,7 @@ parentPort.on("message", async (msg) => {
     else if (msg.command === "abort") {
         const reqId = msg.reqId;
         if (activeJobs.has(reqId)) {
-            // We can't synchronously stop the loop, but we can set a flag tracked globally?
-            // Actually, we need to track job abort status.
-            activeJobs.delete(reqId); // Removing it signals abort
+          activeJobs.delete(reqId);
         }
     }
     else if (msg.command === "tokenize") {
@@ -99,8 +96,8 @@ parentPort.on("message", async (msg) => {
 
       for (const item of lines) {
         if (!activeJobs.has(reqId)) {
-             // Aborted
-             return;
+          // Aborted
+          return;
         }
 
         const lineIdx = item.lineIndex;
@@ -108,25 +105,25 @@ parentPort.on("message", async (msg) => {
         if (text) {
             const tokens = tokenizer.tokenize(text);
             for (const tk of tokens) {
-                if (!tk.word_position) continue;
-                const start = tk.word_position - 1;
-                const length = tk.surface_form.length;
-                const { typeIdx, mods } = mapKuromojiToSemantic(tk); // Ensure mapKuromojiToSemantic is accessible
-                flatData.push(lineIdx, start, length, typeIdx, mods);
+              if (!tk.word_position) continue;
+              const start = tk.word_position - 1;
+              const length = tk.surface_form.length;
+              const { typeIdx, mods } = mapKuromojiToSemantic(tk); // Ensure mapKuromojiToSemantic is accessible
+              flatData.push(lineIdx, start, length, typeIdx, mods);
             }
         }
 
         processedCount++;
         // Yield to event loop occasionally to process 'abort' messages
         if (processedCount % ABORT_CHECK_INTERVAL === 0) {
-            await new Promise(r => setTimeout(r, 0));
+          await new Promise(r => setTimeout(r, 0));
         }
       }
 
       if (activeJobs.has(reqId)) {
-          const buffer = new Uint32Array(flatData);
-          parentPort.postMessage({ command: "tokenize_result", reqId: msg.reqId, data: buffer }, [buffer.buffer]);
-          activeJobs.delete(reqId);
+        const buffer = new Uint32Array(flatData);
+        parentPort.postMessage({ command: "tokenize_result", reqId: msg.reqId, data: buffer }, [buffer.buffer]);
+        activeJobs.delete(reqId);
       }
     }
   } catch (err) {

@@ -776,11 +776,7 @@ function onActiveEditorChanged(ed) {
  */
 function onSelectionChanged(editor) {
   // 選択だけでは合算を再計算しない（重いI/Oを避ける）
-  // 以前はここで recomputeAndCacheMetrics(editor) を即時呼んでいたが、
-  // 文字入力やカーソル移動のたびに走るのは重いので scheduleUpdate に任せる。
-  // ただし、ページ番号即時更新のためには metrics 更新が必要。
-  // 分割キャッシュ化により recomputeAndCacheMetrics は軽量化したので
-  // ここは呼んでも良いが、連続移動を考慮して scheduleUpdate する。
+  // 連続移動を考慮して scheduleUpdate する。
   scheduleUpdate(editor);
 }
 /**

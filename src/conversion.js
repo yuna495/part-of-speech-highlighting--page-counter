@@ -350,7 +350,7 @@ function registerConversionCommands(context, { isTargetDoc }) {
 async function formatSpaceLines(editor) {
   // バックドア機能のガード
   if (!checkDevPasscode()) {
-      return;
+    return;
   }
 
   const doc = editor.document;
@@ -362,10 +362,10 @@ async function formatSpaceLines(editor) {
     // 選択なし -> 見出しセクション本文を取得
     const section = findHeadingSection(editor);
     if (section && section.bodyRange) {
-        targetRange = section.bodyRange;
+      targetRange = section.bodyRange;
     } else {
-        // vscode.window.showInformationMessage("整形対象のセクション本文が見つかりません。");
-        return;
+      // vscode.window.showInformationMessage("整形対象のセクション本文が見つかりません。");
+      return;
     }
   }
 
@@ -424,11 +424,6 @@ function formatText(text) {
     if (firstChar === "　") return line;
 
     // Is Heading? (Markdown Heading #) -> Skip indentation logic?
-    // Wait, requirement says "見出しの次のから行でない行頭について"
-    // Usually headings themselves shouldn't be indented, but let's stick to the prompt's negative logic:
-    // "括弧開きで無ければ" -> Insert space.
-    // Does this apply to Headings? Usually headings are top-level.
-    // Assuming we shouldn't indent headings starting with #.
     if (firstChar === "#") return line;
 
     // Opening Brackets check

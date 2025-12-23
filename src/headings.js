@@ -755,17 +755,17 @@ function initHeadings(context, helpers) {
 
       // 1. Editor Decoration (Priority High: User focus)
       if (c.headingsShowBodyCounts) {
-         updateHeadingCountDecorations(ed, helpers.cfg);
+        updateHeadingCountDecorations(ed, helpers.cfg);
       }
 
       // 2. Defer others to next tick to prioritize Editor rendering
       setTimeout(() => {
-          // Minimap
-          if (helpers.isTargetDoc(ed.document, c)) {
-              applyMinimapDecorations(ed, decoTypes, forceMinimap);
-          }
-           // Sidebar update
-          provider.refresh();
+        // Minimap
+        if (helpers.isTargetDoc(ed.document, c)) {
+          applyMinimapDecorations(ed, decoTypes, forceMinimap);
+        }
+          // Sidebar update
+        provider.refresh();
       }, 0);
   }
 
@@ -778,12 +778,12 @@ function initHeadings(context, helpers) {
     if (debounceUpdate) clearTimeout(debounceUpdate);
 
     if (immediate) {
-        doUpdate(ed, forceMinimap);
-        return;
+      doUpdate(ed, forceMinimap);
+      return;
     }
 
     debounceUpdate = setTimeout(() => {
-        doUpdate(ed, forceMinimap);
+      doUpdate(ed, forceMinimap);
     }, 200);
   }
 
@@ -845,8 +845,8 @@ function initHeadings(context, helpers) {
       }
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
-        _minimapCache.delete(doc.uri.toString());
-        invalidateHeadingCache(doc);
+      _minimapCache.delete(doc.uri.toString());
+      invalidateHeadingCache(doc);
     }),
   );
 
