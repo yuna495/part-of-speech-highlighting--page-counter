@@ -404,11 +404,15 @@ function formatText(text) {
   const regex1 = / 　/g; // Plain Space + Full Space -> Newline + Full Space
   const regex2 = /([^#\-\.\* ]) (?=[「『（［｛〈《【〔“‘—―])/g; // Plain Space before brackets/dashes -> Newline
   const regex3 = /（.*?）/g; // Remove Fullwidth Parentheses content
+  const regex4 = / 。/g; // Plain Space + Ideographic Full Stop -> Ideographic Full Stop + Newline
+  const regex5 = /　\+\d/g; // Remove Full-width space + Plus sign + One digit (3 chars)
 
   // Step 1-3: Existing Replacements
   let newText = text.replace(regex1, "\n　");
   newText = newText.replace(regex2, "$1\n");
   newText = newText.replace(regex3, "");
+  newText = newText.replace(regex4, "。\n");
+  newText = newText.replace(regex5, "");
 
   // Step 4: Add Indentation (Full-width space) to lines not starting with brackets/spaces
   // Split into lines to handle line-by-line logic
