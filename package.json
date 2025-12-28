@@ -644,7 +644,7 @@
           "posNote.workload.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "ステータスバーに『純作業量（入力/貼り付け/削除の合計・改行）』を表示し、ホバーで過去7日合計を表示する。"
+            "description": "ステータスバーに『純作業量』を表示します。falseにすると計算処理そのものを停止（履歴は維持されます）。"
           },
           "posNote.workload.timeZone": {
             "type": "string",

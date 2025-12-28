@@ -1112,6 +1112,9 @@ function commitImeGuard(docUri) {
 function applyExternalLen(docUri, curLen, opts = {}) {
   const c = cfg();
 
+  // If disabled, stop everything here and do nothing.
+  if (!c.workloadEnabled) return;
+
   // 使う待機時間
   const isImeLike = !!opts.imeLike;
   const guardMs = isImeLike ? c.imeGuardMsCandidate : c.imeGuardMsNormal;
@@ -1189,6 +1192,12 @@ function initWorkload(context) {
   _midnightTimer = setInterval(() => {
     checkDateRollover();
   }, 60 * 1000);
+
+  // 起動時に一度だけ履歴の掃除（30日超の削除）を実行する
+  // 設定で無効化されていても、古いログが溜まり続けるのを防ぐため
+  setTimeout(() => {
+    saveHistory(context, getHistory(context)).catch(() => {});
+  }, 5000);
 
   // dispose 時に監視停止
   context.subscriptions.push({

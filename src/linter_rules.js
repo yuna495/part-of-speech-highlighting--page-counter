@@ -59,7 +59,7 @@ const DEFAULT_RULES = {
   "ja-unnatural-alphabet": { allow: ["/[Ａ-Ｚ]/", "/[A-Z]/", "/[a-z]/"] },
   "max-ten": {
     max: 4,
-    kuten: ["。", "「", "」", "『", "』", "—", "―", "…", "！", "？"],
+    kuten: ["。", "「", "」", "『", "』", "（", "）", "—", "―", "…", "！", "？", "：", ":", "*"],
   },
   "no-mixed-zenkaku-and-hankaku-alphabet": true,
   "no-doubled-joshi": {
