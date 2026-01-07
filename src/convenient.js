@@ -1,5 +1,6 @@
 // 便利系: 保存時の行末スペース削除と選択文字列の出現回数カウント。
 const vscode = require("vscode");
+const { checkDevPasscode } = require("./utils");
 
 /**
  * 行末の全角・半角スペースを削除する。
@@ -49,6 +50,51 @@ function trimTrailingSpaces(e) {
   if (edits.length > 0) {
     e.waitUntil(Promise.resolve(edits));
   }
+}
+
+/**
+ * .txt 保存時に1行目のタイムスタンプを更新する（開発者モードのみ）。
+ * `# updated: YYYY-MM-DDTHH:mm+09:00` 形式
+ * @param {vscode.TextDocumentWillSaveEvent} e
+ */
+function updateTimestampOnSave(e) {
+  const doc = e.document;
+  if (!doc || doc.isUntitled) return;
+
+  // 1. 開発者パスコードチェック
+  if (!checkDevPasscode()) return;
+
+  // 2. .txt ファイルのみ対象
+  if (!doc.fileName.toLowerCase().endsWith(".txt")) return;
+
+  // 3. タイムスタンプ生成 (日本時間固定)
+  const now = new Date();
+  // JST offset is -540 minutes (UTC+9)
+  // To get ISO string in JST, we can shift the time
+  const jstOffset = 9 * 60;
+  const localDate = new Date(now.getTime() + jstOffset * 60 * 1000);
+  const iso = localDate.toISOString().replace("Z", "+09:00");
+  // 秒以下を削る: 2026-01-07T06:53:12.345+09:00 -> 2026-01-07T06:53+09:00
+  // T以降の :ss.ms 部分を除去
+  // YYYY-MM-DDTHH:mm:ss.sss+09:00
+  // 0123456789012345
+  const formatted = iso.substring(0, 16) + "+09:00";
+  const newLineText = `# updated: ${formatted}\n`;
+
+  const firstLine = doc.lineAt(0);
+  const text = firstLine.text;
+
+  // 4. 1行目更新 or 挿入
+  const edits = [];
+  if (text.startsWith("# updated:")) {
+    // 既存更新: 1行目を置換
+    edits.push(vscode.TextEdit.replace(firstLine.range, `# updated: ${formatted}`));
+  } else {
+    // 新規挿入: 0行目の先頭に挿入
+    edits.push(vscode.TextEdit.insert(new vscode.Position(0, 0), newLineText));
+  }
+
+  e.waitUntil(Promise.resolve(edits));
 }
 
 /**
@@ -170,6 +216,13 @@ function registerConvenientFeatures(context) {
   context.subscriptions.push(
     vscode.workspace.onWillSaveTextDocument((e) => {
       trimTrailingSpaces(e);
+    })
+  );
+
+  // 保存時にタイムスタンプ更新（開発者限定）
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      updateTimestampOnSave(e);
     })
   );
 

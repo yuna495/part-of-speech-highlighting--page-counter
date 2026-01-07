@@ -436,6 +436,48 @@ function findHeadingSection(editor) {
   return { fullRange, bodyRange };
 }
 
+// Helper to get ranges excluding code blocks
+function getRangesExcludingCodeBlocks(document, startPos, endPos) {
+  const fullRange = new vscode.Range(startPos, endPos);
+  const text = document.getText(fullRange);
+
+  // Count effective code block markers (```)
+  const matches = [...text.matchAll(/```/g)];
+  // If odd number of markers, block structure is broken/unclosed -> fallback to full selection
+  if (matches.length % 2 !== 0) {
+    return [new vscode.Selection(startPos, endPos)];
+  }
+
+  // If no code blocks or even number (closed), exclude them
+  const ranges = [];
+  let currentIndex = 0;
+
+  // Regex to find code blocks: ```...``` (lazy match)
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let match;
+
+  const startOffset = document.offsetAt(startPos);
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    // Add text before the code block
+    if (match.index > currentIndex) {
+      const segStart = document.positionAt(startOffset + currentIndex);
+      const segEnd = document.positionAt(startOffset + match.index);
+      ranges.push(new vscode.Selection(segStart, segEnd));
+    }
+    currentIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last code block
+  if (currentIndex < text.length) {
+    const segStart = document.positionAt(startOffset + currentIndex);
+    const segEnd = document.positionAt(startOffset + text.length);
+    ranges.push(new vscode.Selection(segStart, segEnd));
+  }
+
+  return ranges.length > 0 ? ranges : [new vscode.Selection(startPos, endPos)];
+}
+
 function cmdSelectHeadingSection() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
@@ -446,11 +488,14 @@ function cmdSelectHeadingSection() {
     );
     return;
   }
-  editor.selection = new vscode.Selection(
+
+  editor.selections = getRangesExcludingCodeBlocks(
+    editor.document,
     section.fullRange.start,
     section.fullRange.end
   );
-  vscode.window.setStatusBarMessage("見出しセクションを選択。", 2000);
+
+  vscode.window.setStatusBarMessage("見出しセクションを選択（コードブロック除外）。", 2000);
 }
 
 function cmdSelectHeadingSectionBody() {
@@ -469,12 +514,15 @@ function cmdSelectHeadingSectionBody() {
     );
     return;
   }
-  editor.selection = new vscode.Selection(
+
+  editor.selections = getRangesExcludingCodeBlocks(
+    editor.document,
     section.bodyRange.start,
     section.bodyRange.end
   );
+
   vscode.window.setStatusBarMessage(
-    "見出し行と直後の行を除いてセクションを選択。",
+    "見出し行と直後の行を除いてセクションを選択（コードブロック除外）。",
     2000
   );
 }
