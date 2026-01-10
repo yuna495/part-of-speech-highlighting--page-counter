@@ -19,42 +19,7 @@ function stripHeadingMarkup(lineText) {
   return lineText.replace(/^ {0,3}#{1,6}\s+/, "").trim();
 }
 
-/** 見出しアイコン（レベル別）。media/ 以下の画像を使い分ける例。 */
-function iconForLevel(level) {
-  const mediaPath = path.join(__dirname, "image");
-  switch (level) {
-    case 1:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading1L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading1D.png")),
-      }; // H1
-    case 2:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading2L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading2D.png")),
-      }; // H2
-    case 3:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading3L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading3D.png")),
-      }; // H3
-    case 4:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading4L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading4D.png")),
-      }; // H4
-    case 5:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading5L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading5D.png")),
-      }; // H5
-    default:
-      return {
-        light: vscode.Uri.file(path.join(mediaPath, "heading6L.png")),
-        dark: vscode.Uri.file(path.join(mediaPath, "heading6D.png")),
-      }; // H6
-  }
-}
+
 
 /** ツリーノード */
 class HeadingNode extends vscode.TreeItem {
@@ -63,19 +28,27 @@ class HeadingNode extends vscode.TreeItem {
     // this.resourceUri = uri; // Git差分装飾を避けるため設定しない
     this.line = line;
     this.level = level;
-    this.iconPath = iconForLevel(level);
-    this.collapsibleState = vscode.TreeItemCollapsibleState.None;
+    // this.iconPath = iconForLevel(level); // Removed as per request
+
+    // Default indentation is handled by TreeView nesting
+    // this.label = `${" ".repeat(Math.max(0, level - 1))}${label}`;
+
     this.description = countText || "";
     this.command = {
       command: "posNote.headings.reveal",
       title: "Reveal Heading",
       arguments: [uri, line],
     };
-    // レベルに応じてインデント風にパディング（任意）
-    this.label = `${" ".repeat(Math.max(0, level - 1))}${label}`;
     this.contextValue = "headingNode";
+
+    /** @type {HeadingNode[]} */
+    this.children = [];
+
+    // CollapsibleState will be set later (based on children presence)
+    this.collapsibleState = vscode.TreeItemCollapsibleState.None;
   }
 }
+
 
 /** 見出しツリーのデータ提供（TreeDataProvider）。 */
 class HeadingsProvider {
@@ -96,9 +69,13 @@ class HeadingsProvider {
   }
 
   getChildren(element) {
-    if (element) return []; // フラット表示
+    if (element) {
+      return element.children;
+    }
+    // Root: return top-level nodes
     return this._collectHeadingsOfActiveEditor();
   }
+
 
   /** アクティブエディタから見出しを抽出してノード配列にする。 */
   _collectHeadingsOfActiveEditor() {
@@ -130,9 +107,37 @@ class HeadingsProvider {
       const countText = countByLine.get(m.line) || "";
       items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
     }
-    this._items = items;
-    return items;
+
+    // Build Tree Structure (Stack-based)
+    // 1. Root nodes (no parent) go to `roots`
+    // 2. Nodes with level N go under the last node with level < N
+    const roots = [];
+    const stack = []; // Array of HeadingNode
+
+    for (const item of items) {
+       // Pop stack until we find a parent with level < item.level
+       while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
+         stack.pop();
+       }
+
+       if (stack.length === 0) {
+         // No parent found -> Root
+         roots.push(item);
+       } else {
+         // Parent found -> Add as child
+         const parent = stack[stack.length - 1];
+         parent.children.push(item);
+         // Ensure parent is collapsible
+         parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+       }
+       // Push current item to stack (it might be a parent for next items)
+       stack.push(item);
+    }
+
+    this._items = roots;
+    return roots;
   }
+
 }
 
 /** コマンド：見出し位置へ移動し、行を表示 */
@@ -785,8 +790,9 @@ function initHeadings(context, helpers) {
   const provider = new HeadingsProvider(helpers);
   const tree = vscode.window.createTreeView("posNoteHeadings", {
     treeDataProvider: provider,
-    showCollapseAll: false,
+    showCollapseAll: true,
   });
+
   context.subscriptions.push(tree);
 
   // 2. Minimap Decorations

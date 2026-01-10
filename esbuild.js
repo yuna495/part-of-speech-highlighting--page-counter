@@ -57,25 +57,7 @@ const aliasPlugin = {
   },
 };
 
-const copyImagePlugin = {
-  name: "copy-image-plugin",
-  setup(build) {
-    build.onEnd(() => {
-      const srcDir = path.join(__dirname, "src", "image");
-      const destDir = path.join(__dirname, "dist", "image");
-      if (!fs.existsSync(srcDir)) return;
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
-      }
-      fs.readdirSync(srcDir).forEach((file) => {
-        if (file.endsWith(".png")) {
-          fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
-        }
-      });
-      console.log("[build] copied images to dist/image");
-    });
-  },
-};
+
 
 async function main() {
   const ctx = await esbuild.context({
@@ -93,7 +75,7 @@ async function main() {
     outdir: "dist",
     external: ["vscode", "puppeteer-core"], // exclude vscode api and puppeteer
     logLevel: "silent",
-    plugins: [esbuildProblemMatcherPlugin, copyDictPlugin, aliasPlugin, copyImagePlugin],
+    plugins: [esbuildProblemMatcherPlugin, copyDictPlugin, aliasPlugin],
   });
 
   if (watch) {

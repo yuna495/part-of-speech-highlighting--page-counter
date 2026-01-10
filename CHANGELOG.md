@@ -8,6 +8,7 @@ All notable changes to this extension are documented here.
 
 - 文字の着色、リント機能をworker化。
 - 文字数関連の動作の軽量化。
+- サイドビューでの見出しの表示に折り畳み機能を実装。それに伴い、見出しレベルアイコンの表示を削除。
 
 ### 修正
 
