@@ -23,8 +23,21 @@ function stripHeadingMarkup(lineText) {
 
 /** ツリーノード */
 class HeadingNode extends vscode.TreeItem {
-  constructor(label, uri, line, level, countText) {
-    super(label);
+  constructor(label, uri, line, level, countText, baseLimit = 16) {
+    // 動的切り詰め (Dynamic Truncation)
+    // 計算式: baseLimit - (階層レベル) - 文字数バッジの長さ
+    // 最低でも5文字は確保する
+    const suffixLen = (countText || "").length;
+    // const baseLimit = 20; // Passed as argument
+    const indentCost = level;
+    let limit = baseLimit - indentCost - suffixLen;
+    if (limit < 5) limit = 5;
+
+    const truncatedLabel = label.length > limit ? label.substring(0, limit) + "..." : label;
+    super(truncatedLabel);
+
+    this.tooltip = label; // マウスホバーで全文表示
+
     // this.resourceUri = uri; // Git差分装飾を避けるため設定しない
     this.line = line;
     this.level = level;
@@ -101,11 +114,14 @@ class HeadingsProvider {
       countByLine.set(line, text);
     }
 
+    // Config: Base Truncation Limit
+    const baseTruncationLimit = c.headingsBaseTruncationLimit || 20;
+
     const items = [];
     for (const m of metrics) {
       const label = stripHeadingMarkup(m.text);
       const countText = countByLine.get(m.line) || "";
-      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
+      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText, baseTruncationLimit));
     }
 
     // Build Tree Structure (Stack-based)

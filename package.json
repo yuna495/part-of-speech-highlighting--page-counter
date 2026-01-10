@@ -218,7 +218,6 @@
         "command": "posNote.convenient.countSelectedString",
         "title": "POS/Note: 選択文字列の出現数をカウント"
       },
-
       {
         "command": "posNote.headings.refresh",
         "title": "POS/Note: 見出しを更新"
@@ -632,6 +631,11 @@
             "minimum": 2,
             "maximum": 6,
             "description": "ショートカットによる『全見出し折りたたみ』で対象とする最小見出しレベル。2なら##以上、3なら###以上を折りたたむ。"
+          },
+          "posNote.headings.baseTruncationLimit": {
+            "type": "number",
+            "default": 16,
+            "description": "サイドバーの見出し文字数省略の基準値。大きいほど長く表示されます。（計算式: baseLimit - (階層レベル) - 文字数バッジの長さ）"
           }
         }
       },

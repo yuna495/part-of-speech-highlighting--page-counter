@@ -60,6 +60,7 @@ function cfg() {
     headingSemanticEnabled: c.get("headings.semantic.enabled", true),
     headingFoldMinLevel: c.get("headings.foldMinLevel", 2),
     headingsShowBodyCounts: c.get("headings.showBodyCounts", true),
+    headingsBaseTruncationLimit: c.get("headings.baseTruncationLimit", 20),
 
     // 括弧内ハイライトのトグル
     bracketsOverrideEnabled: c.get("semantic.bracketsOverride.enabled", true),
