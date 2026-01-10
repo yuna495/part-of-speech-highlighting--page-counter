@@ -12,6 +12,8 @@ class PageViewPanel {
     this._context = context;
     this._panel = undefined;
     this._disposables = [];
+    // デフォルト表示モード (true: Page (Default)設定, false: Note設定)
+    this._usePageSettings = true;
   }
 
   static createOrShow(context) {
@@ -90,8 +92,7 @@ class PageViewPanel {
       }
     }, null, this._disposables);
 
-    // デフォルト表示モード (true: Page (Default)設定, false: Note設定)
-    this._usePageSettings = false;
+
 
     // メッセージ受信
     panel.webview.onDidReceiveMessage((msg) => {
@@ -137,6 +138,9 @@ class PageViewPanel {
         }
       } else if (msg.type === "exportPdf") {
         this._exportToPdf();
+      } else if (msg.type === "ready") {
+        // Webview側が準備完了したら初回の更新を送る (競合回避)
+        this._update();
       }
     }, null, this._disposables);
   }
@@ -736,8 +740,9 @@ class PageViewPanel {
         :root {
           --font-size: 20px;
           --line-height-ratio: 1.7;
-          --rows: 20;
-          --cols: 20;
+          /* Default to Page/Bunko size (18x40) to avoid flicker */
+          --rows: 18;
+          --cols: 40;
         }
         html, body {
           margin: 0; padding: 0;
@@ -1027,7 +1032,8 @@ class PageViewPanel {
         const btnNext = document.getElementById('btn-next');
         const btnPrev = document.getElementById('btn-prev');
 
-        let state = { pages: [], rows: 20, cols: 20 };
+        // Initial state matches Bunko/Page defaults to prevent jump
+        let state = { pages: [], rows: 18, cols: 40 };
 
         window.addEventListener('message', event => {
           const msg = event.data;
@@ -1174,11 +1180,11 @@ class PageViewPanel {
           container.innerHTML = '';
           refreshBtn.classList.remove('spinning');
 
-          // アイコン色更新
+          // アイコン色更新 (Page(Default)=White, Note=Green/Active)
           if (payload.isPageMode) {
-            toggleBtn.classList.add('active');
+             toggleBtn.classList.remove('active');
           } else {
-            toggleBtn.classList.remove('active');
+             toggleBtn.classList.add('active');
           }
 
           state.pages.forEach((lines, idx) => {
@@ -1266,6 +1272,9 @@ class PageViewPanel {
             pageInfo.textContent = \`\${idx + 1} / \${total}\`;
           }
         }
+
+        // 準備完了通知
+        vscode.postMessage({ type: 'ready' });
       </script>
     </body>
     </html>`;
