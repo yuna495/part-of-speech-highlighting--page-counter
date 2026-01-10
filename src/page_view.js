@@ -225,7 +225,12 @@ class PageViewPanel {
 
     // コードフェンス除去
     // 元の行番号を維持するために、オブジェクトの配列として処理する
-    const rawLines = safeText.split("\n").map((text, index) => ({ text, lineNo: index }));
+    let rawLines = safeText.split("\n").map((text, index) => ({ text, lineNo: index }));
+
+    // 先頭行がタイムスタンプなら除外（行番号はずれないように、要素そのものを除去）
+    if (rawLines.length > 0 && /^#\s*updated:/i.test(rawLines[0].text)) {
+        rawLines.shift();
+    }
     const lines = [];
     let inFence = false;
     for (const item of rawLines) {
