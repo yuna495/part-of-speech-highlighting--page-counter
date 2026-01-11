@@ -802,6 +802,23 @@ class PageViewPanel {
 
           /* テキストが少ない場合もボックスサイズを維持 */
           flex-shrink: 0;
+
+          /* 子要素(行番号マーク)の基準 */
+          position: relative;
+        }
+
+        /* 5行ごとの行番号マーク */
+        .line-number-mark {
+          position: absolute;
+          top: -1.8em;
+          width: 1em;
+          text-align: center;
+          /* font-sizeを変えると em 計算が狂うので、scale で縮小 */
+          font-size: 1em;
+          transform: scale(0.6);
+          transform-origin: top center;
+          color: rgba(128, 128, 128, 0.8);
+          pointer-events: none;
         }
 
         /* 行ごとのスタイル */
@@ -1197,6 +1214,32 @@ class PageViewPanel {
 
             // すでにHTML化されているので escapeHtml はしない
             contentDiv.innerHTML = lines.map(line => \`<p>\${line}</p>\`).join('');
+
+            // 5行ごとのページ内行番号を表示
+            // rowsに基づき、5, 10, 15... を配置
+            for (let i = 5; i <= state.rows; i += 5) {
+              const mark = document.createElement('span');
+              mark.className = 'line-number-mark';
+              mark.textContent = i;
+
+              // 配置計算: page-contentの右上が起点
+              // 右端からの位置 = padding-right(0.5em) + (i-1行分) + (行幅/2) - (マーク幅/2)
+              // 1行の幅 = line-height-ratio * font-size
+              // 行の中心位置を狙う
+              // right: calc(0.5em + (i - 1) * var(--line-height-ratio) * 1em + (var(--line-height-ratio) * 1em / 2) - 0.5em);
+              // 単位はem (font-size基準)
+              // line-height-ratio は CSS変数だが、JSではリテラル埋め込みの方が楽か、あるいはCSS calcを使う
+              // ここでは style.right に直接 calc を指定
+
+              // 簡略化:
+              // 行の開始位置(右端から): 0.5em + (i-1) * var(--line-height-ratio) * 1em
+              // 行の中心: 上記 + (var(--line-height-ratio) * 1em / 2)
+              // マーク自体のセンタリング: -0.5em (マーク幅1emの場合)
+
+              mark.style.right = \`calc(0.5em + (\${i - 1} * var(--line-height-ratio) * 1em) + (var(--line-height-ratio) * 0.5em) - 0em)\`;
+
+              contentDiv.appendChild(mark);
+            }
 
             pageDiv.appendChild(contentDiv);
             container.appendChild(pageDiv);
