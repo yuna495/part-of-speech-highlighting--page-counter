@@ -1236,7 +1236,7 @@ class PageViewPanel {
               // 行の中心: 上記 + (var(--line-height-ratio) * 1em / 2)
               // マーク自体のセンタリング: -0.5em (マーク幅1emの場合)
 
-              mark.style.right = \`calc(0.5em + (\${i - 1} * var(--line-height-ratio) * 1em) + (var(--line-height-ratio) * 0.5em) - 0em)\`;
+              mark.style.right = \`calc(0.5em + (\${i - 1} * var(--line-height-ratio) * 1em) + (var(--line-height-ratio) * 0.5em) + 0.1em)\`;
 
               contentDiv.appendChild(mark);
             }
