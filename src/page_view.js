@@ -1177,6 +1177,23 @@ class PageViewPanel {
           }
         });
 
+        // キーボード操作 (矢印キーでページ移動)
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowLeft') {
+            // 左キー：次ページ (Next)
+            e.preventDefault();
+            if (state.currentPage < state.pages.length) {
+              jumpToPage(state.currentPage + 1);
+            }
+          } else if (e.key === 'ArrowRight') {
+            // 右キー：前ページ (Prev)
+            e.preventDefault();
+            if (state.currentPage > 1) {
+              jumpToPage(state.currentPage - 1);
+            }
+          }
+        });
+
         function render(payload) {
           state.pages = payload.pages;
           state.rows = payload.rowsPerNote;

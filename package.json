@@ -634,7 +634,7 @@
           },
           "posNote.headings.baseTruncationLimit": {
             "type": "number",
-            "default": 18,
+            "default": 16,
             "description": "サイドバーの見出し文字数省略の基準値。大きいほど長く表示されます。（計算式: baseLimit - (階層レベル) - 文字数バッジの長さ）"
           }
         }

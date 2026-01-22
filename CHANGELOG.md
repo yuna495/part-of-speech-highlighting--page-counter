@@ -11,6 +11,7 @@ All notable changes to this extension are documented here.
 - サイドビューでの見出しの表示に折り畳み機能を実装。それに伴い、見出しレベルアイコンの表示を削除。
 - PageViewのデフォルト表示を文庫本表示に変更。
 - PageView上部に、行番号を5行毎に表示。
+- PageViewのページ切替を、←/→キーでも動作するように。
 
 ### 修正
 
