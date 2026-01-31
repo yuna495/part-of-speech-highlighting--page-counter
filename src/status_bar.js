@@ -14,6 +14,7 @@ const {
   countCharsForDisplay,
   loadNoteSettingForDoc,
   getHeadingMetricsCached,
+  stripBlockComments,
 } = require("./utils");
 
 // ------- 内部 state -------
@@ -321,6 +322,8 @@ function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
 
   // コードフェンス除外（ペア成立のみ）
   t = stripClosedCodeFences(t);
+  // ブロックコメント除外
+  t = stripBlockComments(t);
 
   // 《...》括弧内を除去
   // 正規表現を定数化しておいたほうが早そうだが、頻度次第。念のため定数利用も検討

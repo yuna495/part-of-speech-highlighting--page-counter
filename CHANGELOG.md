@@ -7,6 +7,7 @@ All notable changes to this extension are documented here.
 ### 追加
 
 - 本文中のコメントについて、これまでの[``` ～ ```]に加えて、[/*～*/]にも対応。
+- ショートカットキー[ctrl + ']で、マルチラインコメントを挿入。
 
 ### 変更
 

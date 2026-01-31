@@ -135,6 +135,41 @@ async function countSelectedString() {
   vscode.window.setStatusBarMessage(message, 5000);
 }
 
+/**
+ * 現在のカーソル位置にブロックコメントを挿入する。
+ * /*
+ *   (cursor)
+ * * /
+ */
+async function toggleBlockComment() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+
+  const selection = editor.selection;
+  // 選択範囲がある場合は、それを囲む実装も考えられるが、
+  // 今回の要件は「カーソル位置はここ」という空のブロック挿入が主目的と思われる。
+  // 一応、選択範囲があればそれを囲むようにする。
+
+  const textToWrap = selection.isEmpty ? "" : editor.document.getText(selection);
+
+  if (!textToWrap) {
+    // 空挿入:
+    // /*
+    // (cursor)
+    // */
+    // インデントは直前の行に合わせたいが、単純に挿入する。
+    const snippet = new vscode.SnippetString("/*\n$0\n*/");
+    await editor.insertSnippet(snippet);
+  } else {
+    // 選択範囲を囲む
+    // /*
+    // selected text
+    // */
+    const snippet = new vscode.SnippetString("/*\n${TM_SELECTED_TEXT}\n*/");
+    await editor.insertSnippet(snippet);
+  }
+}
+
 
 /**
  * 便利機能（行末スペース削除・選択文字列カウント）を登録する。
@@ -158,6 +193,12 @@ function registerConvenientFeatures(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.convenient.countSelectedString", () =>
       countSelectedString()
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.convenient.toggleBlockComment", () =>
+      toggleBlockComment()
     )
   );
 }

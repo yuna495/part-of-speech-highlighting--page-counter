@@ -219,6 +219,10 @@
         "title": "POS/Note: 選択文字列の出現数をカウント"
       },
       {
+        "command": "posNote.convenient.toggleBlockComment",
+        "title": "POS/Note: ブロックコメントを挿入 (/* ... */)"
+      },
+      {
         "command": "posNote.headings.refresh",
         "title": "POS/Note: 見出しを更新"
       },
@@ -797,6 +801,11 @@
         "command": "posNote.headings.gotoNext",
         "key": "ctrl+alt+s",
         "when": "editorTextFocus && (editorLangId == plaintext || editorLangId == novel || editorLangId == markdown)"
+      },
+      {
+        "command": "posNote.convenient.toggleBlockComment",
+        "key": "ctrl+'",
+        "when": "editorTextFocus"
       },
       {
         "command": "posNote.headings.gotoPrev",
