@@ -457,30 +457,22 @@ function findHeadingSection(editor) {
   return { fullRange, bodyRange };
 }
 
-// Helper to get ranges excluding code blocks
+// Helper to get ranges excluding code blocks and block comments
 function getRangesExcludingCodeBlocks(document, startPos, endPos) {
   const fullRange = new vscode.Range(startPos, endPos);
   const text = document.getText(fullRange);
 
-  // Count effective code block markers (```)
-  const matches = [...text.matchAll(/```/g)];
-  // If odd number of markers, block structure is broken/unclosed -> fallback to full selection
-  if (matches.length % 2 !== 0) {
-    return [new vscode.Selection(startPos, endPos)];
-  }
+  // Regex for Code Block (```...```) OR Block Comment (/*...*/), non-greedy
+  const blockRegex = /```[\s\S]*?```|\/\*[\s\S]*?\*\//g;
 
-  // If no code blocks or even number (closed), exclude them
   const ranges = [];
   let currentIndex = 0;
-
-  // Regex to find code blocks: ```...``` (lazy match)
-  const codeBlockRegex = /```[\s\S]*?```/g;
   let match;
 
   const startOffset = document.offsetAt(startPos);
 
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    // Add text before the code block
+  while ((match = blockRegex.exec(text)) !== null) {
+    // Add text before the block
     if (match.index > currentIndex) {
       const segStart = document.positionAt(startOffset + currentIndex);
       const segEnd = document.positionAt(startOffset + match.index);
@@ -489,7 +481,7 @@ function getRangesExcludingCodeBlocks(document, startPos, endPos) {
     currentIndex = match.index + match[0].length;
   }
 
-  // Add remaining text after last code block
+  // Add remaining text after last block
   if (currentIndex < text.length) {
     const segStart = document.positionAt(startOffset + currentIndex);
     const segEnd = document.positionAt(startOffset + text.length);
@@ -696,34 +688,18 @@ class HeadingFoldingProvider {
     }
 
     // ``` フェンス折りたたみ
-    let fenceStart = -1;
-    for (let i = 0; i < document.lineCount; i++) {
-      const text = document.lineAt(i).text;
-      if (text.includes("```")) {
-        if (fenceStart < 0) {
-          fenceStart = i;
-        } else {
-          if (i > fenceStart) {
-            ranges.push(
-              new vscode.FoldingRange(
-                fenceStart,
-                i,
-                vscode.FoldingRangeKind.Region
-              )
-            );
-          }
-          fenceStart = -1;
+    // および /* ... */ ブロックコメント折りたたみ
+    const text = document.getText();
+    const blockRegex = /```[\s\S]*?```|\/\*[\s\S]*?\*\//g;
+    let match;
+    while ((match = blockRegex.exec(text)) !== null) {
+        const startPos = document.positionAt(match.index);
+        const endPos = document.positionAt(match.index + match[0].length);
+
+        // 開始行と終了行が異なれば折りたたみ対象
+        if (endPos.line > startPos.line) {
+            ranges.push(new vscode.FoldingRange(startPos.line, endPos.line, vscode.FoldingRangeKind.Region));
         }
-      }
-    }
-    if (fenceStart >= 0) {
-      ranges.push(
-        new vscode.FoldingRange(
-          fenceStart,
-          document.lineCount - 1,
-          vscode.FoldingRangeKind.Region
-        )
-      );
     }
     return ranges;
   }

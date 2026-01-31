@@ -974,7 +974,6 @@ function defaultNoteSetting() {
     glossary: ["A", "B"],
     conversion: {
       "alt + .": "ctrl + .",
-      れい: "例",
     },
   };
 }
@@ -982,6 +981,9 @@ function defaultNoteSetting() {
 function defaultNovelTxt() {
   return [
     "# タイトル",
+    "## 本文",
+    "　——ここから本文を開始してください。",
+    "　章見出しは `# `、節は `## ` のように Markdown 形式。",
     "## Web投稿用項目",
     "### キャッチコピー",
     "```",
@@ -992,9 +994,6 @@ function defaultNovelTxt() {
     "### タグ",
     "```",
     "```",
-    "## 本文",
-    "　——ここから本文を開始してください。",
-    "　章見出しは `# `、節は `## ` のように Markdown 形式。",
   ].join("\n");
 }
 

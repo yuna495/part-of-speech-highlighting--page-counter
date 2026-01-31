@@ -254,6 +254,20 @@ function computeFenceRanges(doc) {
   return ranges;
 }
 
+function computeBlockCommentRanges(doc) {
+  const text = doc.getText();
+  const ranges = [];
+  // 非貪欲マッチで /* ... */ を検出
+  const regex = /\/\*[\s\S]*?\*\//g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+      const startPos = doc.positionAt(match.index);
+      const endPos = doc.positionAt(match.index + match[0].length);
+      ranges.push(new vscode.Range(startPos, endPos));
+  }
+  return ranges;
+}
+
 function computeFullwidthQuoteRanges(doc) {
   const text = doc.getText();
   const ranges = [];
@@ -731,7 +745,7 @@ class JapaneseSemanticProvider {
       }
     }
 
-    const data = { fenceRanges, bracketSegsByLine };
+    const data = { fenceRanges, bracketSegsByLine, blockCommentRanges: computeBlockCommentRanges(document) };
     this._rangeCache.set(key, { version: document.version, data });
 
     if (this._rangeCache.size > 20) {
@@ -904,8 +918,9 @@ class JapaneseSemanticProvider {
     const idxGlossary = tokenTypesArr.indexOf("glossary");
     const idxFence = tokenTypesArr.indexOf("fencecomment");
 
-    const { fenceRanges, bracketSegsByLine } = this._getOrComputeRanges(document);
+    const { fenceRanges, bracketSegsByLine, blockCommentRanges } = this._getOrComputeRanges(document);
     const fenceSegsByLine = new Map();
+    // Fence (Example: ``` ... ```)
     for (const r of fenceRanges) {
         for (let ln = r.start.line; ln <= r.end.line; ln++) {
         if (ln < startLine || ln > endLine) continue;
@@ -917,6 +932,20 @@ class JapaneseSemanticProvider {
             arr.push([sCh, eCh]);
             fenceSegsByLine.set(ln, arr);
         }
+        }
+    }
+    // Block Comments (/* ... */) -> Treat as fence (mask everything inside)
+    for (const r of blockCommentRanges) {
+        for (let ln = r.start.line; ln <= r.end.line; ln++) {
+            if (ln < startLine || ln > endLine) continue;
+            const lineText = document.lineAt(ln).text;
+            const sCh = ln === r.start.line ? r.start.character : 0;
+            const eCh = ln === r.end.line ? r.end.character : lineText.length;
+            if (eCh > sCh) {
+                const arr = fenceSegsByLine.get(ln) || [];
+                arr.push([sCh, eCh]);
+                fenceSegsByLine.set(ln, arr);
+            }
         }
     }
 

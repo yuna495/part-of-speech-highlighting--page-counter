@@ -60,6 +60,7 @@ function stripHeadingLines(text) {
 function countCharsForDisplay(text, c) {
   let t = (text || "").replace(/\r\n/g, "\n");
   t = stripClosedCodeFences(t); // フェンス除外
+  t = stripBlockComments(t);    // ブロックコメント除外 (/* ... */)
   t = stripHeadingLines(t); // 見出し行除外
   t = t.replace(/《.*?》/g, ""); // 《…》除去
 
@@ -396,5 +397,19 @@ module.exports = {
   getHeadingsCached,
   getHeadingMetricsCached,
   invalidateHeadingCache,
-  checkDevPasscode
+  checkDevPasscode,
+  stripBlockComments
 };
+
+/**
+ * C言語風ブロックコメント（/* ... * /）の除去。
+ * 改行も除去されるため、行番号を維持したい場合は別途処理が必要だが、
+ * 文字数カウント用途では単純除去でよい。
+ * @param {string} text
+ * @returns {string} Comments removed
+ */
+function stripBlockComments(text) {
+  if (!text) return "";
+  // 非貪欲マッチで除去
+  return text.replace(/\/\*[\s\S]*?\*\//g, "");
+}

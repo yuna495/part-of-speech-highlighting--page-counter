@@ -4,6 +4,10 @@ All notable changes to this extension are documented here.
 
 ## [2.4.2]
 
+### 追加
+
+- 本文中のコメントについて、これまでの[``` ～ ```]に加えて、[/*～*/]にも対応。
+
 ### 変更
 
 - 文字の着色、リント機能をworker化。

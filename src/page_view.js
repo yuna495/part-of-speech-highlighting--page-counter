@@ -227,26 +227,49 @@ class PageViewPanel {
     // 改行正規化
     let safeText = text.replace(/\r\n/g, "\n");
 
-    // コードフェンス除去
-    // 元の行番号を維持するために、オブジェクトの配列として処理する
-    let rawLines = safeText.split("\n").map((text, index) => ({ text, lineNo: index }));
+    // ブロックコメント (/* ... */) のマスキング
+    // 行番号を変えないよう、コメント内容をスペース等に置換するのではなく
+    // 「改行のみ残して他を消す」ことで、行数そのものを維持しつつ内容を消去する。
+    // replace(/[^\n]/g, "") で改行以外を削除。
+    const maskedText = safeText.replace(/\/\*[\s\S]*?\*\//g, (match) => {
+        return match.replace(/[^\n]/g, "");
+    });
+
+    const rawLines = safeText.split("\n").map((t, i) => ({ text: t, lineNo: i }));
+    const maskedLines = maskedText.split("\n");
 
     // 先頭行がタイムスタンプなら除外（行番号はずれないように、要素そのものを除去）
     if (rawLines.length > 0 && /^#\s*updated:/i.test(rawLines[0].text)) {
         rawLines.shift();
+        maskedLines.shift();
     }
     const lines = [];
     let inFence = false;
-    for (const item of rawLines) {
-      if (item.text.trim().startsWith("```")) {
-        inFence = !inFence;
-        continue; // フェンス行自体も表示しないなら continue
-      }
-      if (inFence) {
-        continue;
-      }
-      lines.push(item);
+
+    // rawLines と maskedLines は同じ長さのはず
+    for (let i = 0; i < rawLines.length; i++) {
+        const item = rawLines[i];
+        const maskedLineStr = maskedLines[i] || ""; // 安全策
+
+        if (item.text.trim().startsWith("```")) {
+            inFence = !inFence;
+            continue; // フェンス行自体も表示しないなら continue
+        }
+        if (inFence) {
+            continue;
+        }
+
+        // ブロックコメント除去の結果、空(空白のみ)になったが、
+        // 元々は文字があった場合 -> コメント行とみなしてスキップ
+        if (maskedLineStr.trim().length === 0 && item.text.trim().length > 0) {
+            continue;
+        }
+
+        // 表示用にはマスク後のテキストを使う（インラインコメント除去反映のため）
+        // ただし lineNo は元のものを維持
+        lines.push({ text: maskedLineStr, lineNo: item.lineNo });
     }
+
     const bannedSet = new Set(kinsokuEnabled ? bannedChars : []);
 
     let pages = [];

@@ -288,7 +288,10 @@ const RE_MASK_FENCE = /^\s*(```|~~~)/;
 const RE_INDENT_BLOCK = /^(?: {4}|\t)/;
 
 function maskCodeBlocks(text, initialFence = null) {
-  const inLines = text.split(/\r?\n/);
+  // 1. Block Comments (/* ... */) -> Mask content but keep newlines
+  const safeText = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ""));
+
+  const inLines = safeText.split(/\r?\n/);
   const outLines = [];
 
   let fence = initialFence;
