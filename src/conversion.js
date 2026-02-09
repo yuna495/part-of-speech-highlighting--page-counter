@@ -430,6 +430,9 @@ function formatText(text) {
     // Is Heading? (Markdown Heading #) -> Skip indentation logic?
     if (firstChar === "#") return line;
 
+    // Skipped characters (/, *, `, -)
+    if (["/", "*", "`", "-"].includes(firstChar)) return line;
+
     // Opening Brackets check
     // 「『（［｛〈《【〔“‘
     const brackets = "「『（［｛〈《【〔“‘—―";

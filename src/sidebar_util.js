@@ -69,6 +69,24 @@ function initSidebarUtilities(context) {
     })
   );
 
+  // --- コマンド: 新しい短編を作成
+  context.subscriptions.push(
+    vscode.commands.registerCommand("posNote.createNewShortStory", async (arg) => {
+      const base = await resolveBaseForNewNovel(arg);
+      if (!base) {
+        vscode.window.showWarningMessage("作成先フォルダを解決できませんでした");
+        return;
+      }
+      const created = await createNewShortStoryScaffold(base);
+      if (created) {
+        vscode.window.showInformationMessage(
+          `NewShortStory フォルダを作成しました: ${created.fsPath}`
+        );
+        provider.refresh();
+      }
+    })
+  );
+
   // --- コマンド: ビューを前面に
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.revealView", async () => {
@@ -830,6 +848,38 @@ async function createNewNovelScaffold(baseUri) {
   return targetUri;
 }
 
+// ====== NewShortStory 雛形 ======
+async function createNewShortStoryScaffold(baseUri) {
+  const fs = vscode.workspace.fs;
+  let targetBase = baseUri;
+
+  if (!targetBase) {
+    targetBase = await resolveBaseForNewNovel(null);
+    if (!targetBase) return null;
+  }
+
+  // ファイル指定なら親フォルダを利用
+  try {
+    const stat = await fs.stat(targetBase);
+    if (stat.type === vscode.FileType.File) {
+      targetBase = vscode.Uri.file(path.dirname(targetBase.fsPath));
+    }
+  } catch {
+    vscode.window.showWarningMessage("フォルダを解決できませんでした");
+    return null;
+  }
+
+  const targetUri = await uniqueFolder(targetBase, "NewShortStory");
+
+  await writeFileIfNotExists(
+    vscode.Uri.joinPath(targetUri, "Short.txt"),
+    toUint8(defaultShortStory())
+  );
+
+  await vscode.commands.executeCommand("revealInExplorer", targetUri);
+  return targetUri;
+}
+
 async function uniqueFolder(parentUri, baseName) {
   const fs = vscode.workspace.fs;
   let n = 1;
@@ -957,12 +1007,19 @@ function defaultPlotMd() {
     "",
     "<!-- P/N:この行以上は出力時に自動上書きされます。手動編集も消えます。 -->",
     "",
-    "## 作品紹介",
+    "## Web投稿用項目",
+    "### キャッチコピー",
+    "```",
     "",
-    "- キャッチコピー",
+    "```",
+    "### 紹介文",
+    "```",
     "",
-    "- 紹介文",
+    "```",
+    "### タグ",
+    "```",
     "",
+    "```",
   ].join("\n");
 }
 
@@ -984,15 +1041,29 @@ function defaultNovelTxt() {
     "## 本文",
     "　——ここから本文を開始してください。",
     "　章見出しは `# `、節は `## ` のように Markdown 形式。",
+  ].join("\n");
+}
+
+function defaultShortStory() {
+  return [
+    "# タイトル",
+    "## 本文",
+    "　——ここから本文を開始してください。",
+    "　章見出しは `# `、節は `## ` のように Markdown 形式。",
+    "## プロット",
+    "",
     "## Web投稿用項目",
     "### キャッチコピー",
     "```",
+    "",
     "```",
     "### 紹介文",
     "```",
+    "",
     "```",
     "### タグ",
     "```",
+    "",
     "```",
   ].join("\n");
 }
@@ -1002,4 +1073,5 @@ module.exports = {
   getSidebarBaseDirUri,
   defaultPlotMd,
   defaultBoardMd,
+  defaultShortStory,
 };

@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented here.
 
+## [2.4.3]
+
+### 追加
+
+- エクスプローラーでの右クリックメニューに、『新しい短編を作成』を追加。（作成されるものは、新規フォルダとその中のShort.txtのみ）
+
 ## [2.4.2]
 
 ### 追加
