@@ -915,6 +915,11 @@
     "@textlint/kernel": "^13.4.1",
     "@textlint/textlint-plugin-markdown": "^12.6.1",
     "@textlint/textlint-plugin-text": "^12.6.1",
+    "@types/node": "20.x",
+    "@types/vscode": "1.103.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.1",
+    "globals": "^13.24.0",
     "kuromoji": "^0.1.2",
     "textlint-rule-ja-no-abusage": "^3.0.0",
     "textlint-rule-ja-no-redundant-expression": "^4.0.1",
@@ -922,13 +927,7 @@
     "textlint-rule-max-ten": "^5.0.0",
     "textlint-rule-no-doubled-conjunction": "^3.0.0",
     "textlint-rule-no-doubled-joshi": "^5.1.0",
-    "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet": "^1.0.1",
-    "textlint-rule-preset-jtf-style": "^3.0.2",
-    "@types/node": "20.x",
-    "@types/vscode": "1.103.0",
-    "@vscode/vsce": "^3.7.1",
-    "esbuild": "^0.27.1",
-    "globals": "^13.24.0"
+    "textlint-rule-preset-jtf-style": "^3.0.2"
   },
   "repository": {
     "type": "git",

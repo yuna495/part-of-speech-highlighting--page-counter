@@ -147,6 +147,7 @@ function lintTextWithWorker(text, options) {
     try {
       const cfg = vscode.workspace.getConfiguration("posNote.linter");
       userRules = cfg.get("rules") || {};
+      console.log("[POSNote] Linter userRules:", JSON.stringify(userRules, null, 2));
     } catch(e) {
       channel.appendLine(`[Linter] config error: ${e}`);
     }
@@ -256,6 +257,7 @@ async function triggerLint(
   collection,
   { mode = "command", reason = undefined } = {}
 ) {
+  console.log(`[Linter] triggerLint called: ${doc.uri.fsPath} (mode=${mode})`);
   const enabled = vscode.workspace.getConfiguration("posNote.linter").get("enabled", false);
   if (!enabled) {
     collection.clear();
@@ -600,6 +602,7 @@ async function lintDocumentIncremental(doc, collection) {
 
 // ===== 7) エントリポイント =====
 function activate(context) {
+
   ensureWorker(context);
   ensureStatusBar(context);
   updateIdleUIForDoc(vscode.window.activeTextEditor?.document);

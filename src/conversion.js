@@ -431,7 +431,7 @@ function formatText(text) {
     if (firstChar === "#") return line;
 
     // Skipped characters (/, *, `, -)
-    if (["/", "*", "`", "-"].includes(firstChar)) return line;
+    if (["/", "*", "`", "-","＊"].includes(firstChar)) return line;
 
     // Opening Brackets check
     // 「『（［｛〈《【〔“‘

@@ -22,7 +22,7 @@ const LOADED_RULES = [
   ["max-ten", require("textlint-rule-max-ten")],
   ["no-doubled-conjunction", require("textlint-rule-no-doubled-conjunction")],
   ["no-doubled-joshi", require("textlint-rule-no-doubled-joshi")],
-  ["no-mixed-zenkaku-and-hankaku-alphabet", require("textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet")],
+
   ["preset-jtf-style", require("textlint-rule-preset-jtf-style")],
 ];
 
@@ -36,6 +36,8 @@ const DEFAULT_RULES = {
     "2.1.2.漢字": false,
     "2.1.5.カタカナ": false,
     "2.1.6.カタカナの長音": false,
+    "2.1.8.算用数字":false,
+    "2.1.9.アルファベット":false,
     "2.2.1.ひらがなと漢字の使い分け": false,
     "2.2.2.算用数字と漢数字の使い分け": false,
     "2.2.3.一部の助数詞の表記": false,
@@ -59,9 +61,8 @@ const DEFAULT_RULES = {
   "ja-unnatural-alphabet": { allow: ["/[Ａ-Ｚ]/", "/[A-Z]/", "/[a-z]/"] },
   "max-ten": {
     max: 4,
-    kuten: ["。", "「", "」", "『", "』", "（", "）", "—", "―", "…", "！", "？", "：", ":", "*"],
+    kuten: ["。", "「", "」", "『", "』", "（", "）", "—", "―", "…", "！",  "？", "：", ":", "*"],
   },
-  "no-mixed-zenkaku-and-hankaku-alphabet": true,
   "no-doubled-joshi": {
     allow: ["も", "や", "か", "と"],
     separatorCharacters: [
@@ -105,7 +106,12 @@ function mergeRules(base, override) {
     ) {
       out[k] = mergeRules(base[k], v);
     } else {
-      out[k] = v;
+      // Fix: Don't overwrite object defaults with boolean true
+      if (v === true && typeof base[k] === "object" && !Array.isArray(base[k])) {
+          // keep base[k]
+      } else {
+          out[k] = v;
+      }
     }
   }
   return out;
@@ -172,6 +178,11 @@ function buildKernelOptions(userRulesFromConfig, channel) {
       else console.log(msg);
     } catch {}
   };
+
+  try {
+    log(`[Worker] buildKernelOptions called`);
+    log(`[Worker] User Config: ${JSON.stringify(userRulesFromConfig)}`);
+  } catch {}
 
   const plugins = [];
   const rules = [];
@@ -262,12 +273,14 @@ function buildKernelOptions(userRulesFromConfig, channel) {
           const opt = optionMap.get(full);
           if (opt === false) {
             disabled++;
+            log(`[disabled] preset rule: ${full}`);
             continue;
           }
           const entry = { ruleId: full, rule: ruleBody };
           if (opt && typeof opt === "object") entry.options = opt;
           rules.push(entry);
           used++;
+          log(`[enabled] preset rule: ${full}`);
         }
         log(
           `[info] preset loaded: ${baseId} (+${used} rules, disabled=${disabled})`

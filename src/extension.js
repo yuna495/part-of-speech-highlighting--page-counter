@@ -106,8 +106,10 @@ function activate(context) {
   initKanbn(context);
 
   // --- 5-2) Linter（任意）
+  // --- 5-2) Linter（任意）
   const linter = require("./linter");
   if (cfg().linterEnabled) {
+
     linter.activate(context);
   }
 
