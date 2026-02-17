@@ -32,7 +32,7 @@ const copyDictPlugin = {
   setup(build) {
     build.onEnd(() => {
       const srcDir = path.join(__dirname, "node_modules", "kuromoji", "dict");
-      const destDir = path.join(__dirname, "dist", "worker", "dict");
+      const destDir = path.join(__dirname, "dist", "dict");
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
@@ -41,7 +41,7 @@ const copyDictPlugin = {
           fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
         }
       });
-      console.log("[build] copied kuromoji dicts to dist/worker/dict");
+      console.log("[build] copied kuromoji dicts to dist/dict");
     });
   },
 };

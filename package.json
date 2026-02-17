@@ -902,11 +902,13 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run esbuild",
-    "esbuild-base": "node esbuild.js",
-    "esbuild": "npm run esbuild-base -- --production",
-    "esbuild-watch": "npm run esbuild-base -- --watch",
-    "package": "vsce package"
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "esbuild-watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "lint": "eslint src",
+    "test": "node .vscode-test.mjs"
   },
   "dependencies": {
     "puppeteer-core": "^23.1.0"
