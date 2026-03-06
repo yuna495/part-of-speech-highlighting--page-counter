@@ -2,6 +2,10 @@
 
 All notable changes to this extension are documented here.
 
+## [2.4.4]
+
+- 『～た。』や『～る。』などの、文末が連続する場合、警告を出すリント機能を追加。
+
 ## [2.4.3]
 
 ### 追加

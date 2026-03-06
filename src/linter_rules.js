@@ -22,6 +22,7 @@ const LOADED_RULES = [
   ["max-ten", require("textlint-rule-max-ten")],
   ["no-doubled-conjunction", require("textlint-rule-no-doubled-conjunction")],
   ["no-doubled-joshi", require("textlint-rule-no-doubled-joshi")],
+  ["no-successive-ta-ru", require("./textlint-rule-no-successive-ta-ru")],
 
   ["preset-jtf-style", require("textlint-rule-preset-jtf-style")],
 ];
@@ -58,9 +59,10 @@ const DEFAULT_RULES = {
   "no-doubled-conjunction": true,
   "ja-no-abusage": true,
   "ja-no-redundant-expression": true,
+  "no-successive-ta-ru": true,
   "ja-unnatural-alphabet": { allow: ["/[Ａ-Ｚ]/", "/[A-Z]/", "/[a-z]/"] },
   "max-ten": {
-    max: 4,
+    max: 5,
     kuten: ["。", "「", "」", "『", "』", "（", "）", "—", "―", "…", "！",  "？", "：", ":", "*"],
   },
   "no-doubled-joshi": {
