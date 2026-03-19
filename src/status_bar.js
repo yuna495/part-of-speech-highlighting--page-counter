@@ -1,4 +1,4 @@
-﻿// ステータスバー：ページ/行（原稿用紙風。文字数＝選択がなければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
+// ステータスバー：ページ/行（原稿用紙風。文字数＝選択がなければ全体）表示、Git(HEAD)との差分（編集中ファイル単体）
 // ＋ 同フォルダ・同拡張子「他ファイル」合算文字数（トグル可）
 
 const vscode = require("vscode");
@@ -319,6 +319,9 @@ function editorPrefixText(doc, selection) {
 function wrappedRowsForText(text, cols, kinsokuEnabled, bannedChars) {
   // 改行正規化
   let t = (text || "").replace(/\r\n/g, "\n");
+
+  // 1行目がタイムスタンプの見出しレベル1ならページ計算から除外する
+  t = t.replace(/^#\s+updated:[^\n]*(?:\n|$)/i, "");
 
   // コードフェンス除外（ペア成立のみ）
   t = stripClosedCodeFences(t);
