@@ -336,7 +336,7 @@ function toDiagnostics(uri, messages) {
       m.severity === 2
         ? vscode.DiagnosticSeverity.Error
         : m.severity === 1
-        ? vscode.DiagnosticSeverity.Error
+        ? vscode.DiagnosticSeverity.Warning
         : vscode.DiagnosticSeverity.Information;
 
     const diag = new vscode.Diagnostic(range, m.message, severity);

@@ -39,6 +39,7 @@ const DEFAULT_RULES = {
     "2.1.6.カタカナの長音": false,
     "2.1.8.算用数字":false,
     "2.1.9.アルファベット":false,
+    "2.1.10.算用数字の位取りの表記": false,
     "2.2.1.ひらがなと漢字の使い分け": false,
     "2.2.2.算用数字と漢数字の使い分け": false,
     "2.2.3.一部の助数詞の表記": false,
@@ -59,7 +60,11 @@ const DEFAULT_RULES = {
   "no-doubled-conjunction": true,
   "ja-no-abusage": true,
   "ja-no-redundant-expression": true,
-  "no-successive-ta-ru": true,
+  "no-successive-ta-ru": {
+    severity: "warning",
+    maxPara: 3,
+    maxBlock: 4
+  },
   "ja-unnatural-alphabet": { allow: ["/[Ａ-Ｚ]/", "/[A-Z]/", "/[a-z]/"] },
   "max-ten": {
     max: 5,
