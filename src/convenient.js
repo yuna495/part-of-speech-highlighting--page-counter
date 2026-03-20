@@ -161,11 +161,9 @@ async function toggleBlockComment() {
     const snippet = new vscode.SnippetString("/*\n$0\n*/");
     await editor.insertSnippet(snippet);
   } else {
-    // 選択範囲を囲む
-    // /*
-    // selected text
-    // */
-    const snippet = new vscode.SnippetString("/*\n${TM_SELECTED_TEXT}\n*/");
+    // 選択範囲をインラインコメントにする
+    // //selected text
+    const snippet = new vscode.SnippetString("//${TM_SELECTED_TEXT}//");
     await editor.insertSnippet(snippet);
   }
 }

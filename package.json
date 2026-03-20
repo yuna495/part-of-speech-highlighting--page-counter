@@ -814,7 +814,7 @@
       },
       {
         "command": "posNote.convenient.toggleBlockComment",
-        "key": "ctrl+'",
+        "key": "ctrl+-",
         "when": "editorTextFocus"
       },
       {
