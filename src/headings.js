@@ -20,17 +20,12 @@ function stripHeadingMarkup(lineText) {
 }
 
 
-
 /** ツリーノード */
 class HeadingNode extends vscode.TreeItem {
-  constructor(label, uri, line, level, countText, baseLimit = 16) {
-    // 動的切り詰め (Dynamic Truncation)
-    // 計算式: baseLimit - (階層レベル) - 文字数バッジの長さ
-    // 最低でも5文字は確保する
-    const suffixLen = (countText || "").length;
-    // const baseLimit = 20; // Passed as argument
-    const indentCost = level;
-    let limit = baseLimit - indentCost - suffixLen;
+  constructor(label, uri, line, level, countText) {
+    // 静的切り詰め (Static Truncation)
+    // レベル1=10字, 2=9字... と1文字ずつ減少
+    let limit = 11 - level;
     if (limit < 5) limit = 5;
 
     const truncatedLabel = label.length > limit ? label.substring(0, limit) + "..." : label;
@@ -104,24 +99,23 @@ class HeadingsProvider {
     const metrics = getHeadingMetricsCached(doc, c, vscode)?.items || [];
     const countByLine = new Map();
     for (const { line, own, sub } of metrics) {
-      const ownShow = own > 0;
-      const subShow = sub > 0 && sub !== own;
-      if (!ownShow && !subShow) continue;
+      if (sub === 0) continue;
       let text = "";
-      if (ownShow) text += `${own.toLocaleString("ja-JP")}字`;
-      if (subShow)
-        text += `${ownShow ? " / " : "/ "}${sub.toLocaleString("ja-JP")}字`;
+      if (sub !== own) {
+        // 子要素がある場合は合計のみ表示（スラッシュ付き）
+        text = `/ ${sub.toLocaleString("ja-JP")}字`;
+      } else {
+        // 子要素がない場合は自身の数のみ表示
+        text = `${own.toLocaleString("ja-JP")}字`;
+      }
       countByLine.set(line, text);
     }
-
-    // Config: Base Truncation Limit
-    const baseTruncationLimit = c.headingsBaseTruncationLimit || 20;
 
     const items = [];
     for (const m of metrics) {
       const label = stripHeadingMarkup(m.text);
       const countText = countByLine.get(m.line) || "";
-      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText, baseTruncationLimit));
+      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
     }
 
     // Build Tree Structure (Stack-based)
@@ -131,23 +125,23 @@ class HeadingsProvider {
     const stack = []; // Array of HeadingNode
 
     for (const item of items) {
-       // Pop stack until we find a parent with level < item.level
-       while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
-         stack.pop();
-       }
+      // Pop stack until we find a parent with level < item.level
+      while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
+        stack.pop();
+      }
 
-       if (stack.length === 0) {
-         // No parent found -> Root
-         roots.push(item);
-       } else {
-         // Parent found -> Add as child
-         const parent = stack[stack.length - 1];
-         parent.children.push(item);
-         // Ensure parent is collapsible
-         parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-       }
-       // Push current item to stack (it might be a parent for next items)
-       stack.push(item);
+      if (stack.length === 0) {
+        // No parent found -> Root
+        roots.push(item);
+      } else {
+        // Parent found -> Add as child
+        const parent = stack[stack.length - 1];
+        parent.children.push(item);
+        // Ensure parent is collapsible
+        parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+      }
+      // Push current item to stack (it might be a parent for next items)
+      stack.push(item);
     }
 
     this._items = roots;
