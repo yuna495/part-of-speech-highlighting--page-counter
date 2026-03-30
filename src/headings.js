@@ -114,6 +114,10 @@ class HeadingsProvider {
     const items = [];
     for (const m of metrics) {
       const label = stripHeadingMarkup(m.text);
+      // 1行目が更新日時（# updated: YYYY-MM-DD 等）の場合はツリーから除外
+      if (m.line === 0 && /^updated:\s*\d{4}-\d{1,2}-\d{1,2}/i.test(label)) {
+        continue;
+      }
       const countText = countByLine.get(m.line) || "";
       items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
     }
