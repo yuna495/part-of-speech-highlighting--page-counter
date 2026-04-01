@@ -63,7 +63,9 @@ const DEFAULT_RULES = {
   "no-successive-ta-ru": {
     severity: "warning",
     maxPara: 3,
-    maxBlock: 4
+    maxBlock: 4,
+    ruMaxPara: 4,
+    ruMaxBlock: 5
   },
   "ja-unnatural-alphabet": { allow: ["/[Ａ-Ｚ]/", "/[A-Z]/", "/[a-z]/"] },
   "max-ten": {
