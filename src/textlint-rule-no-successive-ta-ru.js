@@ -68,6 +68,18 @@ module.exports = function(context, options = {}) {
         }
 
         const text = getSource(sentence);
+
+        // 「」や『』、（）の全角・半角が含まれる場合は、会話文や挿入句とみなして連続カウントをすべてリセットする
+        if (/[「」『』（）()]/g.test(text)) {
+          shitaParaCount = 0; shitaBlockCount = 0;
+          ttaParaCount = 0; ttaBlockCount = 0;
+          otherTaParaCount = 0; otherTaBlockCount = 0;
+          iruParaCount = 0; iruBlockCount = 0;
+          aruParaCount = 0; aruBlockCount = 0;
+          ruParaCount = 0; ruBlockCount = 0;
+          continue;
+        }
+
         // 文末の文字列を取得（空白や感嘆符、句読点、閉じカッコなどを無視した最後の文字）
         const match = text.match(/(した|った|た|いる|ある|る)[。！？\.\!\?」』）\]\s]*$/);
 
