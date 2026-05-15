@@ -146,10 +146,6 @@ async function toggleBlockComment() {
   if (!editor) return;
 
   const selection = editor.selection;
-  // 選択範囲がある場合は、それを囲む実装も考えられるが、
-  // 今回の要件は「カーソル位置はここ」という空のブロック挿入が主目的と思われる。
-  // 一応、選択範囲があればそれを囲むようにする。
-
   const textToWrap = selection.isEmpty ? "" : editor.document.getText(selection);
 
   if (!textToWrap) {
@@ -157,7 +153,6 @@ async function toggleBlockComment() {
     // /*
     // (cursor)
     // */
-    // インデントは直前の行に合わせたいが、単純に挿入する。
     const snippet = new vscode.SnippetString("/*\n$0\n*/");
     await editor.insertSnippet(snippet);
   } else {

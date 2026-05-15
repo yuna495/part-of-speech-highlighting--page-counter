@@ -406,13 +406,21 @@ function formatText(text) {
   const regex3 = /（.*?）/g; // Remove Fullwidth Parentheses content
   const regex4 = / 。/g; // Plain Space + Ideographic Full Stop -> Ideographic Full Stop + Newline
   const regex5 = /　\+\d/g; // Remove Full-width space + Plus sign + One digit (3 chars)
+  const regex6 = /。 /g; // Ideographic Full Stop + Plain Space -> Full Stop + Newline + Full-width Space
+  const regex7 = /」 /g; // Right Corner Bracket + Plain Space -> Bracket + Newline + Full-width Space
+  const regex8 = /\d(?=。)/g; // Single half-width digit before 。 -> Remove
+  const regex9 = /[ 　]「/g; // Plain Space or Full-width Space before 「 -> 「
 
   // Step 1-3: Existing Replacements
   let newText = text.replace(regex1, "\n　");
   newText = newText.replace(regex2, "$1\n");
+  newText = newText.replace(regex8, "");
   newText = newText.replace(regex3, "");
   newText = newText.replace(regex4, "。\n");
   newText = newText.replace(regex5, "");
+  newText = newText.replace(regex6, "。\n　");
+  newText = newText.replace(regex7, "」\n　");
+  newText = newText.replace(regex9, "「");
 
   // Step 4: Add Indentation (Full-width space) to lines not starting with brackets/spaces
   // Split into lines to handle line-by-line logic
@@ -434,9 +442,12 @@ function formatText(text) {
     if (["/", "*", "`", "-","＊"].includes(firstChar)) return line;
 
     // Opening Brackets check
-    // 「『（［｛〈《【〔“‘
-    const brackets = "「『（［｛〈《【〔“‘—―";
+    // [「『（［｛〈《【〔“‘
+    const brackets = "[「『（［｛〈《【〔“‘—―";
     if (brackets.includes(firstChar)) return line;
+
+    // 数字 (0-9) および 漢数字 (一二三四五六七八九十) は字下げしない
+    if (/[0-9一二三四五六七八九十]/.test(firstChar)) return line;
 
     // Otherwise, insert Full-width space
     return "　" + line;
