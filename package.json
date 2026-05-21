@@ -353,11 +353,6 @@
         "title": "POS/Note: ファイル/フォルダを開く"
       },
       {
-        "command": "posNote.newFileAt",
-        "title": "新規ファイル作成",
-        "icon": "$(new-file)"
-      },
-      {
         "command": "posNote.newFolderAt",
         "title": "新規フォルダ作成",
         "icon": "$(new-folder)"
@@ -386,11 +381,6 @@
         "command": "posNote.renameResource",
         "title": "名前の変更",
         "icon": "$(edit)"
-      },
-      {
-        "command": "posNote.revealInOS",
-        "title": "外部エクスプローラーで表示",
-        "icon": "$(folder-opened)"
       },
       {
         "command": "posNote.kanbn.openBoard",
