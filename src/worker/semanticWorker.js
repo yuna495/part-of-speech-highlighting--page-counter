@@ -1,7 +1,6 @@
 "use strict";
 
 const { parentPort } = require("worker_threads");
-const kuromoji = require("kuromoji");
 const path = require("path");
 
 // Semantic Token Legend (Must match semantic.js)
@@ -11,60 +10,21 @@ const tokenTypesArr = [
   "symbol", "other", "bracket", "character", "glossary",
   "space", "heading", "fencecomment"
 ];
-const tokenModsArr = ["proper", "prefix", "suffix"];
 
 let tokenizer = null;
-let initPromise = null;
 
-// Map Kuromoji token to semantic type/mod index
-function mapKuromojiToSemantic(tk) {
-  const pos = tk.pos || "";
-  const pos1 = tk.pos_detail_1 || "";
-  let type = "other";
-
-  if (pos === "名詞") type = "noun";
-  else if (pos === "動詞") type = "verb";
-  else if (pos === "形容詞") type = "adjective";
-  else if (pos === "副詞") type = "adverb";
-  else if (pos === "助詞") type = "particle";
-  else if (pos === "助動詞") type = "auxiliary";
-  else if (pos === "連体詞") type = "prenoun";
-  else if (pos === "接続詞") type = "conjunction";
-  else if (pos === "感動詞") type = "interjection";
-  else if (pos === "記号") type = "symbol";
-
-  let mods = 0;
-  if (pos1 === "固有名詞") mods |= 1 << tokenModsArr.indexOf("proper");
-  if (pos1 === "接頭") mods |= 1 << tokenModsArr.indexOf("prefix");
-  if (pos1 === "接尾") mods |= 1 << tokenModsArr.indexOf("suffix");
-
-  const typeIdx = Math.max(0, tokenTypesArr.indexOf(type));
-  return { typeIdx, mods };
-}
-
-function getDicPath() {
-  // Dictionary is in dist/dict (shared)
-  return path.join(__dirname, "..", "dict");
-}
-
-function initTokenizer(dicPath) {
+function initTokenizer() {
   if (tokenizer) return Promise.resolve(tokenizer);
-  if (initPromise) return initPromise;
-
-  initPromise = new Promise((resolve, reject) => {
-    // If not provided, fallback to relative (which might fail)
-    const finalPath = dicPath || getDicPath();
-    kuromoji.builder({ dicPath: finalPath }).build((err, tknz) => {
-      if (err) {
-        initPromise = null;
-        reject(err);
-      } else {
-        tokenizer = tknz;
-        resolve(tknz);
-      }
-    });
-  });
-  return initPromise;
+  try {
+    // wasm-pack generates a Node.js-compatible CommonJS module at ../wasm_module/pos_note_wasm
+    const { WasmTokenizer } = require("../wasm_module/pos_note_wasm");
+    tokenizer = new WasmTokenizer();
+    console.log("[SemanticWorker Wasm] Synchronously loaded Rust Wasm morphological analyzer successfully!");
+    return Promise.resolve(tokenizer);
+  } catch (err) {
+    console.error("[SemanticWorker Wasm] Failed to load Wasm morphological analyzer:", err);
+    return Promise.reject(err);
+  }
 }
 
 const activeJobs = new Set();
@@ -73,7 +33,7 @@ const ABORT_CHECK_INTERVAL = 1000; // Check every N lines
 parentPort.on("message", async (msg) => {
   try {
     if (msg.command === "init") {
-      await initTokenizer(msg.dictPath);
+      await initTokenizer();
       parentPort.postMessage({ command: "init_complete" });
     }
     else if (msg.command === "abort") {
@@ -81,6 +41,31 @@ parentPort.on("message", async (msg) => {
         if (activeJobs.has(reqId)) {
           activeJobs.delete(reqId);
         }
+    }
+    else if (msg.command === "tokenize_simple") {
+      if (!tokenizer) await initTokenizer();
+      const text = msg.text || "";
+      
+      // Obtain flat u32 array [start, length, typeIdx, mods] from Wasm
+      const wasmData = tokenizer.tokenize(text);
+      const tokens = [];
+      
+      for (let i = 0; i < wasmData.length; i += 4) {
+        const start = wasmData[i];
+        const length = wasmData[i + 1];
+        const typeIdx = wasmData[i + 2];
+        
+        let pos = "その他";
+        if (typeIdx === 4) pos = "助詞"; // cursor.js checks for "助詞" only
+        
+        tokens.push({
+          word_position: start + 1, // 1-indexed for compatibility with kuromoji usage in cursor.js
+          surface_form: text.slice(start, start + length),
+          pos: pos
+        });
+      }
+      
+      parentPort.postMessage({ command: "tokenize_simple_result", reqId: msg.reqId, tokens });
     }
     else if (msg.command === "tokenize") {
       // msg: { reqId, lines: [{ lineIndex, text }, ...] }
@@ -103,12 +88,13 @@ parentPort.on("message", async (msg) => {
         const lineIdx = item.lineIndex;
         const text = item.text;
         if (text) {
-            const tokens = tokenizer.tokenize(text);
-            for (const tk of tokens) {
-              if (!tk.word_position) continue;
-              const start = tk.word_position - 1;
-              const length = tk.surface_form.length;
-              const { typeIdx, mods } = mapKuromojiToSemantic(tk); // Ensure mapKuromojiToSemantic is accessible
+            // Wasm returns flat u32 array [start, length, typeIdx, mods]
+            const wasmData = tokenizer.tokenize(text);
+            for (let i = 0; i < wasmData.length; i += 4) {
+              const start = wasmData[i];
+              const length = wasmData[i + 1];
+              const typeIdx = wasmData[i + 2];
+              const mods = wasmData[i + 3];
               flatData.push(lineIdx, start, length, typeIdx, mods);
             }
         }

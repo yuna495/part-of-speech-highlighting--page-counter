@@ -27,27 +27,26 @@ const esbuildProblemMatcherPlugin = {
   },
 };
 
-const copyDictPlugin = {
-  name: "copy-dict-plugin",
+const copyWasmPlugin = {
+  name: "copy-wasm-plugin",
   setup(build) {
     build.onEnd(() => {
-      const srcDir = path.join(__dirname, "node_modules", "kuromoji", "dict");
-      const destDir1 = path.join(__dirname, "dist", "dict");
-      const destDir2 = path.join(__dirname, "dist", "worker", "dict");
+      const srcDir = path.join(__dirname, "src", "wasm_module");
+      const destDir = path.join(__dirname, "dist", "wasm_module");
 
-      [destDir1, destDir2].forEach(d => {
-        if (!fs.existsSync(d)) {
-          fs.mkdirSync(d, { recursive: true });
-        }
-      });
+      if (!fs.existsSync(srcDir)) {
+        console.warn("[build] src/wasm_module directory does not exist yet. Please compile Wasm first.");
+        return;
+      }
+
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
 
       fs.readdirSync(srcDir).forEach((file) => {
-        if (file.endsWith(".dat") || file.endsWith(".dat.gz")) {
-          fs.copyFileSync(path.join(srcDir, file), path.join(destDir1, file));
-          fs.copyFileSync(path.join(srcDir, file), path.join(destDir2, file));
-        }
+        fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
       });
-      console.log("[build] copied kuromoji dicts to dist/dict AND dist/worker/dict");
+      console.log("[build] copied custom Rust Wasm module to dist/wasm_module");
     });
   },
 };
@@ -79,9 +78,9 @@ async function main() {
     sourcesContent: false,
     platform: "node",
     outdir: "dist",
-    external: ["vscode", "puppeteer-core"], // exclude vscode api and puppeteer
+    external: ["vscode", "puppeteer-core", "../wasm_module/pos_note_wasm"], // exclude vscode api, puppeteer, and wasm module
     logLevel: "silent",
-    plugins: [esbuildProblemMatcherPlugin, copyDictPlugin, aliasPlugin],
+    plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin, aliasPlugin],
   });
 
   if (watch) {

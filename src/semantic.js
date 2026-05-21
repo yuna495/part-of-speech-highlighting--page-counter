@@ -7,7 +7,7 @@
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
-const kuromoji = require("kuromoji"); // CJS (for Main Thread Cursor)
+// const kuromoji = require("kuromoji"); // Removed to eliminate Main Thread double-loading
 const { Worker } = require("worker_threads");
 const { getHeadingLevel, loadNoteSettingForDoc } = require("./utils");
 
@@ -61,37 +61,18 @@ const FW_BRACKET_MAP = new Map([
 const FW_CLOSE_SET = new Set(Array.from(FW_BRACKET_MAP.values()));
 
 /* ========================================
- * 3) Kuromoji Tokenizer (For Cursor.js - Main Thread)
+ * 3) Asynchronous Tokenizer (For Cursor.js - Delegated to Worker)
  * ====================================== */
-let mainTokenizer = null;
-
-async function ensureTokenizer(context) {
-  if (mainTokenizer) return;
-  try {
-    let dictPath = path.join(
-      context.extensionPath,
-      "node_modules",
-      "kuromoji",
-      "dict"
-    );
-
-    if (!fs.existsSync(dictPath)) {
-      dictPath = path.join(context.extensionPath, "dist", "dict");
-    }
-
-    if (!fs.existsSync(dictPath)) {
-      console.warn("kuromoji dictionary not found at:", dictPath);
-      return;
-    }
-    mainTokenizer = await new Promise((resolve, reject) => {
-      kuromoji.builder({ dicPath: dictPath }).build((err, tknz) => {
-        if (err) reject(err);
-        else resolve(tknz);
-      });
-    });
-  } catch (err) {
-    console.error("[POSNote] ensureTokenizer failed:", err);
+function tokenizeWithWorkerForCursor(text) {
+  if (!semanticWorker) {
+    console.warn("[SemanticWorker Main] Worker not ready for cursor");
+    return Promise.resolve([]);
   }
+  return new Promise((resolve, reject) => {
+    const reqId = nextReqId++;
+    workerPending.set(reqId, { resolve, reject });
+    semanticWorker.postMessage({ command: "tokenize_simple", reqId, text });
+  });
 }
 
 /* ========================================
@@ -486,6 +467,12 @@ function ensureWorker(context) {
       if (p) {
         workerPending.delete(msg.reqId);
         p.resolve(msg.data); // data is Uint32Array
+      }
+    } else if (msg.command === "tokenize_simple_result") {
+      const p = workerPending.get(msg.reqId);
+      if (p) {
+        workerPending.delete(msg.reqId);
+        p.resolve(msg.tokens); // Array of tokens
       }
     } else if (msg.command === "error") {
       console.error("[SemanticWorker Main] worker error:", msg.error);
@@ -1160,6 +1147,5 @@ module.exports = {
   JapaneseSemanticProvider,
   semanticLegend,
   tokenTypesArr,
-  getTokenizer: () => mainTokenizer, // Main thread tokenizer for cursor
-  ensureTokenizer, // Exported so extension can call it
+  tokenizeWithWorkerForCursor,
 };

@@ -2,7 +2,7 @@
 // Kuromoji のトークン解析結果を利用して、日本語の単語単位でカーソル移動を行う
 
 const vscode = require("vscode");
-const { getTokenizer } = require("./semantic");
+const { tokenizeWithWorkerForCursor } = require("./semantic");
 
 /**
  * カーソルを単語単位で移動させる
@@ -13,16 +13,6 @@ async function moveCursorByWord(direction) {
   if (!editor) return;
 
   const doc = editor.document;
-  const tokenizer = getTokenizer(); // semantic.js で初期化済みのものを取得
-
-  // まだ辞書ロード中などで tokenizer がない場合は何もしない（あるいは標準挙動に任せる？）
-  // ここでは単純に return
-  if (!tokenizer) {
-    // フォールバック: 標準の cursorWordLeft / cursorWordRight を呼ぶ手もあるが
-    // ユーザーが明示的にこのコマンドを叩いているので、何もしないか、メッセージ出す
-    return;
-  }
-
   const selection = editor.selection;
   const cursor = selection.active; // 現在のカーソル位置
   const lineIndex = cursor.line;
@@ -42,8 +32,8 @@ async function moveCursorByWord(direction) {
     combinedText += txt + "\n"; // Kuromojiは改行があっても1文として処理可能だが、ここでは繋げる
   }
 
-  // tokenize(text) は同期処理
-  const allTokens = tokenizer.tokenize(combinedText);
+  // Workerスレッドで非同期にトークナイズを実行
+  const allTokens = await tokenizeWithWorkerForCursor(combinedText);
 
   // 2. 現在行に該当するトークンだけを抽出し、相対位置を計算
   // currentLineOffset <= token.word_position - 1 < currentLineOffset + lineText.length

@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "2.4.4",
+  "version": "3.0.0",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -908,7 +908,9 @@
     "esbuild-watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "lint": "eslint src",
-    "test": "node .vscode-test.mjs"
+    "test": "node .vscode-test.mjs",
+    "build:wasm": "wasm-pack build ./src/wasm --target nodejs --out-dir ../wasm_module",
+    "show-mecab": "npm show mecab-wasm"
   },
   "dependencies": {
     "puppeteer-core": "^23.1.0"
