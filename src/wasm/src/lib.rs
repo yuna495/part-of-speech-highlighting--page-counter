@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::*;
-use lindera::tokenizer::Tokenizer;
+use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
+use lindera::segmenter::Segmenter;
+use lindera::tokenizer::Tokenizer;
 
 #[wasm_bindgen]
 pub struct WasmTokenizer {
@@ -11,35 +13,51 @@ pub struct WasmTokenizer {
 impl WasmTokenizer {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmTokenizer, JsValue> {
-        let tokenizer = Tokenizer::new(Mode::Normal, "")
+        let dictionary = load_dictionary("embedded://ipadic")
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let segmenter = Segmenter::new(Mode::Normal, dictionary, None);
+        let tokenizer = Tokenizer::new(segmenter);
         Ok(WasmTokenizer { tokenizer })
     }
 
     pub fn tokenize(&self, text: &str) -> Result<Vec<u32>, JsValue> {
-        let tokens = self.tokenizer.tokenize(text)
+        let mut tokens = self.tokenizer.tokenize(text)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         
         let mut result = Vec::with_capacity(tokens.len() * 4);
         
         // バイトインデックスから UTF-16 インデックスへの変換マップ
-        let mut byte_to_utf16 = vec![0; text.len() + 1];
-        let mut utf16_idx = 0;
+        let text_bytes = text.as_bytes();
+        let mut byte_to_utf16 = vec![0u32; text_bytes.len() + 1];
+        let mut utf16_idx: u32 = 0;
         for (byte_idx, ch) in text.char_indices() {
             byte_to_utf16[byte_idx] = utf16_idx;
             utf16_idx += ch.len_utf16() as u32;
         }
-        byte_to_utf16[text.len()] = utf16_idx;
+        byte_to_utf16[text_bytes.len()] = utf16_idx;
 
-        for token in tokens {
-            let byte_start = token.byte_start;
-            let byte_end = token.byte_end;
+        for token in tokens.iter_mut() {
+            let surface = token.surface.as_ref();
+            // token の表層形からバイト位置を算出
+            let surface_ptr = surface.as_ptr() as usize;
+            let text_ptr = text.as_ptr() as usize;
+            
+            // surface が text のスライスであることを利用してバイトオフセットを算出
+            if surface_ptr < text_ptr || surface_ptr > text_ptr + text_bytes.len() {
+                continue; // 安全チェック
+            }
+            let byte_start = surface_ptr - text_ptr;
+            let byte_end = byte_start + surface.len();
+            
+            if byte_end > text_bytes.len() {
+                continue; // 安全チェック
+            }
             
             let start = byte_to_utf16[byte_start];
             let length = byte_to_utf16[byte_end] - start;
             
-            let details = token.details.unwrap_or_default();
-            let pos = details.get(0).copied().unwrap_or("");
+            let details = token.details();
+            let pos = details.first().copied().unwrap_or("");
             let pos1 = details.get(1).copied().unwrap_or("");
             
             let mut type_idx: u32 = 10; // "other"

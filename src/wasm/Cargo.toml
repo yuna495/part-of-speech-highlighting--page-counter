@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-lindera = { version = "0.34", features = ["ipadic"] }
+wasm-bindgen = "=0.2.100"
+lindera = { version = "3.0", default-features = false, features = ["embed-ipadic"] }
