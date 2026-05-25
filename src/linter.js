@@ -9,6 +9,7 @@ const {
   maskCodeBlocks,
   fenceStateBefore,
 } = require("./linter_rules");
+const { loadNoteSettingForDoc } = require("./utils");
 
 // ===== 0) グローバル状態 / ログ / 保存理由 =====
 const channel = vscode.window.createOutputChannel("textlint-kernel-linter");
@@ -263,6 +264,36 @@ async function triggerLint(
     collection.clear();
     updateIdleUIForDoc(doc);
     return;
+  }
+
+  // 1. lintignore Check
+  try {
+    const { data: setting } = await loadNoteSettingForDoc(doc);
+    if (setting && Array.isArray(setting.lintignore)) {
+      let relPath = vscode.workspace.asRelativePath(doc.uri, false);
+      relPath = relPath.replace(/\\/g, "/");
+      if (!relPath.startsWith("/")) {
+        relPath = "/" + relPath;
+      }
+
+      const isIgnored = setting.lintignore.some((pat) => {
+        if (typeof pat !== "string") return false;
+        let p = pat.replace(/\\/g, "/");
+        if (!p.startsWith("/")) {
+          p = "/" + p;
+        }
+        return relPath === p || relPath.startsWith(p + "/");
+      });
+
+      if (isIgnored) {
+        channel.appendLine(`[Linter] Ignored by lintignore: ${doc.uri.fsPath}`);
+        collection.clear();
+        updateIdleUIForDoc(doc);
+        return;
+      }
+    }
+  } catch (err) {
+    channel.appendLine(`[error] lintignore check failed: ${err}`);
   }
 
   try {
