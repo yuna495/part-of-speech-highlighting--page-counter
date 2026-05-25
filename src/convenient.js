@@ -1,6 +1,6 @@
 // 便利系: 保存時の行末スペース削除と選択文字列の出現回数カウント。
 const vscode = require("vscode");
-const { checkDevPasscode } = require("./utils");
+const { checkDevPasscode, loadNoteSettingForDoc } = require("./utils");
 
 /**
  * 行末の全角・半角スペースを削除する。
@@ -52,11 +52,6 @@ function trimTrailingSpaces(e) {
   }
 }
 
-/**
- * .txt 保存時に1行目のタイムスタンプを更新する（開発者モードのみ）。
- * `# updated: YYYY-MM-DDTHH:mm+09:00` 形式
- * @param {vscode.TextDocumentWillSaveEvent} e
- */
 function updateTimestampOnSave(e) {
   const doc = e.document;
   if (!doc || doc.isUntitled) return;
@@ -67,34 +62,42 @@ function updateTimestampOnSave(e) {
   // 2. .txt ファイルのみ対象
   if (!doc.fileName.toLowerCase().endsWith(".txt")) return;
 
-  // 3. タイムスタンプ生成 (日本時間固定)
-  const now = new Date();
-  // JST offset is -540 minutes (UTC+9)
-  // To get ISO string in JST, we can shift the time
-  const jstOffset = 9 * 60;
-  const localDate = new Date(now.getTime() + jstOffset * 60 * 1000);
-  const iso = localDate.toISOString().replace("Z", "+09:00");
-  // 秒以下を削る: 2026-01-07T06:53:12.345+09:00 -> 2026-01-07T06:53+09:00
-  // T以降の :ss.ms 部分を除去
-  // YYYY-MM-DDTHH:mm:ss.sss+09:00
-  // 0123456789012345
-  const formatted = iso.substring(0, 16) + "+09:00";
-  const newLineText = `# updated: ${formatted}\n`;
+  // 非同期処理として実行
+  e.waitUntil((async () => {
+    try {
+      // 2.5 notesetting.json にて "timestamp": false と明示されているかチェック
+      const { data: setting } = await loadNoteSettingForDoc(doc);
+      if (setting && setting.timestamp === false) {
+        return [];
+      }
 
-  const firstLine = doc.lineAt(0);
-  const text = firstLine.text;
+      // 3. タイムスタンプ生成 (日本時間固定)
+      const now = new Date();
+      const jstOffset = 9 * 60;
+      const localDate = new Date(now.getTime() + jstOffset * 60 * 1000);
+      const iso = localDate.toISOString().replace("Z", "+09:00");
+      const formatted = iso.substring(0, 16) + "+09:00";
+      const newLineText = `# updated: ${formatted}\n`;
 
-  // 4. 1行目更新 or 挿入
-  const edits = [];
-  if (text.startsWith("# updated:")) {
-    // 既存更新: 1行目を置換
-    edits.push(vscode.TextEdit.replace(firstLine.range, `# updated: ${formatted}`));
-  } else {
-    // 新規挿入: 0行目の先頭に挿入
-    edits.push(vscode.TextEdit.insert(new vscode.Position(0, 0), newLineText));
-  }
+      const firstLine = doc.lineAt(0);
+      const text = firstLine.text;
 
-  e.waitUntil(Promise.resolve(edits));
+      // 4. 1行目更新 or 挿入
+      const edits = [];
+      if (text.startsWith("# updated:")) {
+        // 既存更新: 1行目を置換
+        edits.push(vscode.TextEdit.replace(firstLine.range, `# updated: ${formatted}`));
+      } else {
+        // 新規挿入: 0行目の先頭に挿入
+        edits.push(vscode.TextEdit.insert(new vscode.Position(0, 0), newLineText));
+      }
+
+      return edits;
+    } catch (err) {
+      console.error("[posNote] Failed to update timestamp on save:", err);
+      return [];
+    }
+  })());
 }
 
 /**

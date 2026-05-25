@@ -6,11 +6,15 @@ All notable changes to this extension are documented here.
 
 ### 変更
 
-- kuromoji解析からWasmを利用した解析に変更
+- Kuromoji解析からWasmを利用した形態素解析に変更
 
 ### 追加
 
 - 『～した。』や『～った。』、『～る。』などの、文末が連続する場合、警告を出すリント機能を追加。
+
+### 修正
+
+- 重複していた辞書ファイルを削除
 
 ## [2.4.3]
 
