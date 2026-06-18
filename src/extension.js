@@ -278,6 +278,7 @@ function activate(context) {
             const accurateDisplayLen = countCharsForDisplay(txt, c);
             _accurateCountCache.set(docUri, accurateDisplayLen);
             sb.scheduleUpdateWithPrecount(ed, accurateDisplayLen);
+            headings.refresh(ed);
 
             _accurateCalcTimers.delete(docUri);
           } catch (err) {
@@ -308,8 +309,7 @@ function activate(context) {
     vscode.window.onDidChangeActiveTextEditor((ed) => {
       if (!ed) return;
       sb.onActiveEditorChanged(ed);
-      // headings update is handled by headings.js internal listener (or should be?)
-      // headings.js HAS internal onDidChangeActiveTextEditor listener. So no need to call here.
+      headings.refresh(ed, { immediate: true });
     }),
 
     // 選択変更：選択文字数の即時反映

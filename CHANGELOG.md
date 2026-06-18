@@ -7,6 +7,7 @@ All notable changes to this extension are documented here.
 ### 変更
 
 - 品詞ハイライトにおいて、Kuromoji解析からWasmを利用した形態素解析に変更
+- サイドビューでの見出し表示方法を変更
 
 ### 追加
 

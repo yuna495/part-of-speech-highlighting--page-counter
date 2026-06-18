@@ -19,73 +19,51 @@ function stripHeadingMarkup(lineText) {
   return lineText.replace(/^ {0,3}#{1,6}\s+/, "").trim();
 }
 
-
-/** ツリーノード */
-class HeadingNode extends vscode.TreeItem {
-  constructor(label, uri, line, level, countText) {
-    // 静的切り詰め (Static Truncation)
-    // レベル1=10字, 2=9字... と1文字ずつ減少
-    let limit = 11 - level;
-    if (limit < 5) limit = 5;
-
-    const truncatedLabel = label.length > limit ? label.substring(0, limit) + "..." : label;
-    super(truncatedLabel);
-
-    this.tooltip = label; // マウスホバーで全文表示
-
-    // this.resourceUri = uri; // Git差分装飾を避けるため設定しない
-    this.line = line;
-    this.level = level;
-    // this.iconPath = iconForLevel(level); // Removed as per request
-
-    // Default indentation is handled by TreeView nesting
-    // this.label = `${" ".repeat(Math.max(0, level - 1))}${label}`;
-
-    this.description = countText || "";
-    this.command = {
-      command: "posNote.headings.reveal",
-      title: "Reveal Heading",
-      arguments: [uri, line],
-    };
-    this.contextValue = "headingNode";
-
-    /** @type {HeadingNode[]} */
-    this.children = [];
-
-    // CollapsibleState will be set later (based on children presence)
-    this.collapsibleState = vscode.TreeItemCollapsibleState.None;
-  }
-}
-
-
-/** 見出しツリーのデータ提供（TreeDataProvider）。 */
-class HeadingsProvider {
-  constructor(helpers) {
+/** 見出しビューのWebviewViewプロバイダー。 */
+class HeadingsWebviewProvider {
+  constructor(helpers, context) {
     this._helpers = helpers;
-    this._onDidChangeTreeData = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    this._items = [];
+    this._context = context;
+    this._view = undefined;
   }
 
-  // 外部から呼び出されると TreeView を再描画する
+  resolveWebviewView(webviewView, context, token) {
+    this._view = webviewView;
+
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this._context.extensionUri],
+    };
+
+    const initialHeadings = this._collectHeadingsOfActiveEditor();
+    webviewView.webview.html = this._getHtmlForWebview(
+      webviewView.webview,
+      initialHeadings,
+    );
+
+    webviewView.webview.onDidReceiveMessage((data) => {
+      switch (data.type) {
+        case "reveal":
+          vscode.commands.executeCommand(
+            "posNote.headings.reveal",
+            vscode.Uri.parse(data.uri),
+            data.line,
+          );
+          break;
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      this._view = undefined;
+    });
+  }
+
   refresh() {
-    this._onDidChangeTreeData.fire(undefined);
+    if (!this._view) return;
+    const headings = this._collectHeadingsOfActiveEditor();
+    this._view.webview.postMessage({ type: "update", headings });
   }
 
-  getTreeItem(element) {
-    return element;
-  }
-
-  getChildren(element) {
-    if (element) {
-      return element.children;
-    }
-    // Root: return top-level nodes
-    return this._collectHeadingsOfActiveEditor();
-  }
-
-
-  /** アクティブエディタから見出しを抽出してノード配列にする。 */
   _collectHeadingsOfActiveEditor() {
     const ed = vscode.window.activeTextEditor;
     if (!ed) return [];
@@ -95,17 +73,14 @@ class HeadingsProvider {
     if (!isTargetDoc(ed.document, c)) return [];
 
     const doc = ed.document;
-    // キャッシュ版を利用
     const metrics = getHeadingMetricsCached(doc, c, vscode)?.items || [];
     const countByLine = new Map();
     for (const { line, own, sub } of metrics) {
       if (sub === 0) continue;
       let text = "";
       if (sub !== own) {
-        // 子要素がある場合は合計のみ表示（スラッシュ付き）
         text = `/ ${sub.toLocaleString("ja-JP")}字`;
       } else {
-        // 子要素がない場合は自身の数のみ表示
         text = `${own.toLocaleString("ja-JP")}字`;
       }
       countByLine.set(line, text);
@@ -114,44 +89,243 @@ class HeadingsProvider {
     const items = [];
     for (const m of metrics) {
       const label = stripHeadingMarkup(m.text);
-      // 1行目が更新日時（# updated: YYYY-MM-DD 等）の場合はツリーから除外
       if (m.line === 0 && /^updated:\s*\d{4}-\d{1,2}-\d{1,2}/i.test(label)) {
         continue;
       }
       const countText = countByLine.get(m.line) || "";
-      items.push(new HeadingNode(label, doc.uri, m.line, m.level, countText));
+      items.push({
+        label: label,
+        uri: doc.uri.toString(),
+        line: m.line,
+        level: m.level,
+        countText: countText,
+        children: [],
+      });
     }
 
-    // Build Tree Structure (Stack-based)
-    // 1. Root nodes (no parent) go to `roots`
-    // 2. Nodes with level N go under the last node with level < N
     const roots = [];
-    const stack = []; // Array of HeadingNode
+    const stack = [];
 
     for (const item of items) {
-      // Pop stack until we find a parent with level < item.level
       while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
         stack.pop();
       }
 
       if (stack.length === 0) {
-        // No parent found -> Root
         roots.push(item);
       } else {
-        // Parent found -> Add as child
         const parent = stack[stack.length - 1];
         parent.children.push(item);
-        // Ensure parent is collapsible
-        parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
       }
-      // Push current item to stack (it might be a parent for next items)
       stack.push(item);
     }
 
-    this._items = roots;
     return roots;
   }
 
+  _getHtmlForWebview(webview, initialHeadings) {
+    const headingsJson = JSON.stringify(initialHeadings || []).replace(
+      /</g,
+      "\\u003c",
+    );
+    return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      padding: 0;
+      margin: 0;
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size);
+      background-color: var(--vscode-sideBar-background);
+      user-select: none;
+    }
+    .tree-container {
+      padding: 8px 0;
+    }
+    .tree-node {
+      display: flex;
+      flex-direction: column;
+    }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0px 2px 0px 8px;
+      cursor: pointer;
+      height: 22px;
+      line-height: 22px;
+    }
+    .tree-item:hover {
+      background-color: var(--vscode-list-hoverBackground);
+    }
+    .tree-item-content {
+      display: flex;
+      align-items: center;
+      flex-grow: 1;
+      min-width: 0;
+    }
+    .arrow {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-right: 4px;
+      color: var(--vscode-icon-foreground);
+    }
+    .arrow::before {
+      content: '';
+      display: inline-block;
+      border-left: 5px solid currentColor;
+      border-top: 3.5px solid transparent;
+      border-bottom: 3.5px solid transparent;
+      transition: transform 0.1s ease;
+    }
+    .arrow.expanded::before {
+      transform: rotate(90deg);
+    }
+    .arrow.hidden::before {
+      visibility: hidden;
+    }
+    .label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-grow: 1;
+    }
+    .count {
+      flex-shrink: 0;
+      margin-left: 8px;
+      font-size: 0.9em;
+      color: var(--vscode-descriptionForeground);
+    }
+    .children {
+      display: none;
+    }
+    .children.expanded {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="tree-container" id="container"></div>
+  <script>
+    const vscode = acquireVsCodeApi();
+    const container = document.getElementById('container');
+    const collapsedState = new Map();
+
+    // 初期データ描画
+    const initialHeadings = ${headingsJson};
+    renderTree(initialHeadings);
+
+    window.addEventListener('message', event => {
+      const message = event.data;
+      if (message.type === 'update') {
+        renderTree(message.headings);
+      }
+    });
+
+    function renderTree(headings) {
+      container.innerHTML = '';
+      if (!headings || headings.length === 0) {
+        container.innerHTML = '<div style="padding: 8px; color: var(--vscode-descriptionForeground);">見出しはありません</div>';
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      buildTreeDOM(headings, fragment, 0);
+      container.appendChild(fragment);
+    }
+
+    function buildTreeDOM(nodes, parentEl, level) {
+      for (const node of nodes) {
+        const nodeEl = document.createElement('div');
+        nodeEl.className = 'tree-node';
+
+        const itemEl = document.createElement('div');
+        itemEl.className = 'tree-item';
+        itemEl.style.paddingLeft = (level * 12 + 8) + 'px';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'tree-item-content';
+
+        const arrowEl = document.createElement('div');
+        arrowEl.className = 'arrow';
+        const hasChildren = node.children && node.children.length > 0;
+
+        const nodeKey = node.uri + '#' + node.line;
+        if (!collapsedState.has(nodeKey)) {
+          collapsedState.set(nodeKey, false); // デフォルト展開
+        }
+        const isCollapsed = collapsedState.get(nodeKey);
+
+        if (!hasChildren) {
+          arrowEl.classList.add('hidden');
+        } else if (!isCollapsed) {
+          arrowEl.classList.add('expanded');
+        }
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'label';
+        labelEl.textContent = node.label;
+        labelEl.title = node.label;
+
+        contentEl.appendChild(arrowEl);
+        contentEl.appendChild(labelEl);
+
+        const countEl = document.createElement('span');
+        countEl.className = 'count';
+        countEl.textContent = node.countText || '';
+
+        itemEl.appendChild(contentEl);
+        itemEl.appendChild(countEl);
+        nodeEl.appendChild(itemEl);
+
+        let childrenEl = null;
+        if (hasChildren) {
+          childrenEl = document.createElement('div');
+          childrenEl.className = 'children';
+          if (!isCollapsed) {
+            childrenEl.classList.add('expanded');
+          }
+          buildTreeDOM(node.children, childrenEl, level + 1);
+          nodeEl.appendChild(childrenEl);
+        }
+
+        itemEl.addEventListener('click', (e) => {
+          if (e.target === arrowEl || arrowEl.contains(e.target)) {
+            toggleNode(nodeKey, arrowEl, childrenEl);
+          } else {
+            vscode.postMessage({ type: 'reveal', uri: node.uri, line: node.line });
+          }
+        });
+
+        parentEl.appendChild(nodeEl);
+      }
+    }
+
+    function toggleNode(key, arrowEl, childrenEl) {
+      if (!childrenEl) return;
+      const wasCollapsed = collapsedState.get(key);
+      const nowCollapsed = !wasCollapsed;
+      collapsedState.set(key, nowCollapsed);
+
+      if (nowCollapsed) {
+        arrowEl.classList.remove('expanded');
+        childrenEl.classList.remove('expanded');
+      } else {
+        arrowEl.classList.add('expanded');
+        childrenEl.classList.add('expanded');
+      }
+    }
+  </script>
+</body>
+</html>`;
+  }
 }
 
 /** コマンド：見出し位置へ移動し、行を表示 */
@@ -165,7 +339,7 @@ async function revealHeading(uri, line) {
   editor.selection = new vscode.Selection(pos, pos);
   editor.revealRange(
     new vscode.Range(pos, pos),
-    vscode.TextEditorRevealType.AtTop
+    vscode.TextEditorRevealType.AtTop,
   );
 }
 
@@ -189,7 +363,7 @@ function makeDecorationTypes() {
       minimap: { color: c, position: "foreground" },
       overviewRulerColor: c,
       overviewRulerLane: vscode.OverviewRulerLane.Center,
-    })
+    }),
   );
 }
 
@@ -317,9 +491,7 @@ function findEnclosingHeadingLineFor(doc, line, minLevel) {
 function collectHeadingLinesByMinLevel(document, minLevel) {
   const headings = getHeadingsCached(document);
   const targetLevel = Math.max(1, Math.min(6, minLevel));
-  return headings
-    .filter((h) => h.level >= targetLevel)
-    .map((h) => h.line);
+  return headings.filter((h) => h.level >= targetLevel).map((h) => h.line);
 }
 
 function findPrevHeadingLine(document, fromLine) {
@@ -360,7 +532,7 @@ async function cmdMoveToPrevHeading() {
   ed.selections = [sel];
   ed.revealRange(
     new vscode.Range(pos, pos),
-    vscode.TextEditorRevealType.Default
+    vscode.TextEditorRevealType.Default,
   );
 }
 
@@ -382,7 +554,7 @@ async function cmdMoveToNextHeading() {
   ed.selections = [sel];
   ed.revealRange(
     new vscode.Range(pos, pos),
-    vscode.TextEditorRevealType.Default
+    vscode.TextEditorRevealType.Default,
   );
 }
 
@@ -429,8 +601,6 @@ function findHeadingSection(editor) {
   const endLineText = doc.lineAt(endLine).text;
   const fullRange = new vscode.Range(startLine, 0, endLine, endLineText.length);
 
-
-
   let bodyRange = null;
 
   // bodyStartLine を探索（見出し行の次から、空行をスキップ）
@@ -444,17 +614,11 @@ function findHeadingSection(editor) {
   }
 
   if (realBodyStart <= endLine) {
-    bodyRange = new vscode.Range(
-      realBodyStart,
-      0,
-      endLine,
-      endLineText.length
-    );
+    bodyRange = new vscode.Range(realBodyStart, 0, endLine, endLineText.length);
   }
 
   return { fullRange, bodyRange };
 }
-
 
 function cmdSelectHeadingSection() {
   const editor = vscode.window.activeTextEditor;
@@ -462,7 +626,7 @@ function cmdSelectHeadingSection() {
   const section = findHeadingSection(editor);
   if (!section) {
     vscode.window.showInformationMessage(
-      "カーソル行または上方向にMarkdownの見出しが見つかりません。"
+      "カーソル行または上方向にMarkdownの見出しが見つかりません。",
     );
     return;
   }
@@ -479,13 +643,13 @@ function cmdSelectHeadingSectionBody() {
   const section = findHeadingSection(editor);
   if (!section) {
     vscode.window.showInformationMessage(
-      "カーソル行または上方向にMarkdownの見出しが見つかりません。"
+      "カーソル行または上方向にMarkdownの見出しが見つかりません。",
     );
     return;
   }
   if (!section.bodyRange) {
     vscode.window.showInformationMessage(
-      "見出し行と直後の行のみで選択範囲がありません。"
+      "見出し行と直後の行のみで選択範囲がありません。",
     );
     return;
   }
@@ -493,10 +657,7 @@ function cmdSelectHeadingSectionBody() {
   const { start, end } = section.bodyRange;
   editor.selections = [new vscode.Selection(start, end)];
 
-  vscode.window.setStatusBarMessage(
-    "見出し本文を選択（見出し行除外）。",
-    2000
-  );
+  vscode.window.setStatusBarMessage("見出し本文を選択（見出し行除外）。", 2000);
 }
 
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
@@ -507,13 +668,13 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const lang = (ed.document.languageId || "").toLowerCase();
   if (!(lang === "plaintext" || lang === "novel" || lang === "markdown")) {
     vscode.window.showInformationMessage(
-      "このトグルは .txt / novel / .md でのみ有効です"
+      "このトグルは .txt / novel / .md でのみ有効です",
     );
     return;
   }
   if (!c.headingFoldEnabled) {
     vscode.window.showInformationMessage(
-      "見出しの折りたたみ機能が無効です（posNote.headings.folding.enabled）"
+      "見出しの折りたたみ機能が無効です（posNote.headings.folding.enabled）",
     );
     return;
   }
@@ -529,7 +690,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
     const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
     if (lines.length === 0) {
       vscode.window.showInformationMessage(
-        `展開対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+        `展開対象の見出し（レベル${minLv}以上）は見つかりませんでした。`,
       );
       return;
     }
@@ -538,7 +699,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
     const enclosing = findEnclosingHeadingLineFor(
       ed.document,
       caret.line,
-      minLv
+      minLv,
     );
     const safeRestoreSelections =
       enclosing >= 0
@@ -565,9 +726,9 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
         ed.revealRange(
           new vscode.Range(
             safeRestoreSelections[0].active,
-            safeRestoreSelections[0].active
+            safeRestoreSelections[0].active,
           ),
-          vscode.TextEditorRevealType.Default
+          vscode.TextEditorRevealType.Default,
         );
       }
     }
@@ -578,7 +739,7 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
   const lines = collectHeadingLinesByMinLevel(ed.document, minLv);
   if (lines.length === 0) {
     vscode.window.showInformationMessage(
-      `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`
+      `折りたたみ対象の見出し（レベル${minLv}以上）は見つかりませんでした。`,
     );
     return;
   }
@@ -605,9 +766,9 @@ async function cmdToggleFoldAllHeadings({ cfg, sb }) {
       ed.revealRange(
         new vscode.Range(
           safeRestoreSelections[0].active,
-          safeRestoreSelections[0].active
+          safeRestoreSelections[0].active,
         ),
-        vscode.TextEditorRevealType.Default
+        vscode.TextEditorRevealType.Default,
       );
     }
   }
@@ -642,7 +803,7 @@ class HeadingFoldingProvider {
       }
       if (end > start)
         ranges.push(
-          new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region)
+          new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region),
         );
     }
 
@@ -652,13 +813,19 @@ class HeadingFoldingProvider {
     const blockRegex = /```[\s\S]*?```|\/\*[\s\S]*?\*\//g;
     let match;
     while ((match = blockRegex.exec(text)) !== null) {
-        const startPos = document.positionAt(match.index);
-        const endPos = document.positionAt(match.index + match[0].length);
+      const startPos = document.positionAt(match.index);
+      const endPos = document.positionAt(match.index + match[0].length);
 
-        // 開始行と終了行が異なれば折りたたみ対象
-        if (endPos.line > startPos.line) {
-            ranges.push(new vscode.FoldingRange(startPos.line, endPos.line, vscode.FoldingRangeKind.Region));
-        }
+      // 開始行と終了行が異なれば折りたたみ対象
+      if (endPos.line > startPos.line) {
+        ranges.push(
+          new vscode.FoldingRange(
+            startPos.line,
+            endPos.line,
+            vscode.FoldingRangeKind.Region,
+          ),
+        );
+      }
     }
     return ranges;
   }
@@ -694,20 +861,20 @@ class HeadingSymbolProvider {
         line,
         0,
         endLine,
-        document.lineAt(endLine).text.length
+        document.lineAt(endLine).text.length,
       );
       const selectionRange = new vscode.Range(
         line,
         0,
         line,
-        document.lineAt(line).text.length
+        document.lineAt(line).text.length,
       );
       const sym = new vscode.DocumentSymbol(
         title,
         "",
         vscode.SymbolKind.Namespace,
         range,
-        selectionRange
+        selectionRange,
       );
 
       while (stack.length > 0 && stack[stack.length - 1].level >= level) {
@@ -737,12 +904,12 @@ class HeadingSymbolProvider {
 function initHeadings(context, helpers) {
   const { cfg, isTargetDoc, sb } = helpers;
 
-  // 1. Sidebar Provider
-  const provider = new HeadingsProvider(helpers);
-  const tree = vscode.window.createTreeView("posNoteHeadings", {
-    treeDataProvider: provider,
-    showCollapseAll: true,
-  });
+  // 1. Sidebar Webview Provider
+  const provider = new HeadingsWebviewProvider(helpers, context);
+  const tree = vscode.window.registerWebviewViewProvider(
+    "posNoteHeadings",
+    provider,
+  );
 
   context.subscriptions.push(tree);
 
@@ -756,29 +923,31 @@ function initHeadings(context, helpers) {
   let debounceUpdate = null;
 
   function doUpdate(ed, forceMinimap) {
-      const c = helpers.cfg();
+    const c = helpers.cfg();
 
-      // 1. Editor Decoration (Priority High: User focus)
-      if (c.headingsShowBodyCounts) {
-        updateHeadingCountDecorations(ed, helpers.cfg);
+    // 1. Editor Decoration (Priority High: User focus)
+    if (c.headingsShowBodyCounts) {
+      updateHeadingCountDecorations(ed, helpers.cfg);
+    }
+
+    // 2. Defer others to next tick to prioritize Editor rendering
+    setTimeout(() => {
+      // Minimap
+      if (helpers.isTargetDoc(ed.document, c)) {
+        applyMinimapDecorations(ed, decoTypes, forceMinimap);
       }
-
-      // 2. Defer others to next tick to prioritize Editor rendering
-      setTimeout(() => {
-        // Minimap
-        if (helpers.isTargetDoc(ed.document, c)) {
-          applyMinimapDecorations(ed, decoTypes, forceMinimap);
-        }
-          // Sidebar update
-        provider.refresh();
-      }, 0);
+      // Sidebar update
+      provider.refresh();
+    }, 0);
   }
 
   function updateAll(ed, options = {}) {
     if (!ed) return;
     // Options handling (backward compatibility for boolean which was forceMinimap)
-    const forceMinimap = (typeof options === 'boolean') ? options : (options.forceMinimap || false);
-    const immediate = (typeof options === 'object') ? (options['immediate'] || false) : false;
+    const forceMinimap =
+      typeof options === "boolean" ? options : options.forceMinimap || false;
+    const immediate =
+      typeof options === "object" ? options["immediate"] || false : false;
 
     if (debounceUpdate) clearTimeout(debounceUpdate);
 
@@ -795,7 +964,7 @@ function initHeadings(context, helpers) {
   // 4. Register Commands (Navigation, Folding, Select, Refresh)
   context.subscriptions.push(
     vscode.commands.registerCommand("posNote.headings.refresh", () =>
-      provider.refresh()
+      provider.refresh(),
     ),
     vscode.commands.registerCommand("posNote.headings.reveal", revealHeading),
     vscode.commands.registerCommand("posNote.headings.minimapRefresh", () => {
@@ -803,20 +972,20 @@ function initHeadings(context, helpers) {
       if (ed) updateAll(ed, true);
     }),
     vscode.commands.registerCommand("posNote.toggleFoldAllHeadings", () =>
-      cmdToggleFoldAllHeadings({ cfg, sb: helpers.sb })
+      cmdToggleFoldAllHeadings({ cfg, sb: helpers.sb }),
     ),
     vscode.commands.registerCommand("posNote.headings.gotoPrev", () =>
-      cmdMoveToPrevHeading()
+      cmdMoveToPrevHeading(),
     ),
     vscode.commands.registerCommand("posNote.headings.gotoNext", () =>
-      cmdMoveToNextHeading()
+      cmdMoveToNextHeading(),
     ),
     vscode.commands.registerCommand("posNote.headline.selectSection", () =>
-      cmdSelectHeadingSection()
+      cmdSelectHeadingSection(),
     ),
     vscode.commands.registerCommand("posNote.headline.selectSectionBody", () =>
-      cmdSelectHeadingSectionBody()
-    )
+      cmdSelectHeadingSectionBody(),
+    ),
   );
 
   // 5. Register Providers (Folding, Symbols)
@@ -831,12 +1000,12 @@ function initHeadings(context, helpers) {
   context.subscriptions.push(
     vscode.languages.registerFoldingRangeProvider(
       selector,
-      new HeadingFoldingProvider(cfg)
+      new HeadingFoldingProvider(cfg),
     ),
     vscode.languages.registerDocumentSymbolProvider(
       selector,
-      new HeadingSymbolProvider()
-    )
+      new HeadingSymbolProvider(),
+    ),
   );
 
   // 6. Event Listeners

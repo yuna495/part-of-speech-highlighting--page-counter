@@ -43,6 +43,7 @@
     "views": {
       "posNote": [
         {
+          "type": "webview",
           "id": "posNoteHeadings",
           "name": "見出し",
           "icon": "./image/posnote_activitybar_icon.png"
