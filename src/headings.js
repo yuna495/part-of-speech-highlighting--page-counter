@@ -53,6 +53,12 @@ class HeadingsWebviewProvider {
       }
     });
 
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.refresh();
+      }
+    });
+
     webviewView.onDidDispose(() => {
       this._view = undefined;
     });
