@@ -626,6 +626,47 @@ function findHeadingSection(editor) {
   return { fullRange, bodyRange };
 }
 
+function excludeCodeBlocks(doc, range) {
+  if (!range) return [];
+  const selections = [];
+  let inCodeBlock = false;
+  let currentStart = range.start.line;
+
+  for (let line = range.start.line; line <= range.end.line; line++) {
+    const text = doc.lineAt(line).text;
+    const isCodeFence = text.trim().startsWith("```");
+
+    if (isCodeFence) {
+      if (!inCodeBlock) {
+        // コードブロックの開始。これより前の範囲を保存
+        if (line > currentStart) {
+          const endChar = doc.lineAt(line - 1).text.length;
+          selections.push(new vscode.Selection(
+            new vscode.Position(currentStart, 0),
+            new vscode.Position(line - 1, endChar)
+          ));
+        }
+        inCodeBlock = true;
+      } else {
+        // コードブロックの終了。次の行から開始
+        currentStart = line + 1;
+        inCodeBlock = false;
+      }
+    }
+  }
+
+  // 最後の部分を保存
+  if (!inCodeBlock && currentStart <= range.end.line) {
+    const endChar = doc.lineAt(range.end.line).text.length;
+    selections.push(new vscode.Selection(
+      new vscode.Position(currentStart, 0),
+      new vscode.Position(range.end.line, endChar)
+    ));
+  }
+
+  return selections;
+}
+
 function cmdSelectHeadingSection() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
@@ -637,10 +678,11 @@ function cmdSelectHeadingSection() {
     return;
   }
 
-  const { start, end } = section.fullRange;
-  editor.selections = [new vscode.Selection(start, end)];
-
-  vscode.window.setStatusBarMessage("見出しセクションを選択。", 2000);
+  const selections = excludeCodeBlocks(editor.document, section.fullRange);
+  if (selections.length > 0) {
+    editor.selections = selections;
+    vscode.window.setStatusBarMessage("見出しセクションを選択（コードブロック除外）。", 2000);
+  }
 }
 
 function cmdSelectHeadingSectionBody() {
@@ -660,10 +702,11 @@ function cmdSelectHeadingSectionBody() {
     return;
   }
 
-  const { start, end } = section.bodyRange;
-  editor.selections = [new vscode.Selection(start, end)];
-
-  vscode.window.setStatusBarMessage("見出し本文を選択（見出し行除外）。", 2000);
+  const selections = excludeCodeBlocks(editor.document, section.bodyRange);
+  if (selections.length > 0) {
+    editor.selections = selections;
+    vscode.window.setStatusBarMessage("見出し本文を選択（見出し行・コードブロック除外）。", 2000);
+  }
 }
 
 async function cmdToggleFoldAllHeadings({ cfg, sb }) {
