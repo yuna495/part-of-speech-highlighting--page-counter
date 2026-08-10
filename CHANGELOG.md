@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented here.
 
+## [3.0.1]
+
+### 修正
+
+- `"posNote.linter.enabled": false` を明示しても、リント機能が有効になっていた点を修正。
+
 ## [3.0.0]
 
 ### 変更

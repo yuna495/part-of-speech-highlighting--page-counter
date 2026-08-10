@@ -18,6 +18,15 @@ const lastSaveReason = new Map();
 const docCache = new Map();
 let lintStatusItem = null;
 let lintRunning = 0;
+let _extensionContext = null;
+
+function isLinterEnabled() {
+  const c1 = vscode.workspace.getConfiguration("posNote.linter").get("enabled");
+  if (typeof c1 === "boolean") return c1;
+  const c2 = vscode.workspace.getConfiguration("posNote").get("linter.enabled");
+  if (typeof c2 === "boolean") return c2;
+  return false;
+}
 
 // Worker State
 let linterWorker = null;
@@ -87,11 +96,13 @@ function findExclamQuestionSpaceDiagnostics(uri, text, baseLine = 0) {
 }
 
 function ensureWorker(context) {
-  if (linterWorker) return;
+  if (linterWorker) return linterWorker;
+  const ctx = context || _extensionContext;
+  if (!ctx) return null;
 
-  let scriptPath = path.join(context.extensionPath, "dist", "worker", "linterWorker.js");
+  let scriptPath = path.join(ctx.extensionPath, "dist", "worker", "linterWorker.js");
   if (!fs.existsSync(scriptPath)) {
-    scriptPath = path.join(context.extensionPath, "src", "worker", "linterWorker.js");
+    scriptPath = path.join(ctx.extensionPath, "src", "worker", "linterWorker.js");
   }
 
   try {
@@ -128,13 +139,18 @@ function ensureWorker(context) {
       console.log(`[LinterWorker] Worker exited with code ${code}`);
       linterWorker = null; // Prepare for restart?
     });
+    return linterWorker;
   } catch(e) {
     channel.appendLine(`[LinterWorker] Failed to create: ${e}`);
     console.error(e);
+    return null;
   }
 }
 
 function lintTextWithWorker(text, options) {
+  if (!linterWorker) {
+    ensureWorker(_extensionContext);
+  }
   if (!linterWorker) {
     console.warn("[Linter] Worker not initialized");
     return Promise.reject(new Error("Linter Worker not initialized"));
@@ -183,6 +199,10 @@ function ensureStatusBar(context) {
 
 function updateIdleUIForDoc(doc) {
   if (!lintStatusItem) return;
+  if (!isLinterEnabled()) {
+    lintStatusItem.hide();
+    return;
+  }
   let count = 0;
   if (doc && doc.uri) {
     const cached = docCache.get(doc.uri.toString());
@@ -195,6 +215,10 @@ function updateIdleUIForDoc(doc) {
 }
 
 function startLintUI(text = "Linting...") {
+  if (!isLinterEnabled()) {
+    if (lintStatusItem) lintStatusItem.hide();
+    return;
+  }
   lintRunning++;
   if (lintStatusItem) {
     lintStatusItem.text = `$(sync~spin) ${text}`;
@@ -205,6 +229,10 @@ function startLintUI(text = "Linting...") {
 function finishLintUI(resultText = "0 iss") {
   lintRunning = Math.max(0, lintRunning - 1);
   if (!lintStatusItem) return;
+  if (!isLinterEnabled()) {
+    lintStatusItem.hide();
+    return;
+  }
   if (lintRunning === 0) {
     lintStatusItem.text = `$(check) ${resultText}`;
     lintStatusItem.show();
@@ -212,6 +240,10 @@ function finishLintUI(resultText = "0 iss") {
 }
 
 function finishWithCachedCount(doc) {
+  if (!isLinterEnabled()) {
+    if (lintStatusItem) lintStatusItem.hide();
+    return;
+  }
   try {
     const key = doc?.uri?.toString();
     let count = 0;
@@ -258,13 +290,12 @@ async function triggerLint(
   collection,
   { mode = "command", reason = undefined } = {}
 ) {
-  console.log(`[Linter] triggerLint called: ${doc.uri.fsPath} (mode=${mode})`);
-  const enabled = vscode.workspace.getConfiguration("posNote.linter").get("enabled", false);
-  if (!enabled) {
+  if (!isLinterEnabled()) {
     collection.clear();
-    updateIdleUIForDoc(doc);
+    if (lintStatusItem) lintStatusItem.hide();
     return;
   }
+  console.log(`[Linter] triggerLint called: ${doc.uri.fsPath} (mode=${mode})`);
 
   // 1. lintignore Check
   try {
@@ -633,13 +664,22 @@ async function lintDocumentIncremental(doc, collection) {
 
 // ===== 7) エントリポイント =====
 function activate(context) {
+  _extensionContext = context;
 
-  ensureWorker(context);
   ensureStatusBar(context);
-  updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
+  if (isLinterEnabled()) {
+    ensureWorker(context);
+    updateIdleUIForDoc(vscode.window.activeTextEditor?.document);
+  } else {
+    if (lintStatusItem) lintStatusItem.hide();
+  }
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!isLinterEnabled()) {
+        if (lintStatusItem) lintStatusItem.hide();
+        return;
+      }
       // Abort any pending lint for non-active documents
       const activeDocUri = editor?.document.uri.toString();
       for (const [docUri, reqId] of currentLintReq.entries()) {
@@ -672,6 +712,12 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("linter.lintActiveFile", async () => {
+      if (!isLinterEnabled()) {
+        vscode.window.showInformationMessage(
+          "文章校正（textlint）機能は無効に設定されています。"
+        );
+        return;
+      }
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc) {
         vscode.window.showInformationMessage(
@@ -689,19 +735,48 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.workspace.onWillSaveTextDocument((e) => {
+      if (!isLinterEnabled()) return;
       lastSaveReason.set(e.document.uri.toString(), e.reason);
       // Note: UI update is handled by triggerLint, not here
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("posNote.linter")) {
+      if (
+        e.affectsConfiguration("posNote.linter") ||
+        e.affectsConfiguration("posNote.linter.enabled") ||
+        e.affectsConfiguration("posNote")
+      ) {
         invalidateKernelCache();
+        const enabled = isLinterEnabled();
+        if (!enabled) {
+          channel.appendLine("[Linter] Disabled by configuration");
+          collection.clear();
+          docCache.clear();
+          if (lintStatusItem) lintStatusItem.hide();
+          if (linterWorker) {
+            for (const reqId of currentLintReq.values()) {
+              linterWorker.postMessage({ command: "abort", reqId });
+            }
+          }
+          currentLintReq.clear();
+          workerPending.clear();
+          lintRunning = 0;
+        } else {
+          channel.appendLine("[Linter] Enabled by configuration");
+          ensureWorker(context);
+          const doc = vscode.window.activeTextEditor?.document;
+          updateIdleUIForDoc(doc);
+          if (doc && canLint(doc)) {
+            triggerLint(doc, collection, { mode: "command" }).catch(() => {});
+          }
+        }
       }
     })
   );
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (!isLinterEnabled()) return;
       try {
         const reason = lastSaveReason.get(doc.uri.toString());
         lastSaveReason.delete(doc.uri.toString());

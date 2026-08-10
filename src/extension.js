@@ -105,12 +105,9 @@ function activate(context) {
   initSidebarUtilities(context);
   initKanbn(context);
 
-  // --- 5-2) Linter（任意）
+  // --- 5-2) Linter
   const linter = require("./linter");
-  if (cfg().linterEnabled) {
-
-    linter.activate(context);
-  }
+  linter.activate(context);
 
   // --- 5-3) Semantic Provider を先に用意（イベントから参照するため）
   const semProvider = new JapaneseSemanticProvider(context, { cfg });
