@@ -2,7 +2,7 @@
   "name": "part-of-speech-highlighting---page-counter",
   "displayName": "POS & Note (小説・論文執筆アシスト)",
   "description": "小説執筆向け: kuromoji による日本語の品詞カラー表示と、ページ・文字カウンタ、見出しの表示・折りたたみ・アクティビティバー表示。",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "publisher": "yuna495",
   "engines": {
     "vscode": "^1.103.0"
@@ -775,16 +775,46 @@
       "editor.semanticHighlighting.enabled": true,
       "editor.semanticTokenColorCustomizations": {
         "rules": {
+          "noun": {
+            "italic": false
+          },
           "verb": {
             "italic": false,
             "foreground": "#11ff84"
           },
-          "adjective": "#ffe955",
-          "adverb": "#f94446",
-          "particle": "#f7f7f7",
-          "prenoun": "#e0a000",
-          "conjunction": "#ff14e0",
-          "symbol": "#fd9bcc",
+          "adjective": {
+            "italic": false,
+            "foreground": "#ffe955"
+          },
+          "adverb": {
+            "italic": false,
+            "foreground": "#f94446"
+          },
+          "particle": {
+            "italic": false,
+            "foreground": "#f7f7f7"
+          },
+          "auxiliary": {
+            "italic": false
+          },
+          "prenoun": {
+            "italic": false,
+            "foreground": "#e0a000"
+          },
+          "conjunction": {
+            "italic": false,
+            "foreground": "#ff14e0"
+          },
+          "interjection": {
+            "italic": false
+          },
+          "symbol": {
+            "italic": false,
+            "foreground": "#fd9bcc"
+          },
+          "other": {
+            "italic": false
+          },
           "bracket": "#fd9bcc",
           "character": "#ff0000",
           "glossary": "#ffff00",
